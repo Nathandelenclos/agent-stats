@@ -1,4 +1,4 @@
-package ingest
+package logfiles
 
 import (
 	"bytes"
@@ -12,10 +12,11 @@ import (
 
 	"github.com/klauspost/compress/zstd"
 
-	"github.com/Nathandelenclos/agent-stats/internal/usage"
+	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
+	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 )
 
-func parse(t *testing.T, p Parser, path, log string) usage.Transcript {
+func parse(t *testing.T, p Parser, path, log string) domain.Transcript {
 	t.Helper()
 	out, err := p(path, strings.NewReader(log))
 	if err != nil {
@@ -46,13 +47,13 @@ func TestClaude(t *testing.T) {
 		t.Fatalf("want 1 request (deduplicated by message id) + 1 error, got %+v", p.Requests)
 	}
 	r := p.Requests[0]
-	if r.Input != 5 || r.Output != 7 || r.CacheRead != 100 || r.CacheWrite != 20 || r.StopReason != "tool_use" {
+	if c := r.Tokens.Counts(); c.Input != 5 || c.Output != 7 || c.CacheRead != 100 || c.CacheWrite != 20 || r.StopReason != "tool_use" {
 		t.Errorf("request = %+v", r)
 	}
 	if r.TTFT != time.Second || r.Duration != 3*time.Second {
 		t.Errorf("ttft %v duration %v, want 1s and 3s", r.TTFT, r.Duration)
 	}
-	if e := p.Requests[1]; e.Error != "overloaded" || e.Model != "claude-x" {
+	if e := p.Requests[1]; e.Failure != "overloaded" || e.Model != "claude-x" {
 		t.Errorf("error request = %+v", e)
 	}
 	if len(p.Tools) != 1 {
@@ -97,13 +98,13 @@ func TestCodex(t *testing.T) {
 	if len(p.Requests) != 1 {
 		t.Fatalf("token_count must be ignored when token_usage_record exists: %+v", p.Requests)
 	}
-	if r := p.Requests[0]; r.Model != "gpt-x" || r.Input != 200 || r.CacheRead != 800 || r.Output != 50 {
+	if r := p.Requests[0]; r.Model != "gpt-x" || r.Tokens.Counts() != (kernel.TokenCounts{Input: 200, CacheRead: 800, Output: 50, Reasoning: 10}) {
 		t.Errorf("request = %+v", r)
 	}
 	if len(p.Prompts) != 1 || p.Prompts[0].Text != "Run the tests" {
 		t.Errorf("prompts = %+v", p.Prompts)
 	}
-	names := map[string]usage.ToolCall{}
+	names := map[string]domain.ToolCall{}
 	for _, tc := range p.Tools {
 		names[tc.Name] = tc
 	}
@@ -127,7 +128,7 @@ func TestCodexTokenCountFallback(t *testing.T) {
 {"timestamp":"2026-01-01T10:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":25},"last_token_usage":{"input_tokens":15}}}}
 `
 	p := parse(t, ParseCodex, "/x/rollout-2.jsonl", log)
-	if len(p.Requests) != 2 || p.Requests[1].Input != 15 {
+	if len(p.Requests) != 2 || p.Requests[1].Tokens.Counts().Input != 15 {
 		t.Errorf("want 2 requests (repeat skipped), got %+v", p.Requests)
 	}
 	if p.Session.ID != "codex:rollout-2" {
@@ -144,7 +145,7 @@ func TestPi(t *testing.T) {
 {"type":"message","id":"e4","timestamp":"2026-01-01T10:00:04Z","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"429"}}
 `
 	dir := filepath.Join("/x", "-repo", "2026-01-01T10-00-00-000Z_01a0b36b-c3dc-721d-97da-bbcb86adfadf", "Worker")
-	p := parse(t, ParsePi(usage.OMP), filepath.Join(dir, "Worker.Task.jsonl"), log)
+	p := parse(t, ParsePi(kernel.OMP), filepath.Join(dir, "Worker.Task.jsonl"), log)
 	s := p.Session
 	if s.ParentID != "omp:01a0b36b-c3dc-721d-97da-bbcb86adfadf" || s.AgentType != "subagent" || s.Title != "Refactor" || s.Folder != "/repo" {
 		t.Errorf("session = %+v", s)
@@ -152,10 +153,10 @@ func TestPi(t *testing.T) {
 	if len(p.Requests) != 2 {
 		t.Fatalf("requests = %+v", p.Requests)
 	}
-	if r := p.Requests[0]; r.Model != "claude-x" || r.Provider != "anthropic" || r.LoggedCost != 0.5 || r.Duration != 1200*time.Millisecond || r.TTFT != 300*time.Millisecond || r.CacheWrite != 6 {
+	if r := p.Requests[0]; r.Model != "claude-x" || r.Provider != "anthropic" || r.LoggedCost.USD() != 0.5 || r.Duration != 1200*time.Millisecond || r.TTFT != 300*time.Millisecond || r.Tokens.Counts().CacheWrite != 6 {
 		t.Errorf("request = %+v", r)
 	}
-	if p.Requests[1].Error != "429" {
+	if p.Requests[1].Failure != "429" {
 		t.Errorf("error = %+v", p.Requests[1])
 	}
 	if len(p.Tools) != 1 || p.Tools[0].Server != "ctx" || p.Tools[0].Name != "docs" || !p.Tools[0].IsError {
@@ -202,7 +203,7 @@ func TestListSkipsSpecialFiles(t *testing.T) {
 	if err := syscall.Mkfifo(filepath.Join(root, "pipe.jsonl"), 0o600); err != nil {
 		t.Skip("mkfifo unavailable:", err)
 	}
-	logs := NewFileSessionLogs([]Source{{Harness: usage.Claude, Root: root, Match: func(string) bool { return true }, Parse: ParseClaude}})
+	logs := NewFileSessionLogs([]Source{{Harness: kernel.Claude, Root: root, Match: func(string) bool { return true }, Parse: ParseClaude}})
 	files, problems, err := logs.List()
 	if err != nil || len(files) != 1 || len(problems) != 1 || !errors.Is(problems[0], ErrNotRegular) {
 		t.Fatalf("files %+v problems %v err %v", files, problems, err)
@@ -225,7 +226,7 @@ func TestClaudeSubagentRejectsUnusableMeta(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "agent-a1.meta.json"), []byte(meta), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if p := parse(t, ParseClaude, filepath.Join(dir, "agent-a1.jsonl"), ""); p.Session.AgentType != usage.Subagent {
+		if p := parse(t, ParseClaude, filepath.Join(dir, "agent-a1.jsonl"), ""); p.Session.AgentType != domain.Subagent {
 			t.Errorf("%s: agent type = %q", name, p.Session.AgentType)
 		}
 	}
@@ -237,5 +238,24 @@ func TestCodexEmptySessionIDFallsBackToFileName(t *testing.T) {
 `
 	if p := parse(t, ParseCodex, "/x/rollout-9.jsonl", log); p.Session.ID != "codex:rollout-9" || p.Session.Folder != "/repo" {
 		t.Errorf("session = %+v", p.Session)
+	}
+}
+
+func TestImpossibleCountsDropTheRequest(t *testing.T) {
+	claude := `{"type":"assistant","timestamp":"2026-01-01T10:00:00Z","message":{"id":"m1","model":"x","usage":{"input_tokens":-5,"output_tokens":1}}}
+{"type":"assistant","timestamp":"2026-01-01T10:00:01Z","message":{"id":"m2","model":"x","usage":{"input_tokens":5,"output_tokens":1}}}
+`
+	if p := parse(t, ParseClaude, "/x/s.jsonl", claude); len(p.Requests) != 1 || p.Requests[0].Key != "m2" || p.SkippedLines != 1 {
+		t.Errorf("claude: requests %+v, skipped %d", p.Requests, p.SkippedLines)
+	}
+	codex := `{"timestamp":"2026-01-01T10:00:00Z","type":"token_usage_record","payload":{"response_id":"r1","usage":{"input_tokens":10,"cached_input_tokens":20}}}
+`
+	if p := parse(t, ParseCodex, "/x/rollout-1.jsonl", codex); len(p.Requests) != 0 || p.SkippedLines != 1 {
+		t.Errorf("codex: cached over input accepted: %+v", p.Requests)
+	}
+	pi := `{"type":"message","id":"e1","timestamp":"2026-01-01T10:00:00Z","message":{"role":"assistant","content":[],"usage":{"input":1,"cost":{"total":1e308}}}}
+`
+	if p := parse(t, ParsePi(kernel.Pi), "/x/s.jsonl", pi); len(p.Requests) != 0 || p.SkippedLines != 1 {
+		t.Errorf("pi: impossible cost accepted: %+v", p.Requests)
 	}
 }

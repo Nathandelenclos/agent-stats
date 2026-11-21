@@ -1,0 +1,106 @@
+package domain
+
+import (
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+)
+
+func TestSessionIDs(t *testing.T) {
+	id, err := NewSessionID(kernel.Claude, "s1")
+	if err != nil || id != "claude:s1" {
+		t.Fatalf("id = %q %v", id, err)
+	}
+	if sub, err := id.Subagent("agent-a1"); err != nil || sub != "claude:s1/agent-a1" {
+		t.Errorf("subagent = %q %v", sub, err)
+	}
+	if _, err := NewSessionID(kernel.Codex, ""); !errors.Is(err, ErrEmptySessionID) {
+		t.Errorf("empty native id accepted: %v", err)
+	}
+	if _, err := id.Subagent(""); !errors.Is(err, ErrEmptySessionID) {
+		t.Errorf("empty subagent name accepted: %v", err)
+	}
+}
+
+func TestRequestCostTrustsOnlyAPositiveLoggedCost(t *testing.T) {
+	listed, _ := kernel.NewCost(10)
+	logged, _ := kernel.NewCost(0.5)
+	if c, ok := (Request{LoggedCost: logged}).Cost(listed, true); !ok || c.USD() != 0.5 {
+		t.Errorf("logged cost: %v %v", c, ok)
+	}
+	// A logged 0 is priced from the list: oh-my-pi writes 0 for tokens it did bill.
+	if c, ok := (Request{}).Cost(listed, true); !ok || c.USD() != 10 {
+		t.Errorf("zero logged cost: %v %v", c, ok)
+	}
+	if _, ok := (Request{}).Cost(kernel.Cost{}, false); ok {
+		t.Error("unknown price reported as priced")
+	}
+}
+
+func TestParseAgentType(t *testing.T) {
+	for _, ok := range []string{"Explore", "code-reviewer", "grace-review-high", "general purpose"} {
+		if _, valid := ParseAgentType(ok); !valid {
+			t.Errorf("%q refused", ok)
+		}
+	}
+	for _, bad := range []string{"", " lead", "<b>", strings.Repeat("a", 65), "a\nb"} {
+		if _, valid := ParseAgentType(bad); valid {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
+func TestTitleFromFirstPrompt(t *testing.T) {
+	long := Transcript{Prompts: []Prompt{{Text: "  fix\n the   " + strings.Repeat("x", 100)}}}
+	long.TitleFromFirstPrompt()
+	if r := []rune(long.Session.Title); len(r) != 81 || string(r[:8]) != "fix the " || r[80] != '…' {
+		t.Errorf("title = %q", long.Session.Title)
+	}
+	named := Transcript{Session: Session{Title: "kept"}, Prompts: []Prompt{{Text: "x"}}}
+	named.TitleFromFirstPrompt()
+	if named.Session.Title != "kept" {
+		t.Errorf("title overwritten: %q", named.Session.Title)
+	}
+}
+
+func TestNewPromptRefusesBlankText(t *testing.T) {
+	if _, ok := NewPrompt("k", time.Time{}, " \n\t"); ok {
+		t.Error("blank prompt accepted")
+	}
+	if p, ok := NewPrompt("k", time.Time{}, "hi"); !ok || p.Text != "hi" {
+		t.Errorf("prompt = %+v %v", p, ok)
+	}
+}
+
+func TestSessionSpanIgnoresUnknownTimes(t *testing.T) {
+	var s Session
+	t1, t2 := time.UnixMilli(2000), time.UnixMilli(1000)
+	s.Span(t1)
+	s.Span(time.Time{})
+	s.Span(t2)
+	if !s.Start.Equal(t2) || !s.End.Equal(t1) {
+		t.Errorf("span = %v..%v", s.Start, s.End)
+	}
+}
+
+func TestAnalyze(t *testing.T) {
+	if s := Analyze("Update the API and the JSON schema"); s.Yelling != 0 || s.Profanity != 0 || s.Blame != 0 {
+		t.Errorf("lone acronyms: %+v", s)
+	}
+	if s := Analyze("putain, tu as cassé le build"); s.Profanity != 1 || s.Blame != 1 {
+		t.Errorf("profanity and blame: %+v", s)
+	}
+	if s := Analyze("POURQUOI ÇA CASSE ENCORE ??"); s.Yelling != 2 || s.Anguish < 2 {
+		t.Errorf("yelling: %+v", s)
+	}
+}
+
+func TestAnalyzeSessionFlagsRepeatedPrompts(t *testing.T) {
+	got := AnalyzeSession([]Prompt{{Text: "Fix  the bug"}, {Text: "other"}, {Text: "fix the\nBUG"}})
+	if got[0].Repeated || got[1].Repeated || !got[2].Repeated {
+		t.Errorf("repeated = %v %v %v", got[0].Repeated, got[1].Repeated, got[2].Repeated)
+	}
+}

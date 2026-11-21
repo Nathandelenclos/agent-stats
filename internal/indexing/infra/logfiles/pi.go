@@ -1,4 +1,4 @@
-package ingest
+package logfiles
 
 import (
 	"encoding/json"
@@ -7,7 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Nathandelenclos/agent-stats/internal/usage"
+	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
+	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 )
 
 type piBlock struct {
@@ -16,6 +17,17 @@ type piBlock struct {
 	ID        string          `json:"id"`
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
+}
+
+type piUsageLog struct {
+	Input      int64 `json:"input"`
+	Output     int64 `json:"output"`
+	CacheRead  int64 `json:"cacheRead"`
+	CacheWrite int64 `json:"cacheWrite"`
+	Reasoning  int64 `json:"reasoningTokens"`
+	Cost       *struct {
+		Total float64 `json:"total"`
+	} `json:"cost"`
 }
 
 type piLine struct {
@@ -38,16 +50,7 @@ type piLine struct {
 		TTFT         float64         `json:"ttft"`
 		ToolCallID   string          `json:"toolCallId"`
 		IsError      bool            `json:"isError"`
-		Usage        *struct {
-			Input      int64 `json:"input"`
-			Output     int64 `json:"output"`
-			CacheRead  int64 `json:"cacheRead"`
-			CacheWrite int64 `json:"cacheWrite"`
-			Reasoning  int64 `json:"reasoningTokens"`
-			Cost       *struct {
-				Total float64 `json:"total"`
-			} `json:"cost"`
-		} `json:"usage"`
+		Usage        *piUsageLog     `json:"usage"`
 	} `json:"message"`
 }
 
@@ -56,19 +59,25 @@ var sessionDir = regexp.MustCompile(`^\d{4}-\d\d-\d\dT[\d-]+Z_([0-9a-f-]{36})$`)
 
 // ParsePi reads a pi or oh-my-pi session (~/.pi/agent/sessions, ~/.omp/agent/sessions).
 // Subagent sessions are stored in a directory named after their parent session.
-func ParsePi(harness usage.Harness) Parser {
-	return func(path string, r io.Reader) (usage.Transcript, error) {
-		p := &usage.Transcript{Session: usage.Session{Harness: harness, AgentType: usage.MainAgent}}
+func ParsePi(harness kernel.Harness) Parser {
+	return func(path string, r io.Reader) (domain.Transcript, error) {
+		p := &domain.Transcript{Session: domain.Session{Harness: harness, AgentType: domain.MainAgent}}
 		stem := strings.TrimSuffix(filepath.Base(path), ".jsonl")
-		p.Session.ID = harness.SessionID(stem)
+		native := stem
 		if m := sessionDir.FindStringSubmatch(stem); m != nil {
-			p.Session.ID = harness.SessionID(m[1])
+			native = m[1]
 		}
+		id, err := domain.NewSessionID(harness, native)
+		if err != nil {
+			return domain.Transcript{}, err
+		}
+		p.Session.ID = id
 		for dir := filepath.Dir(path); dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
 			if m := sessionDir.FindStringSubmatch(filepath.Base(dir)); m != nil {
-				p.Session.ParentID = harness.SessionID(m[1])
-				p.Session.ID = usage.SubagentSessionID(p.Session.ParentID, stem)
-				p.Session.AgentType = usage.Subagent
+				parent, _ := domain.NewSessionID(harness, m[1]) // the pattern captures a non-empty uuid
+				p.Session.ParentID = parent
+				p.Session.ID, _ = parent.Subagent(stem) // stem is not empty: checked above
+				p.Session.AgentType = domain.Subagent
 				break
 			}
 		}
@@ -116,33 +125,30 @@ func ParsePi(harness usage.Harness) Parser {
 							parts = append(parts, b.Text)
 						}
 					}
-					if pr, ok := usage.NewPrompt(l.ID, ts, strings.Join(parts, "\n")); ok {
+					if pr, ok := domain.NewPrompt(l.ID, ts, strings.Join(parts, "\n")); ok {
 						p.Prompts = append(p.Prompts, pr)
 					}
 				case "assistant":
-					req := usage.Request{Key: l.ID, At: ts, Provider: m.Provider, Model: m.Model,
-						Duration: millis(m.Duration), TTFT: millis(m.TTFT), StopReason: m.StopReason, Error: m.ErrorMessage}
+					req := domain.Request{Key: l.ID, At: ts, Provider: m.Provider, Model: m.Model,
+						Duration: millis(m.Duration), TTFT: millis(m.TTFT), StopReason: m.StopReason, Failure: m.ErrorMessage}
 					if req.Model == "" {
 						req.Provider, req.Model = provider, model
 					}
-					if u := m.Usage; u != nil {
-						req.Tokens = usage.Tokens{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite}
-						req.Reasoning = u.Reasoning
-						if u.Cost != nil {
-							req.LoggedCost = usage.USD(u.Cost.Total)
-						}
+					if req.Failure == "" && req.StopReason == piStopError {
+						req.Failure = domain.UnspecifiedFailure
 					}
-					if req.Error == "" && req.StopReason == "error" {
-						req.Error = "error"
+					if err := piUsage(&req, m.Usage); err == nil {
+						p.Requests = append(p.Requests, req)
+					} else {
+						p.SkippedLines++
 					}
-					p.Requests = append(p.Requests, req)
 					for _, b := range blocks {
 						if b.Type != "toolCall" {
 							continue
 						}
-						server, name := usage.SplitMCPToolName(b.Name)
+						server, name := domain.SplitMCPToolName(b.Name)
 						toolIndex[b.ID] = len(p.Tools)
-						p.Tools = append(p.Tools, usage.ToolCall{Key: b.ID, At: ts, Name: name, Server: server, ArgsChars: len(b.Arguments)})
+						p.Tools = append(p.Tools, domain.ToolCall{Key: b.ID, At: ts, Name: name, Server: server, ArgsChars: len(b.Arguments)})
 					}
 				case "toolResult":
 					if i, ok := toolIndex[m.ToolCallID]; ok {
@@ -156,4 +162,26 @@ func ParsePi(harness usage.Harness) Parser {
 		p.TitleFromFirstPrompt()
 		return *p, err
 	}
+}
+
+// piStopError is the stop reason pi and oh-my-pi write for a failed request.
+const piStopError = "error"
+
+// piUsage sets the tokens and the logged cost of req; an impossible value refuses the request.
+func piUsage(req *domain.Request, u *piUsageLog) error {
+	if u == nil {
+		return nil
+	}
+	tokens, err := kernel.NewTokens(kernel.TokenCounts{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead,
+		CacheWrite: u.CacheWrite, Reasoning: u.Reasoning})
+	if err != nil {
+		return err
+	}
+	req.Tokens = tokens
+	if u.Cost != nil {
+		if req.LoggedCost, err = kernel.NewCost(u.Cost.Total); err != nil {
+			return err
+		}
+	}
+	return nil
 }

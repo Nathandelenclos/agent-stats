@@ -1,4 +1,4 @@
-package usage
+package domain
 
 import (
 	"regexp"

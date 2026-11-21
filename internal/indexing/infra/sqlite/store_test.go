@@ -1,4 +1,4 @@
-package store
+package sqlite
 
 import (
 	"os"
@@ -6,8 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Nathandelenclos/agent-stats/internal/app"
-	"github.com/Nathandelenclos/agent-stats/internal/usage"
+	"github.com/Nathandelenclos/agent-stats/internal/indexing/application"
+	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
+	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	report "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 )
 
 func open(t *testing.T) *SQLiteIndex {
@@ -23,41 +25,43 @@ func open(t *testing.T) *SQLiteIndex {
 // hostile carries SQL metacharacters in every text value that reaches the database.
 const hostile = `o'brian"; DROP TABLE requests; --`
 
-func transcript(sessionID string, at time.Time) app.IndexedTranscript {
-	return app.IndexedTranscript{
-		Transcript: usage.Transcript{
-			Session: usage.Session{ID: sessionID, Harness: usage.Claude, AgentType: usage.MainAgent, Folder: hostile, Start: at, End: at},
-			Requests: []usage.Request{{Key: "m1", At: at, Model: hostile, Provider: "anthropic",
-				Tokens: usage.Tokens{Input: 1000, Output: 100}, Duration: 1500 * time.Millisecond}},
-			Tools:   []usage.ToolCall{{Key: "t1", At: at, Name: hostile, Server: "grace", IsError: true}},
-			Prompts: []usage.Prompt{{Key: "p1", At: at, Text: hostile}},
+func transcript(sessionID domain.SessionID, at time.Time) application.IndexedTranscript {
+	tokens, _ := kernel.NewTokens(kernel.TokenCounts{Input: 1000, Output: 100})
+	cost, _ := kernel.NewCost(2)
+	return application.IndexedTranscript{
+		Transcript: domain.Transcript{
+			Session: domain.Session{ID: sessionID, Harness: kernel.Claude, AgentType: domain.MainAgent, Folder: hostile, Start: at, End: at},
+			Requests: []domain.Request{{Key: "m1", At: at, Model: hostile, Provider: "anthropic",
+				Tokens: tokens, Duration: 1500 * time.Millisecond}},
+			Tools:   []domain.ToolCall{{Key: "t1", At: at, Name: hostile, Server: "grace", IsError: true}},
+			Prompts: []domain.Prompt{{Key: "p1", At: at, Text: hostile}},
 		},
-		Costs:   []app.PricedCost{{USD: 2, Priced: true}},
-		Signals: []usage.Signals{{Chars: 3, Repeated: true}},
+		Costs:   []application.PricedCost{{Cost: cost, Priced: true}},
+		Signals: []domain.Signals{{Chars: 3, Repeated: true}},
 	}
 }
 
 func TestSaveKeepsValuesAsData(t *testing.T) {
 	s := open(t)
 	at := time.UnixMilli(1767261600000)
-	f := app.LogFile{Path: "/logs/" + hostile + ".jsonl", Harness: usage.Claude, Size: 10, ModTime: time.Unix(0, 1767261600123456789)}
+	f := application.LogFile{Path: "/logs/" + hostile + ".jsonl", Harness: kernel.Claude, Size: 10, ModTime: time.Unix(0, 1767261600123456789)}
 	if err := s.Save(f, transcript("claude:s1", at)); err != nil {
 		t.Fatal(err)
 	}
 
-	u, err := s.Total(app.Filter{})
-	if err != nil || u.Requests != 1 || u.Cost != 2 || u.Input != 1000 || u.AvgDurationMs != 1500 || u.FirstTS != 1767261600000 {
+	u, err := s.Total(report.Filter{})
+	if err != nil || u.Requests != 1 || u.CostUSD != 2 || u.Input != 1000 || u.AvgDurationMs != 1500 || !u.First.Equal(at) {
 		t.Fatalf("total = %+v %v", u, err)
 	}
-	for _, d := range []app.Dimension{app.ByHarness, app.ByModel, app.ByFolder, app.ByAgentType} {
-		if g, err := s.UsageBy(app.Filter{}, d); err != nil || len(g) != 1 || g[0].Requests != 1 {
+	for _, d := range []report.Dimension{report.ByHarness, report.ByModel, report.ByFolder, report.ByAgentType} {
+		if g, err := s.UsageBy(report.Filter{}, d); err != nil || len(g) != 1 || g[0].Requests != 1 {
 			t.Errorf("dimension %d: %+v %v", d, g, err)
 		}
 	}
-	if g, _ := s.UsageBy(app.Filter{}, app.ByModel); g[0].Group != hostile {
+	if g, _ := s.UsageBy(report.Filter{}, report.ByModel); g[0].Group != hostile {
 		t.Errorf("model group = %q", g[0].Group)
 	}
-	if tools, err := s.Tools(app.Filter{}); err != nil || len(tools) != 1 || tools[0].Name != hostile || tools[0].Errors != 1 {
+	if tools, err := s.Tools(report.Filter{}); err != nil || len(tools) != 1 || tools[0].Name != hostile || tools[0].Errors != 1 {
 		t.Errorf("tools = %+v %v", tools, err)
 	}
 	var text string
@@ -67,10 +71,10 @@ func TestSaveKeepsValuesAsData(t *testing.T) {
 	}
 
 	// A hostile harness filter is bound as a value: it matches nothing and breaks nothing.
-	if u, err := s.Total(app.Filter{Harness: usage.Harness(hostile)}); err != nil || u.Requests != 0 {
+	if u, err := s.Total(report.Filter{Harness: kernel.Harness(hostile)}); err != nil || u.Requests != 0 {
 		t.Errorf("hostile harness filter = %+v %v", u, err)
 	}
-	if u, _ := s.Total(app.Filter{Harness: usage.Claude, Since: at.Add(time.Millisecond)}); u.Requests != 0 {
+	if u, _ := s.Total(report.Filter{Harness: kernel.Claude, Since: at.Add(time.Millisecond)}); u.Requests != 0 {
 		t.Errorf("since filter kept an older request: %+v", u)
 	}
 
@@ -84,17 +88,17 @@ func TestMovedLogIsNotCountedTwice(t *testing.T) {
 	s := open(t)
 	at := time.UnixMilli(1767261600000)
 	for _, path := range []string{"/logs/sessions/s1.jsonl", "/logs/archived/s1.jsonl"} {
-		if err := s.Save(app.LogFile{Path: path, Harness: usage.Claude}, transcript("claude:s1", at)); err != nil {
+		if err := s.Save(application.LogFile{Path: path, Harness: kernel.Claude}, transcript("claude:s1", at)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if u, err := s.Total(app.Filter{}); err != nil || u.Requests != 1 {
+	if u, err := s.Total(report.Filter{}); err != nil || u.Requests != 1 {
 		t.Errorf("after move: %+v %v", u, err)
 	}
 }
 
 func TestUsageByRefusesUnknownDimension(t *testing.T) {
-	if _, err := open(t).UsageBy(app.Filter{}, app.Dimension(99)); err == nil {
+	if _, err := open(t).UsageBy(report.Filter{}, report.Dimension(99)); err == nil {
 		t.Error("unknown dimension accepted")
 	}
 }
@@ -107,7 +111,7 @@ func TestIndexIsPrivate(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if err := s.Save(app.LogFile{Path: "/l.jsonl", Harness: usage.Claude}, transcript("claude:s1", time.UnixMilli(1))); err != nil {
+	if err := s.Save(application.LogFile{Path: "/l.jsonl", Harness: kernel.Claude}, transcript("claude:s1", time.UnixMilli(1))); err != nil {
 		t.Fatal(err)
 	}
 	for _, p := range []string{dir, path, path + "-wal", path + "-shm"} {

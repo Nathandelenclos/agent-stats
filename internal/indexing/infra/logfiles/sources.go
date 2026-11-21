@@ -1,4 +1,4 @@
-package ingest
+package logfiles
 
 import (
 	"fmt"
@@ -7,13 +7,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Nathandelenclos/agent-stats/internal/app"
-	"github.com/Nathandelenclos/agent-stats/internal/usage"
+	"github.com/Nathandelenclos/agent-stats/internal/indexing/application"
+	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
+	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 )
 
 // Source is a directory tree of session logs written by one harness.
 type Source struct {
-	Harness usage.Harness
+	Harness kernel.Harness
 	Root    string
 	Match   func(path string) bool
 	Parse   Parser
@@ -29,11 +30,11 @@ func DefaultSources(home string) []Source {
 		return strings.HasPrefix(b, "rollout-") && (strings.HasSuffix(b, ".jsonl") || strings.HasSuffix(b, ".jsonl.zst"))
 	}
 	return []Source{
-		{usage.Claude, filepath.Join(claude, "projects"), jsonl, ParseClaude},
-		{usage.Codex, filepath.Join(codex, "sessions"), rollout, ParseCodex},
-		{usage.Codex, filepath.Join(codex, "archived_sessions"), rollout, ParseCodex},
-		{usage.OMP, filepath.Join(home, ".omp", "agent", "sessions"), jsonl, ParsePi(usage.OMP)},
-		{usage.Pi, filepath.Join(home, ".pi", "agent", "sessions"), jsonl, ParsePi(usage.Pi)},
+		{kernel.Claude, filepath.Join(claude, "projects"), jsonl, ParseClaude},
+		{kernel.Codex, filepath.Join(codex, "sessions"), rollout, ParseCodex},
+		{kernel.Codex, filepath.Join(codex, "archived_sessions"), rollout, ParseCodex},
+		{kernel.OMP, filepath.Join(home, ".omp", "agent", "sessions"), jsonl, ParsePi(kernel.OMP)},
+		{kernel.Pi, filepath.Join(home, ".pi", "agent", "sessions"), jsonl, ParsePi(kernel.Pi)},
 	}
 }
 
@@ -56,8 +57,8 @@ func NewFileSessionLogs(sources []Source) *FileSessionLogs {
 }
 
 // List walks every source. A harness that is not installed is not an error.
-func (l *FileSessionLogs) List() ([]app.LogFile, []error, error) {
-	var files []app.LogFile
+func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
+	var files []application.LogFile
 	var problems []error
 	for _, src := range l.Sources {
 		err := filepath.WalkDir(src.Root, func(path string, d fs.DirEntry, err error) error {
@@ -80,7 +81,7 @@ func (l *FileSessionLogs) List() ([]app.LogFile, []error, error) {
 				return nil
 			}
 			l.parsers[path] = src.Parse
-			files = append(files, app.LogFile{Path: path, Harness: src.Harness, Size: info.Size(), ModTime: info.ModTime()})
+			files = append(files, application.LogFile{Path: path, Harness: src.Harness, Size: info.Size(), ModTime: info.ModTime()})
 			return nil
 		})
 		if err != nil {
@@ -91,10 +92,10 @@ func (l *FileSessionLogs) List() ([]app.LogFile, []error, error) {
 }
 
 // Read parses a file returned by List.
-func (l *FileSessionLogs) Read(f app.LogFile) (usage.Transcript, error) {
+func (l *FileSessionLogs) Read(f application.LogFile) (domain.Transcript, error) {
 	p, ok := l.parsers[f.Path]
 	if !ok {
-		return usage.Transcript{}, fmt.Errorf("%s was not listed", f.Path)
+		return domain.Transcript{}, fmt.Errorf("%s was not listed", f.Path)
 	}
 	return ParseFile(f.Path, p)
 }

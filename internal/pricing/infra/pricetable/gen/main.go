@@ -13,7 +13,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/Nathandelenclos/agent-stats/internal/usage"
+	"github.com/Nathandelenclos/agent-stats/internal/pricing/domain"
 )
 
 const (
@@ -41,7 +41,8 @@ func main() {
 		if json.Unmarshal(msg, &e) != nil || e.InputCostPerToken == 0 || (e.Mode != "chat" && e.Mode != "responses") {
 			continue
 		}
-		if _, err := usage.NewRates(e.InputCostPerToken, e.OutputCostPerToken, e.CacheReadCostPerToken, e.CacheWriteCostPerToken); err != nil {
+		if _, err := domain.NewRates(domain.RatesPerToken{Input: e.InputCostPerToken, Output: e.OutputCostPerToken,
+			CacheRead: e.CacheReadCostPerToken, CacheWrite: e.CacheWriteCostPerToken}); err != nil {
 			log.Printf("skipping %s: %v", name, err)
 			continue
 		}

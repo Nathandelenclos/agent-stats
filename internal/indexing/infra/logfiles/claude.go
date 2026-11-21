@@ -1,4 +1,4 @@
-package ingest
+package logfiles
 
 import (
 	"encoding/json"
@@ -8,7 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Nathandelenclos/agent-stats/internal/usage"
+	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
+	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 )
 
 type claudeBlock struct {
@@ -56,16 +57,24 @@ type claudeLine struct {
 // ParseClaude reads a Claude Code transcript (~/.claude/projects/<folder>/<session>.jsonl,
 // subagents in <session>/subagents/agent-<id>.jsonl).
 // Claude Code writes one line per content block, repeating the message's usage on each: requests are keyed by message id.
-func ParseClaude(path string, r io.Reader) (usage.Transcript, error) {
-	p := &usage.Transcript{}
+func ParseClaude(path string, r io.Reader) (domain.Transcript, error) {
+	p := &domain.Transcript{}
 	base := strings.TrimSuffix(filepath.Base(path), ".jsonl")
-	p.Session = usage.Session{ID: usage.Claude.SessionID(base), Harness: usage.Claude, AgentType: usage.MainAgent}
+	id, err := domain.NewSessionID(kernel.Claude, base)
+	if err != nil {
+		return domain.Transcript{}, err
+	}
+	p.Session = domain.Session{ID: id, Harness: kernel.Claude, AgentType: domain.MainAgent}
 	if filepath.Base(filepath.Dir(path)) == "subagents" {
-		parent := filepath.Base(filepath.Dir(filepath.Dir(path)))
-		p.Session.ParentID = usage.Claude.SessionID(parent)
-		p.Session.ID = usage.SubagentSessionID(p.Session.ParentID, base)
+		parent, err := domain.NewSessionID(kernel.Claude, filepath.Base(filepath.Dir(filepath.Dir(path))))
+		if err != nil {
+			return domain.Transcript{}, err
+		}
+		p.Session.ParentID = parent
+		p.Session.ID, _ = parent.Subagent(base) // base is not empty: checked above
 		p.Session.AgentType = claudeAgentType(strings.TrimSuffix(path, ".jsonl") + ".meta.json")
 	}
+	invalid := map[string]bool{} // message ids whose token counts are impossible
 
 	requestStart := map[string]time.Time{} // api-request id -> ts
 	reqIndex := map[string]int{}           // message id -> index in p.Requests
@@ -97,7 +106,7 @@ func ParseClaude(path string, r io.Reader) (usage.Transcript, error) {
 			blocks := claudeBlocks(m.Content)
 			if m.Model == "<synthetic>" {
 				if l.IsAPIErrorMessage {
-					p.Requests = append(p.Requests, usage.Request{Key: "err:" + m.ID, At: ts, Model: lastModel, Provider: "anthropic", Error: firstText(blocks)})
+					p.Requests = append(p.Requests, domain.Request{Key: "err:" + m.ID, At: ts, Model: lastModel, Provider: "anthropic", Failure: firstText(blocks)})
 				}
 				return
 			}
@@ -107,20 +116,25 @@ func ParseClaude(path string, r io.Reader) (usage.Transcript, error) {
 				i = len(p.Requests)
 				reqIndex[m.ID] = i
 				firstBlock[m.ID] = ts
-				p.Requests = append(p.Requests, usage.Request{Key: m.ID, At: ts, Model: m.Model, Provider: "anthropic"})
+				p.Requests = append(p.Requests, domain.Request{Key: m.ID, At: ts, Model: m.Model, Provider: "anthropic"})
 			}
 			req := &p.Requests[i]
 			if m.StopReason != "" {
 				req.StopReason = m.StopReason
 			}
 			if u := m.Usage; u != nil {
-				tokens := usage.Tokens{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheCreation}
+				c := kernel.TokenCounts{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheCreation}
 				if u.CacheDetail != nil {
-					tokens.CacheWrite1h = u.CacheDetail.OneHour
+					c.CacheWrite1h = u.CacheDetail.OneHour
 				}
-				req.Tokens = tokens
 				if u.OutputDetail != nil {
-					req.Reasoning = u.OutputDetail.Thinking
+					c.Reasoning = u.OutputDetail.Thinking
+				}
+				if tokens, err := kernel.NewTokens(c); err == nil {
+					req.Tokens = tokens
+				} else if !invalid[m.ID] {
+					invalid[m.ID] = true
+					p.SkippedLines++
 				}
 			}
 			// Block timestamps are written when each block completes: the first approximates TTFT, the last the duration.
@@ -132,9 +146,9 @@ func ParseClaude(path string, r io.Reader) (usage.Transcript, error) {
 				if b.Type != "tool_use" {
 					continue
 				}
-				server, name := usage.SplitMCPToolName(b.Name)
+				server, name := domain.SplitMCPToolName(b.Name)
 				toolIndex[b.ID] = len(p.Tools)
-				p.Tools = append(p.Tools, usage.ToolCall{Key: b.ID, At: ts, Name: name, Server: server, ArgsChars: len(b.Input)})
+				p.Tools = append(p.Tools, domain.ToolCall{Key: b.ID, At: ts, Name: name, Server: server, ArgsChars: len(b.Input)})
 			}
 		case "user":
 			if l.Message == nil || l.IsMeta {
@@ -161,16 +175,25 @@ func ParseClaude(path string, r io.Reader) (usage.Transcript, error) {
 		}
 	})
 	p.SkippedLines += oversized
+	if len(invalid) > 0 {
+		valid := p.Requests[:0]
+		for _, r := range p.Requests {
+			if !invalid[r.Key] {
+				valid = append(valid, r)
+			}
+		}
+		p.Requests = valid
+	}
 	p.TitleFromFirstPrompt()
 	return *p, err
 }
 
-func addClaudePrompt(p *usage.Transcript, key string, ts time.Time, text string) {
+func addClaudePrompt(p *domain.Transcript, key string, ts time.Time, text string) {
 	// Skip harness-injected messages: command wrappers, reminders, interruptions.
 	if t := strings.TrimSpace(text); strings.HasPrefix(t, "<") || strings.HasPrefix(t, "[Request interrupted") {
 		return
 	}
-	if pr, ok := usage.NewPrompt(key, ts, text); ok {
+	if pr, ok := domain.NewPrompt(key, ts, text); ok {
 		p.Prompts = append(p.Prompts, pr)
 	}
 }
@@ -187,27 +210,27 @@ func firstText(blocks []claudeBlock) string {
 			return b.Text
 		}
 	}
-	return "error"
+	return domain.UnspecifiedFailure
 }
 
 // maxMetaBytes bounds the subagent .meta.json read next to a transcript (real ones are a few hundred bytes).
 const maxMetaBytes = 64 << 10
 
 // claudeAgentType reads the subagent type Claude Code stores next to the transcript, "subagent" when absent or unusable.
-func claudeAgentType(metaPath string) usage.AgentType {
+func claudeAgentType(metaPath string) domain.AgentType {
 	f, err := openRegular(metaPath)
 	if err != nil {
-		return usage.Subagent
+		return domain.Subagent
 	}
 	defer f.Close()
 	var meta struct {
 		AgentType string `json:"agentType"`
 	}
 	if json.NewDecoder(io.LimitReader(f, maxMetaBytes)).Decode(&meta) != nil {
-		return usage.Subagent
+		return domain.Subagent
 	}
-	if t, ok := usage.ParseAgentType(meta.AgentType); ok {
+	if t, ok := domain.ParseAgentType(meta.AgentType); ok {
 		return t
 	}
-	return usage.Subagent
+	return domain.Subagent
 }

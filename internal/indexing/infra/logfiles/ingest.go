@@ -1,6 +1,6 @@
 // Package ingest reads harness session logs from disk into usage transcripts.
 // Each log file holds exactly one session (subagents get their own file).
-package ingest
+package logfiles
 
 import (
 	"bufio"
@@ -15,7 +15,8 @@ import (
 
 	"github.com/klauspost/compress/zstd"
 
-	"github.com/Nathandelenclos/agent-stats/internal/usage"
+	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
+	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 )
 
 // Limits on what one log may cost to read. Logs are written by other programs: a corrupt or hostile
@@ -31,20 +32,20 @@ const maxZstdMemory = 256 << 20
 var ErrLogTooLarge = errors.New("session log too large")
 
 // Parser reads one session log.
-type Parser func(path string, r io.Reader) (usage.Transcript, error)
+type Parser func(path string, r io.Reader) (domain.Transcript, error)
 
 // ParseFile opens path (transparently decompressing .zst) and runs p on it.
-func ParseFile(path string, p Parser) (usage.Transcript, error) {
+func ParseFile(path string, p Parser) (domain.Transcript, error) {
 	f, err := openRegular(path)
 	if err != nil {
-		return usage.Transcript{}, err
+		return domain.Transcript{}, err
 	}
 	defer f.Close()
 	var r io.Reader = f
 	if strings.HasSuffix(path, ".zst") {
 		d, err := zstd.NewReader(f, zstd.WithDecoderMaxMemory(maxZstdMemory))
 		if err != nil {
-			return usage.Transcript{}, err
+			return domain.Transcript{}, err
 		}
 		defer d.Close()
 		r = d
@@ -134,7 +135,7 @@ func parseTS(s string) time.Time {
 // between is the time from start to end at millisecond precision, a missing time counting as the Unix epoch
 // (as the index stores it).
 func between(start, end time.Time) time.Duration {
-	return time.Duration(usage.UnixMilli(end)-usage.UnixMilli(start)) * time.Millisecond
+	return time.Duration(kernel.UnixMilli(end)-kernel.UnixMilli(start)) * time.Millisecond
 }
 
 // millis converts a duration logged in (possibly fractional) milliseconds.

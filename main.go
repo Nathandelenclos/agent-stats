@@ -11,14 +11,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 	"time"
 
-	"github.com/Nathandelenclos/agent-stats/internal/app"
-	"github.com/Nathandelenclos/agent-stats/internal/ingest"
-	"github.com/Nathandelenclos/agent-stats/internal/pricing"
-	"github.com/Nathandelenclos/agent-stats/internal/store"
-	"github.com/Nathandelenclos/agent-stats/internal/usage"
+	indexing "github.com/Nathandelenclos/agent-stats/internal/indexing/application"
+	"github.com/Nathandelenclos/agent-stats/internal/indexing/infra/logfiles"
+	"github.com/Nathandelenclos/agent-stats/internal/indexing/infra/sqlite"
+	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	"github.com/Nathandelenclos/agent-stats/internal/pricing/infra/pricetable"
+	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 )
 
 func main() {
@@ -48,17 +48,17 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	var only usage.Harness // empty: every harness
+	var only kernel.Harness // empty: every harness
 	if *harness != "" {
-		if only, err = usage.ParseHarness(*harness); err != nil {
+		if only, err = kernel.ParseHarness(*harness); err != nil {
 			return err
 		}
 	}
-	prices, err := pricing.Load(*pricesPath)
+	prices, err := pricetable.Load(*pricesPath)
 	if err != nil {
 		return err
 	}
-	index, err := store.Open(*dbPath, currentUser())
+	index, err := sqlite.Open(*dbPath, currentUser())
 	if err != nil {
 		return err
 	}
@@ -69,8 +69,8 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		logs := ingest.NewFileSessionLogs(ingest.DefaultSources(home))
-		rep, err := app.IndexSessions{Logs: logs, Index: index, Prices: prices}.Run(func(r app.IndexReport) {
+		logs := logfiles.NewFileSessionLogs(logfiles.DefaultSources(home))
+		rep, err := indexing.IndexSessions{Logs: logs, Store: index, Prices: prices}.Run(func(r indexing.IndexReport) {
 			fmt.Fprintf(os.Stderr, "\rindexing… %d files", r.Indexed)
 		})
 		if rep.Indexed >= 50 {
@@ -87,61 +87,17 @@ func run() error {
 		}
 	}
 
-	rep, err := app.BuildReport{Index: index}.Run(app.Filter{Since: from, Harness: only})
+	rep, err := reporting.BuildReport{Queries: index}.Run(reporting.Query{Since: from, Harness: only})
 	if err != nil {
 		return err
 	}
 	if *asJSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		return enc.Encode(rep)
+		return enc.Encode(toJSON(rep))
 	}
 	printReport(rep)
 	return nil
-}
-
-func printReport(r app.Report) {
-	t := r.Total
-	if t.Requests == 0 {
-		fmt.Println("No requests in this range.")
-		return
-	}
-	fmt.Printf("%s requests (%s failed) · %s · %s in / %s out · cache %.0f%% · %s → %s\n",
-		num(t.Requests), num(t.Failed), usd(t.Cost), num(t.Input+t.CacheRead+t.CacheWrite), num(t.Output), t.CacheRate*100,
-		day(t.FirstTS), day(t.LastTS))
-	if t.Unpriced > 0 {
-		fmt.Printf("%s requests have no known price (pass --prices to add them)\n", num(t.Unpriced))
-	}
-	usageTable("HARNESS", r.ByHarness, 0)
-	usageTable("MODEL", r.ByModel, 15)
-	usageTable("FOLDER", r.ByFolder, 10)
-	usageTable("AGENT", r.ByAgent, 10)
-
-	fmt.Println()
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', tabwriter.AlignRight)
-	fmt.Fprintln(w, "TOOL\tMCP SERVER\tCALLS\tERRORS\tRESULT CHARS\t")
-	for i, x := range r.Tools {
-		if i == 20 {
-			break
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t\n", x.Name, x.Server, num(x.Calls), num(x.Errors), num(x.ResultChars))
-	}
-	w.Flush()
-}
-
-func usageTable(title string, rows []app.UsageGroup, limit int) {
-	fmt.Println()
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', tabwriter.AlignRight)
-	fmt.Fprintln(w, title+"\tREQUESTS\tFAILED\tTOKENS IN\tTOKENS OUT\tCACHE\tCOST\t")
-	for i, x := range rows {
-		if limit > 0 && i == limit {
-			fmt.Fprintf(w, "… %d more\t\t\t\t\t\t\t\n", len(rows)-limit)
-			break
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%.0f%%\t%s\t\n", shorten(x.Group, 50), num(x.Requests), num(x.Failed),
-			num(x.Input+x.CacheRead+x.CacheWrite), num(x.Output), x.CacheRate*100, usd(x.Cost))
-	}
-	w.Flush()
 }
 
 // parseSince accepts a duration with a day unit (7d), a Go duration (12h) or a date; zero when empty.
@@ -182,7 +138,13 @@ func num(n int64) string {
 
 func usd(f float64) string { return fmt.Sprintf("$%.2f", f) }
 
-func day(ms int64) string { return time.UnixMilli(ms).Format("2006-01-02") }
+// day formats t as a date, an unknown time reading as the Unix epoch.
+func day(t time.Time) string {
+	if t.IsZero() {
+		t = time.UnixMilli(0)
+	}
+	return t.Format("2006-01-02")
+}
 
 func shorten(s string, n int) string {
 	if r := []rune(s); len(r) > n {

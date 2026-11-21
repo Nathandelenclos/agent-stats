@@ -1,4 +1,4 @@
-package ingest
+package logfiles
 
 import (
 	"encoding/json"
@@ -8,7 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Nathandelenclos/agent-stats/internal/usage"
+	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
+	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 )
 
 type codexUsage struct {
@@ -78,10 +79,10 @@ type codexPayload struct {
 
 // ParseCodex reads a Codex rollout (~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl[.zst]).
 // Real tool calls are the item_completed events: the model's "exec" custom tool is only a JS wrapper around them.
-func ParseCodex(path string, r io.Reader) (usage.Transcript, error) {
-	p := &usage.Transcript{Session: usage.Session{Harness: usage.Codex, AgentType: usage.MainAgent}}
+func ParseCodex(path string, r io.Reader) (domain.Transcript, error) {
+	p := &domain.Transcript{Session: domain.Session{Harness: kernel.Codex, AgentType: domain.MainAgent}}
 	var model string
-	var fallback []usage.Request // from token_count events, used only when the file has no token_usage_record
+	var fallback []domain.Request // from token_count events, used only when the file has no token_usage_record
 	var lastTotal codexUsage
 	callIndex := map[string]int{}
 	ordinal := 0
@@ -105,16 +106,17 @@ func ParseCodex(path string, r io.Reader) (usage.Transcript, error) {
 			if p.Session.ID != "" {
 				return
 			}
-			p.Session.ID = usage.Codex.SessionID(pl.ID)
-			if pl.ID == "" {
+			if id, err := domain.NewSessionID(kernel.Codex, pl.ID); err == nil {
+				p.Session.ID = id
+			} else {
 				p.Session.ID = codexFileID(path)
 			}
-			if pl.ForkedFrom != "" {
-				p.Session.ParentID = usage.Codex.SessionID(pl.ForkedFrom)
+			if parent, err := domain.NewSessionID(kernel.Codex, pl.ForkedFrom); err == nil {
+				p.Session.ParentID = parent
 			}
 			p.Session.Folder = pl.Cwd
 			if pl.ThreadSource == "subagent" {
-				p.Session.AgentType = usage.Subagent
+				p.Session.AgentType = domain.Subagent
 			}
 			p.Session.Span(ts)
 		case "turn_context":
@@ -123,7 +125,11 @@ func ParseCodex(path string, r io.Reader) (usage.Transcript, error) {
 			}
 		case "token_usage_record":
 			if pl.Usage != nil {
-				p.Requests = append(p.Requests, codexRequest(pl.ResponseID, ts, model, *pl.Usage))
+				if req, err := codexRequest(pl.ResponseID, ts, model, *pl.Usage); err == nil {
+					p.Requests = append(p.Requests, req)
+				} else {
+					p.SkippedLines++
+				}
 			}
 			p.Session.Span(ts)
 		case "response_item":
@@ -135,7 +141,7 @@ func ParseCodex(path string, r io.Reader) (usage.Transcript, error) {
 					return
 				}
 				callIndex[pl.CallID] = len(p.Tools)
-				p.Tools = append(p.Tools, usage.ToolCall{Key: pl.CallID, At: ts, Name: pl.Name, ArgsChars: len(pl.Arguments)})
+				p.Tools = append(p.Tools, domain.ToolCall{Key: pl.CallID, At: ts, Name: pl.Name, ArgsChars: len(pl.Arguments)})
 			case "function_call_output":
 				if i, ok := callIndex[pl.CallID]; ok {
 					p.Tools[i].ResultChars = len(pl.Output)
@@ -153,7 +159,11 @@ func ParseCodex(path string, r io.Reader) (usage.Transcript, error) {
 					return // repeated event for the same response
 				}
 				lastTotal = *pl.Info.Total
-				fallback = append(fallback, codexRequest("tc:"+strconv.Itoa(ordinal), ts, model, *pl.Info.Last))
+				if req, err := codexRequest("tc:"+strconv.Itoa(ordinal), ts, model, *pl.Info.Last); err == nil {
+					fallback = append(fallback, req)
+				} else {
+					p.SkippedLines++
+				}
 			case "item_completed":
 				if pl.Item != nil {
 					codexItem(p, ts, pl)
@@ -172,18 +182,20 @@ func ParseCodex(path string, r io.Reader) (usage.Transcript, error) {
 	return *p, err
 }
 
-func codexRequest(key string, ts time.Time, model string, u codexUsage) usage.Request {
-	return usage.Request{
-		Key: key, At: ts, Model: model, Provider: "openai",
-		Tokens:    usage.Tokens{Input: u.Input - u.Cached, CacheRead: u.Cached, CacheWrite: u.CacheW, Output: u.Output},
-		Reasoning: u.Reasoning,
+// codexRequest builds a request from a usage record, whose input count includes the cached tokens.
+func codexRequest(key string, ts time.Time, model string, u codexUsage) (domain.Request, error) {
+	tokens, err := kernel.NewTokens(kernel.TokenCounts{Input: u.Input - u.Cached, CacheRead: u.Cached, CacheWrite: u.CacheW,
+		Output: u.Output, Reasoning: u.Reasoning})
+	if err != nil {
+		return domain.Request{}, err
 	}
+	return domain.Request{Key: key, At: ts, Model: model, Provider: "openai", Tokens: tokens}, nil
 }
 
-func codexItem(p *usage.Transcript, ts time.Time, pl *codexPayload) {
+func codexItem(p *domain.Transcript, ts time.Time, pl *codexPayload) {
 	it := pl.Item
 	failed := it.Status == "failed" || (len(it.Error) > 0 && string(it.Error) != "null")
-	t := usage.ToolCall{Key: it.ID, At: ts, IsError: failed, Duration: it.Duration.duration()}
+	t := domain.ToolCall{Key: it.ID, At: ts, IsError: failed, Duration: it.Duration.duration()}
 	switch it.Type {
 	case "UserMessage":
 		var parts []string
@@ -192,7 +204,7 @@ func codexItem(p *usage.Transcript, ts time.Time, pl *codexPayload) {
 				parts = append(parts, c.Text)
 			}
 		}
-		if pr, ok := usage.NewPrompt(it.ID, ts, strings.Join(parts, "\n")); ok {
+		if pr, ok := domain.NewPrompt(it.ID, ts, strings.Join(parts, "\n")); ok {
 			p.Prompts = append(p.Prompts, pr)
 		}
 		return
@@ -213,7 +225,8 @@ func codexItem(p *usage.Transcript, ts time.Time, pl *codexPayload) {
 	p.Tools = append(p.Tools, t)
 }
 
-// codexFileID names a session after its rollout file when the log carries no session id.
-func codexFileID(path string) string {
-	return usage.Codex.SessionID(strings.SplitN(filepath.Base(path), ".", 2)[0])
+// codexFileID names a session after its rollout file ("rollout-…", never empty) when the log carries no session id.
+func codexFileID(path string) domain.SessionID {
+	id, _ := domain.NewSessionID(kernel.Codex, strings.SplitN(filepath.Base(path), ".", 2)[0])
+	return id
 }

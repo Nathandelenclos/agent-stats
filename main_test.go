@@ -10,10 +10,12 @@ import (
 
 	"github.com/klauspost/compress/zstd"
 
-	"github.com/Nathandelenclos/agent-stats/internal/app"
-	"github.com/Nathandelenclos/agent-stats/internal/ingest"
-	"github.com/Nathandelenclos/agent-stats/internal/store"
-	"github.com/Nathandelenclos/agent-stats/internal/usage"
+	indexing "github.com/Nathandelenclos/agent-stats/internal/indexing/application"
+	"github.com/Nathandelenclos/agent-stats/internal/indexing/infra/logfiles"
+	"github.com/Nathandelenclos/agent-stats/internal/indexing/infra/sqlite"
+	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	pricing "github.com/Nathandelenclos/agent-stats/internal/pricing/domain"
+	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 )
 
 // fixtureHome copies testdata/home into a temp dir and adds a zstd-compressed archived Codex rollout.
@@ -47,31 +49,33 @@ func fixtureHome(t *testing.T) string {
 // On a difference it writes testdata/report.received.json: read the diff, and only copy it over
 // report.approved.json if the change is intended.
 func TestReportApproved(t *testing.T) {
-	prices := usage.PriceList{
-		"claude-x": mustRates(t, 3e-6, 15e-6, 0.3e-6, 3.75e-6),
-		"claude-y": mustRates(t, 1e-6, 5e-6, 0.1e-6, 1.25e-6),
-		"gpt-x":    mustRates(t, 1.25e-6, 10e-6, 0.125e-6, 0),
+	prices := pricing.PriceList{
+		"claude-x": mustRates(t, pricing.RatesPerToken{Input: 3e-6, Output: 15e-6, CacheRead: 0.3e-6, CacheWrite: 3.75e-6}),
+		"claude-y": mustRates(t, pricing.RatesPerToken{Input: 1e-6, Output: 5e-6, CacheRead: 0.1e-6, CacheWrite: 1.25e-6}),
+		"gpt-x":    mustRates(t, pricing.RatesPerToken{Input: 1.25e-6, Output: 10e-6, CacheRead: 0.125e-6}),
 	}
-	index, err := store.Open(filepath.Join(t.TempDir(), "index.db"), "me@host")
+	index, err := sqlite.Open(filepath.Join(t.TempDir(), "index.db"), "me@host")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer index.Close()
-	logs := ingest.NewFileSessionLogs(ingest.DefaultSources(fixtureHome(t)))
-	rep, err := app.IndexSessions{Logs: logs, Index: index, Prices: prices}.Run(nil)
+	logs := logfiles.NewFileSessionLogs(logfiles.DefaultSources(fixtureHome(t)))
+	rep, err := indexing.IndexSessions{Logs: logs, Store: index, Prices: prices}.Run(nil)
 	if err != nil || len(rep.Errors) > 0 || rep.Indexed != 7 {
 		t.Fatalf("index: %+v %v", rep, err)
 	}
 
-	got := map[string]app.Report{}
-	for name, f := range map[string]app.Filter{
+	got := map[string]jsonReport{}
+	for name, f := range map[string]reporting.Query{
 		"all":         {},
-		"omp":         {Harness: usage.OMP},
+		"omp":         {Harness: kernel.OMP},
 		"since-jan-2": {Since: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
 	} {
-		if got[name], err = (app.BuildReport{Index: index}).Run(f); err != nil {
+		r, err := reporting.BuildReport{Queries: index}.Run(f)
+		if err != nil {
 			t.Fatal(err)
 		}
+		got[name] = toJSON(r)
 	}
 	received, err := json.MarshalIndent(got, "", "  ")
 	if err != nil {
@@ -88,9 +92,9 @@ func TestReportApproved(t *testing.T) {
 	os.Remove("testdata/report.received.json")
 }
 
-func mustRates(t *testing.T, input, output, cacheRead, cacheWrite float64) usage.Rates {
+func mustRates(t *testing.T, perToken pricing.RatesPerToken) pricing.Rates {
 	t.Helper()
-	r, err := usage.NewRates(input, output, cacheRead, cacheWrite)
+	r, err := pricing.NewRates(perToken)
 	if err != nil {
 		t.Fatal(err)
 	}

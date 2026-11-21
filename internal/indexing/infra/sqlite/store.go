@@ -1,5 +1,6 @@
-// Package store is the SQLite usage index: it keeps indexed transcripts and answers usage queries.
-package store
+// Package sqlite is the SQLite index of the indexing context. It owns the tables: it stores indexed
+// transcripts for indexing, and answers the reporting context's usage queries through that context's port.
+package sqlite
 
 import (
 	"database/sql"
@@ -9,8 +10,9 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/Nathandelenclos/agent-stats/internal/app"
-	"github.com/Nathandelenclos/agent-stats/internal/usage"
+	"github.com/Nathandelenclos/agent-stats/internal/indexing/application"
+	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 )
 
 // The prompts table keeps each prompt's frustration signals (usage.Signals). No query reads them yet:
@@ -54,7 +56,10 @@ type SQLiteIndex struct {
 	user string
 }
 
-var _ app.UsageIndex = (*SQLiteIndex)(nil)
+var (
+	_ application.TranscriptStore = (*SQLiteIndex)(nil)
+	_ reporting.UsageQueries      = (*SQLiteIndex)(nil)
+)
 
 // Open creates or opens the index at path. user ("name@host") is recorded on every session.
 // The index holds prompt texts, so it is readable by its owner only.
@@ -97,15 +102,15 @@ func private(path string) error {
 func (s *SQLiteIndex) Close() error { return s.db.Close() }
 
 // IndexedFiles returns every log file indexed so far, with its size and modification time at that point.
-func (s *SQLiteIndex) IndexedFiles() (map[string]app.LogFile, error) {
+func (s *SQLiteIndex) IndexedFiles() (map[string]application.LogFile, error) {
 	rows, err := s.db.Query(`SELECT path, harness, size, mtime FROM files`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	known := map[string]app.LogFile{}
+	known := map[string]application.LogFile{}
 	for rows.Next() {
-		var f app.LogFile
+		var f application.LogFile
 		var mtime int64
 		if err := rows.Scan(&f.Path, &f.Harness, &f.Size, &mtime); err != nil {
 			return nil, err
@@ -118,7 +123,7 @@ func (s *SQLiteIndex) IndexedFiles() (map[string]app.LogFile, error) {
 
 // Save replaces the rows indexed from file. Rows are keyed by session, not file,
 // so a log moved elsewhere (Codex archiving) is not counted twice.
-func (s *SQLiteIndex) Save(file app.LogFile, t app.IndexedTranscript) error {
+func (s *SQLiteIndex) Save(file application.LogFile, t application.IndexedTranscript) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -132,8 +137,8 @@ func (s *SQLiteIndex) Save(file app.LogFile, t app.IndexedTranscript) error {
 	}
 	ss := t.Session
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO sessions VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		ss.ID, path, file.Harness, nullStr(ss.ParentID), ss.AgentType, ss.Title, ss.Folder, s.user,
-		usage.UnixMilli(ss.Start), usage.UnixMilli(ss.End)); err != nil {
+		string(ss.ID), path, file.Harness, nullStr(string(ss.ParentID)), ss.AgentType, ss.Title, ss.Folder, s.user,
+		kernel.UnixMilli(ss.Start), kernel.UnixMilli(ss.End)); err != nil {
 		return err
 	}
 
@@ -142,9 +147,9 @@ func (s *SQLiteIndex) Save(file app.LogFile, t app.IndexedTranscript) error {
 		return err
 	}
 	for i, r := range t.Requests {
-		c := t.Costs[i]
-		if _, err := reqStmt.Exec(path, r.Key, ss.ID, usage.UnixMilli(r.At), r.Model, r.Provider, r.Input, r.Output, r.CacheRead, r.CacheWrite, r.Reasoning,
-			float64(c.USD), c.Priced, nullMillis(r.Duration), nullMillis(r.TTFT), r.StopReason, nullStr(r.Error)); err != nil {
+		c, n := t.Costs[i], r.Tokens.Counts()
+		if _, err := reqStmt.Exec(path, r.Key, string(ss.ID), kernel.UnixMilli(r.At), r.Model, r.Provider, n.Input, n.Output, n.CacheRead, n.CacheWrite, n.Reasoning,
+			c.Cost.USD(), c.Priced, nullMillis(r.Duration), nullMillis(r.TTFT), r.StopReason, nullStr(r.Failure)); err != nil {
 			return err
 		}
 	}
@@ -154,7 +159,7 @@ func (s *SQLiteIndex) Save(file app.LogFile, t app.IndexedTranscript) error {
 		return err
 	}
 	for _, c := range t.Tools {
-		if _, err := toolStmt.Exec(path, c.Key, ss.ID, usage.UnixMilli(c.At), c.Name, c.Server, c.ArgsChars, c.ResultChars, c.IsError, nullMillis(c.Duration)); err != nil {
+		if _, err := toolStmt.Exec(path, c.Key, string(ss.ID), kernel.UnixMilli(c.At), c.Name, c.Server, c.ArgsChars, c.ResultChars, c.IsError, nullMillis(c.Duration)); err != nil {
 			return err
 		}
 	}
@@ -165,7 +170,7 @@ func (s *SQLiteIndex) Save(file app.LogFile, t app.IndexedTranscript) error {
 	}
 	for i, pr := range t.Prompts {
 		sig := t.Signals[i]
-		if _, err := promptStmt.Exec(path, pr.Key, ss.ID, usage.UnixMilli(pr.At), pr.Text, sig.Chars, sig.Words, sig.Yelling, sig.Profanity,
+		if _, err := promptStmt.Exec(path, pr.Key, string(ss.ID), kernel.UnixMilli(pr.At), pr.Text, sig.Chars, sig.Words, sig.Yelling, sig.Profanity,
 			sig.Anguish, sig.Negation, sig.Repeated, sig.Blame); err != nil {
 			return err
 		}
