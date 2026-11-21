@@ -74,7 +74,7 @@ func ParseClaude(path string, r io.Reader) (usage.Transcript, error) {
 	firstBlock := map[string]time.Time{}
 	var lastModel string
 
-	err := eachLine(r, func(line []byte) {
+	oversized, err := eachLine(r, func(line []byte) {
 		var l claudeLine
 		if json.Unmarshal(line, &l) != nil {
 			p.SkippedLines++
@@ -160,6 +160,7 @@ func ParseClaude(path string, r io.Reader) (usage.Transcript, error) {
 			}
 		}
 	})
+	p.SkippedLines += oversized
 	p.TitleFromFirstPrompt()
 	return *p, err
 }

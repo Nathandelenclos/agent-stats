@@ -86,7 +86,7 @@ func ParseCodex(path string, r io.Reader) (usage.Transcript, error) {
 	callIndex := map[string]int{}
 	ordinal := 0
 
-	err := eachLine(r, func(line []byte) {
+	oversized, err := eachLine(r, func(line []byte) {
 		ordinal++
 		var l struct {
 			Type      string       `json:"type"`
@@ -158,6 +158,7 @@ func ParseCodex(path string, r io.Reader) (usage.Transcript, error) {
 			}
 		}
 	})
+	p.SkippedLines += oversized
 	if len(p.Requests) == 0 {
 		p.Requests = fallback
 	}

@@ -75,7 +75,7 @@ func ParsePi(harness usage.Harness) Parser {
 
 		var provider, model string
 		toolIndex := map[string]int{}
-		err := eachLine(r, func(line []byte) {
+		oversized, err := eachLine(r, func(line []byte) {
 			var l piLine
 			if json.Unmarshal(line, &l) != nil {
 				p.SkippedLines++
@@ -152,6 +152,7 @@ func ParsePi(harness usage.Harness) Parser {
 				}
 			}
 		})
+		p.SkippedLines += oversized
 		p.TitleFromFirstPrompt()
 		return *p, err
 	}

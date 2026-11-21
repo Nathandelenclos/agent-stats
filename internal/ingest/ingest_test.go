@@ -1,11 +1,15 @@
 package ingest
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/klauspost/compress/zstd"
 
 	"github.com/Nathandelenclos/agent-stats/internal/usage"
 )
@@ -155,5 +159,36 @@ func TestPi(t *testing.T) {
 	}
 	if len(p.Tools) != 1 || p.Tools[0].Server != "ctx" || p.Tools[0].Name != "docs" || !p.Tools[0].IsError {
 		t.Errorf("tools = %+v", p.Tools)
+	}
+}
+
+func TestOversizedLinesAreSkippedAndCounted(t *testing.T) {
+	defer func(n int) { maxLineBytes = n }(maxLineBytes)
+	maxLineBytes = 200
+	big := `{"type":"user","uuid":"u9","timestamp":"2026-01-01T10:00:00Z","message":{"role":"user","content":"` + strings.Repeat("x", 300) + `"}}`
+	log := `{"type":"user","uuid":"u1","timestamp":"2026-01-01T10:00:00Z","message":{"role":"user","content":"before"}}
+` + big + `
+{oops
+{"type":"user","uuid":"u2","timestamp":"2026-01-01T10:00:01Z","message":{"role":"user","content":"after"}}`
+	p := parse(t, ParseClaude, "/x/s.jsonl", log)
+	if len(p.Prompts) != 2 || p.Prompts[1].Text != "after" || p.SkippedLines != 2 {
+		t.Errorf("prompts %+v, skipped %d; want before/after and 2 skipped", p.Prompts, p.SkippedLines)
+	}
+}
+
+func TestDecompressedSizeIsBounded(t *testing.T) {
+	defer func(n int64) { maxLogBytes = n }(maxLogBytes)
+	maxLogBytes = 1 << 10
+	enc, err := zstd.NewWriter(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A small file that expands far beyond the limit.
+	path := filepath.Join(t.TempDir(), "rollout-bomb.jsonl.zst")
+	if err := os.WriteFile(path, enc.EncodeAll(bytes.Repeat([]byte("{}\n"), 1<<20), nil), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseFile(path, ParseCodex); !errors.Is(err, ErrLogTooLarge) {
+		t.Errorf("err = %v, want ErrLogTooLarge", err)
 	}
 }
