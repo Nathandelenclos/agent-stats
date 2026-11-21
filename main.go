@@ -29,8 +29,11 @@ func main() {
 }
 
 func run() error {
-	cache, _ := os.UserCacheDir()
-	dbPath := flag.String("db", filepath.Join(cache, "agent-stats", "index.db"), "index database")
+	defaultDB := ""
+	if cache, err := os.UserCacheDir(); err == nil {
+		defaultDB = filepath.Join(cache, "agent-stats", "index.db")
+	}
+	dbPath := flag.String("db", defaultDB, "index database (default: agent-stats/index.db in the user cache directory)")
 	pricesPath := flag.String("prices", "", "JSON file overriding embedded prices: {\"model\": [input, output, cacheRead, cacheWrite]} in USD per token")
 	since := flag.String("since", "", "only count activity after this: 24h, 7d, 30d or 2006-01-02")
 	harness := flag.String("harness", "", "only one harness: claude, codex, omp, pi")
@@ -38,6 +41,9 @@ func run() error {
 	noSync := flag.Bool("no-sync", false, "skip re-reading the logs")
 	flag.Parse()
 
+	if *dbPath == "" {
+		return fmt.Errorf("no user cache directory: pass --db")
+	}
 	from, err := parseSince(*since, time.Now())
 	if err != nil {
 		return err
@@ -53,7 +59,10 @@ func run() error {
 	defer index.Close()
 
 	if !*noSync {
-		home, _ := os.UserHomeDir()
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
 		logs := ingest.NewFileSessionLogs(ingest.DefaultSources(home))
 		rep, err := app.IndexSessions{Logs: logs, Index: index, Prices: prices}.Run(func(r app.IndexReport) {
 			fmt.Fprintf(os.Stderr, "\rindexing… %d files", r.Indexed)
@@ -66,6 +75,9 @@ func run() error {
 		}
 		for _, e := range rep.Errors {
 			fmt.Fprintln(os.Stderr, "skipped", e)
+		}
+		if rep.SkippedLines > 0 {
+			fmt.Fprintf(os.Stderr, "skipped %d unreadable log lines (malformed or over 64 MiB)\n", rep.SkippedLines)
 		}
 	}
 
