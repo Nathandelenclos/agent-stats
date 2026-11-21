@@ -14,15 +14,15 @@ import (
 // hostile carries SQL metacharacters in every text value that reaches the database.
 const hostile = `o'brian"; DROP TABLE requests; --`
 
-// readModel is the part of the index this adapter reads: the indexing context's published read model.
-// contract_test.go at the module root checks it against the indexing adapter's real schema.
+// readModel has the shape of the usage_* views this adapter reads, the indexing context's published read model.
+// contract_test.go at the module root checks the adapter against the indexing adapter's real views.
 const readModel = `
-CREATE TABLE sessions (id TEXT PRIMARY KEY, harness TEXT NOT NULL, agent_type TEXT NOT NULL, folder TEXT);
-CREATE TABLE requests (session_id TEXT NOT NULL, ts INTEGER NOT NULL, model TEXT NOT NULL,
+CREATE TABLE usage_requests (ts INTEGER NOT NULL, model TEXT NOT NULL,
 	input INTEGER NOT NULL, output INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL,
-	cost REAL NOT NULL, priced INTEGER NOT NULL, duration_ms REAL, ttft_ms REAL, error TEXT);
-CREATE TABLE tool_calls (session_id TEXT NOT NULL, ts INTEGER NOT NULL, name TEXT NOT NULL, server TEXT NOT NULL,
-	args_chars INTEGER NOT NULL, result_chars INTEGER NOT NULL, is_error INTEGER NOT NULL, duration_ms REAL);
+	cost REAL NOT NULL, priced INTEGER NOT NULL, duration_ms REAL, ttft_ms REAL, error TEXT,
+	harness TEXT NOT NULL, agent_type TEXT NOT NULL, folder TEXT);
+CREATE TABLE usage_tool_calls (ts INTEGER NOT NULL, name TEXT NOT NULL, server TEXT NOT NULL,
+	args_chars INTEGER NOT NULL, result_chars INTEGER NOT NULL, is_error INTEGER NOT NULL, duration_ms REAL, harness TEXT NOT NULL);
 `
 
 // indexed writes one session into a fresh read model and returns the database path.
@@ -40,9 +40,8 @@ func indexed(t *testing.T, at time.Time) string {
 		args []any
 	}{
 		{readModel, nil},
-		{`INSERT INTO sessions VALUES ('claude:s1', 'claude', 'main', ?)`, []any{hostile}},
-		{`INSERT INTO requests VALUES ('claude:s1', ?, ?, 1000, 100, 0, 0, 2, 1, 1500, NULL, NULL)`, []any{ms, hostile}},
-		{`INSERT INTO tool_calls VALUES ('claude:s1', ?, ?, 'grace', 0, 0, 1, NULL)`, []any{ms, hostile}},
+		{`INSERT INTO usage_requests VALUES (?, ?, 1000, 100, 0, 0, 2, 1, 1500, NULL, NULL, 'claude', 'main', ?)`, []any{ms, hostile, hostile}},
+		{`INSERT INTO usage_tool_calls VALUES (?, ?, 'grace', 0, 0, 1, NULL, 'claude')`, []any{ms, hostile}},
 	} {
 		if _, err := db.Exec(stmt.sql, stmt.args...); err != nil {
 			t.Fatal(err)
@@ -92,7 +91,7 @@ func TestReaderCannotWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.Close()
-	if _, err := r.db.Exec(`DELETE FROM requests`); err == nil {
+	if _, err := r.db.Exec(`DELETE FROM usage_requests`); err == nil {
 		t.Error("read-only index accepted a write")
 	}
 }

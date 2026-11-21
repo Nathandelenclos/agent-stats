@@ -1,5 +1,5 @@
 // Package sqlite answers the reporting context's usage queries from the SQLite index that the indexing
-// context writes. It opens the index read-only: the tables are the indexing context's published read model.
+// context writes. It opens the index read-only and reads only the usage_* views, the index's published read model.
 package sqlite
 
 import (
@@ -53,7 +53,7 @@ func where(f report.Filter, tsCol string) (string, []any) {
 		conds, args = append(conds, tsCol+" >= ?"), append(args, kernel.UnixMilli(f.Since))
 	}
 	if !f.Harness.IsZero() {
-		conds, args = append(conds, "s.harness = ?"), append(args, f.Harness.String())
+		conds, args = append(conds, "harness = ?"), append(args, f.Harness.String())
 	}
 	if len(conds) == 0 {
 		return "", nil
@@ -63,10 +63,10 @@ func where(f report.Filter, tsCol string) (string, []any) {
 
 // groupColumns is the closed list of SQL expressions a usage query may group by.
 var groupColumns = map[report.Dimension]string{
-	report.ByHarness:   "s.harness",
-	report.ByModel:     "r.model",
-	report.ByFolder:    "COALESCE(s.folder, '')",
-	report.ByAgentType: "s.agent_type",
+	report.ByHarness:   "harness",
+	report.ByModel:     "model",
+	report.ByFolder:    "COALESCE(folder, '')",
+	report.ByAgentType: "agent_type",
 }
 
 // COALESCE keeps an empty selection scannable as zeros.
@@ -105,7 +105,7 @@ func (s *SQLiteUsage) UsageBy(f report.Filter, d report.Dimension) ([]report.Usa
 	}
 	cond, args := where(f, "r.ts")
 	rows, err := s.db.Query(`SELECT `+col+`, `+usageCols+`
-		FROM requests r JOIN sessions s ON s.id = r.session_id`+cond+`
+		FROM usage_requests r`+cond+`
 		GROUP BY 1 ORDER BY SUM(r.cost) DESC, COUNT(*) DESC`, args...)
 	if err != nil {
 		return nil, err
@@ -127,7 +127,7 @@ func (s *SQLiteUsage) UsageBy(f report.Filter, d report.Dimension) ([]report.Usa
 func (s *SQLiteUsage) Total(f report.Filter) (report.Usage, error) {
 	cond, args := where(f, "r.ts")
 	var row usageRow
-	err := s.db.QueryRow(`SELECT `+usageCols+` FROM requests r JOIN sessions s ON s.id = r.session_id`+cond, args...).Scan(row.args()...)
+	err := s.db.QueryRow(`SELECT `+usageCols+` FROM usage_requests r`+cond, args...).Scan(row.args()...)
 	return row.usage(), err
 }
 
@@ -136,7 +136,7 @@ func (s *SQLiteUsage) Tools(f report.Filter) ([]report.ToolUsage, error) {
 	cond, args := where(f, "t.ts")
 	rows, err := s.db.Query(`SELECT t.name, t.server, COUNT(*), SUM(t.is_error), SUM(t.args_chars), SUM(t.result_chars),
 		COALESCE(AVG(t.duration_ms), 0), MAX(t.ts)
-		FROM tool_calls t JOIN sessions s ON s.id = t.session_id`+cond+`
+		FROM usage_tool_calls t`+cond+`
 		GROUP BY 1, 2 ORDER BY 3 DESC`, args...)
 	if err != nil {
 		return nil, err

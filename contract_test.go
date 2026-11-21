@@ -1,7 +1,9 @@
 package main
 
 import (
+	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,5 +58,39 @@ func TestIndexReadModelContract(t *testing.T) {
 	}
 	if tools, err := r.Tools(report.Filter{}); err != nil || len(tools) != 1 || tools[0].Name != hostile || tools[0].Errors != 1 {
 		t.Errorf("tools = %+v %v", tools, err)
+	}
+}
+
+// TestReadModelHidesPromptTexts checks that the published views expose no prompt text.
+func TestReadModelHidesPromptTexts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "index.db")
+	w, err := sqlite.Open(sqlite.Options{Path: path, User: "me@host"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := db.Query(`SELECT name, sql FROM sqlite_master WHERE type = 'view' ORDER BY name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var views []string
+	for rows.Next() {
+		var name, def string
+		if err := rows.Scan(&name, &def); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(def, "prompts") || strings.Contains(def, "text") {
+			t.Errorf("view %s exposes prompts: %s", name, def)
+		}
+		views = append(views, name)
+	}
+	if strings.Join(views, ",") != "usage_requests,usage_tool_calls" {
+		t.Errorf("views = %v", views)
 	}
 }

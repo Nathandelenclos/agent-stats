@@ -1,5 +1,5 @@
 // Package sqlite is the SQLite index of the indexing context. It owns the schema and every write;
-// the reporting context reads these tables as the index's published read model, read-only.
+// other contexts read only the usage_* views, the index's published read model.
 package sqlite
 
 import (
@@ -47,6 +47,14 @@ CREATE INDEX IF NOT EXISTS sessions_file ON sessions (file);
 CREATE INDEX IF NOT EXISTS tool_calls_ts ON tool_calls (ts);
 CREATE INDEX IF NOT EXISTS prompts_ts ON prompts (ts);
 CREATE INDEX IF NOT EXISTS sessions_started ON sessions (started_at);
+-- Published read model: the only part of the index other contexts may read. Prompt texts stay private.
+CREATE VIEW IF NOT EXISTS usage_requests AS
+	SELECT r.ts, r.model, r.input, r.output, r.cache_read, r.cache_write, r.cost, r.priced, r.duration_ms, r.ttft_ms, r.error,
+		s.harness, s.agent_type, s.folder
+	FROM requests r JOIN sessions s ON s.id = r.session_id;
+CREATE VIEW IF NOT EXISTS usage_tool_calls AS
+	SELECT t.ts, t.name, t.server, t.args_chars, t.result_chars, t.is_error, t.duration_ms, s.harness
+	FROM tool_calls t JOIN sessions s ON s.id = t.session_id;
 `
 
 // SQLiteIndex is the usage index kept in a local SQLite file.
