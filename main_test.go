@@ -16,6 +16,7 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	pricing "github.com/Nathandelenclos/agent-stats/internal/pricing/domain"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
+	usagedb "github.com/Nathandelenclos/agent-stats/internal/reporting/infra/sqlite"
 )
 
 // fixtureHome copies testdata/home into a temp dir and adds a zstd-compressed archived Codex rollout.
@@ -54,7 +55,8 @@ func TestReportApproved(t *testing.T) {
 		"claude-y": mustRates(t, pricing.RatesPerToken{Input: 1e-6, Output: 5e-6, CacheRead: 0.1e-6, CacheWrite: 1.25e-6}),
 		"gpt-x":    mustRates(t, pricing.RatesPerToken{Input: 1.25e-6, Output: 10e-6, CacheRead: 0.125e-6}),
 	}
-	index, err := sqlite.Open(filepath.Join(t.TempDir(), "index.db"), "me@host")
+	dbPath := filepath.Join(t.TempDir(), "index.db")
+	index, err := sqlite.Open(dbPath, "me@host")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,13 +67,18 @@ func TestReportApproved(t *testing.T) {
 		t.Fatalf("index: %+v %v", rep, err)
 	}
 
+	usage, err := usagedb.OpenReadOnly(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer usage.Close()
 	got := map[string]jsonReport{}
 	for name, f := range map[string]reporting.Query{
 		"all":         {},
 		"omp":         {Harness: kernel.OMP},
 		"since-jan-2": {Since: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
 	} {
-		r, err := reporting.BuildReport{Queries: index}.Run(f)
+		r, err := reporting.BuildReport{Queries: usage}.Run(f)
 		if err != nil {
 			t.Fatal(err)
 		}

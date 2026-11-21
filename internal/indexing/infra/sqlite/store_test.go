@@ -9,7 +9,6 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/application"
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
-	report "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 )
 
 func open(t *testing.T) *SQLiteIndex {
@@ -48,36 +47,19 @@ func TestSaveKeepsValuesAsData(t *testing.T) {
 	if err := s.Save(f, transcript("claude:s1", at)); err != nil {
 		t.Fatal(err)
 	}
-
-	u, err := s.Total(report.Filter{})
-	if err != nil || u.Requests != 1 || u.CostUSD != 2 || u.Input != 1000 || u.AvgDurationMs != 1500 || !u.First.Equal(at) {
-		t.Fatalf("total = %+v %v", u, err)
+	var model, file string
+	var input int64
+	var cost, duration float64
+	if err := s.db.QueryRow(`SELECT model, file, input, cost, duration_ms FROM requests`).Scan(&model, &file, &input, &cost, &duration); err != nil ||
+		model != hostile || file != f.Path || input != 1000 || cost != 2 || duration != 1500 {
+		t.Errorf("request row = %q %q %d %v %v, %v", model, file, input, cost, duration, err)
 	}
-	for _, d := range []report.Dimension{report.ByHarness, report.ByModel, report.ByFolder, report.ByAgentType} {
-		if g, err := s.UsageBy(report.Filter{}, d); err != nil || len(g) != 1 || g[0].Requests != 1 {
-			t.Errorf("dimension %d: %+v %v", d, g, err)
-		}
-	}
-	if g, _ := s.UsageBy(report.Filter{}, report.ByModel); g[0].Group != hostile {
-		t.Errorf("model group = %q", g[0].Group)
-	}
-	if tools, err := s.Tools(report.Filter{}); err != nil || len(tools) != 1 || tools[0].Name != hostile || tools[0].Errors != 1 {
-		t.Errorf("tools = %+v %v", tools, err)
-	}
-	var text string
+	var tool, folder, text string
 	var repetition int
-	if err := s.db.QueryRow(`SELECT text, repetition FROM prompts`).Scan(&text, &repetition); err != nil || text != hostile || repetition != 1 {
-		t.Errorf("prompt = %q %d %v", text, repetition, err)
+	if err := s.db.QueryRow(`SELECT t.name, s.folder, p.text, p.repetition FROM tool_calls t, sessions s, prompts p`).Scan(&tool, &folder, &text, &repetition); err != nil ||
+		tool != hostile || folder != hostile || text != hostile || repetition != 1 {
+		t.Errorf("rows = %q %q %q %d, %v", tool, folder, text, repetition, err)
 	}
-
-	// A hostile harness filter is bound as a value: it matches nothing and breaks nothing.
-	if u, err := s.Total(report.Filter{Harness: kernel.Harness(hostile)}); err != nil || u.Requests != 0 {
-		t.Errorf("hostile harness filter = %+v %v", u, err)
-	}
-	if u, _ := s.Total(report.Filter{Harness: kernel.Claude, Since: at.Add(time.Millisecond)}); u.Requests != 0 {
-		t.Errorf("since filter kept an older request: %+v", u)
-	}
-
 	known, err := s.IndexedFiles()
 	if err != nil || len(known) != 1 || !known[f.Path].ModTime.Equal(f.ModTime) || known[f.Path].Size != 10 {
 		t.Errorf("indexed files = %+v %v", known, err)
@@ -92,14 +74,9 @@ func TestMovedLogIsNotCountedTwice(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if u, err := s.Total(report.Filter{}); err != nil || u.Requests != 1 {
-		t.Errorf("after move: %+v %v", u, err)
-	}
-}
-
-func TestUsageByRefusesUnknownDimension(t *testing.T) {
-	if _, err := open(t).UsageBy(report.Filter{}, report.Dimension(99)); err == nil {
-		t.Error("unknown dimension accepted")
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM requests`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("after move: %d requests, %v", n, err)
 	}
 }
 

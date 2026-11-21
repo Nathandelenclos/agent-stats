@@ -1,5 +1,5 @@
-// Package sqlite is the SQLite index of the indexing context. It owns the tables: it stores indexed
-// transcripts for indexing, and answers the reporting context's usage queries through that context's port.
+// Package sqlite is the SQLite index of the indexing context. It owns the schema and every write;
+// the reporting context reads these tables as the index's published read model, read-only.
 package sqlite
 
 import (
@@ -12,7 +12,6 @@ import (
 
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/application"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
-	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 )
 
 // The prompts table keeps each prompt's frustration signals (usage.Signals). No query reads them yet:
@@ -56,10 +55,7 @@ type SQLiteIndex struct {
 	user string
 }
 
-var (
-	_ application.TranscriptStore = (*SQLiteIndex)(nil)
-	_ reporting.UsageQueries      = (*SQLiteIndex)(nil)
-)
+var _ application.TranscriptStore = (*SQLiteIndex)(nil)
 
 // Open creates or opens the index at path. user ("name@host") is recorded on every session.
 // The index holds prompt texts, so it is readable by its owner only.

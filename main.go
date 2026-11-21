@@ -19,6 +19,7 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	"github.com/Nathandelenclos/agent-stats/internal/pricing/infra/pricetable"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
+	usagedb "github.com/Nathandelenclos/agent-stats/internal/reporting/infra/sqlite"
 )
 
 func main() {
@@ -87,7 +88,12 @@ func run() error {
 		}
 	}
 
-	rep, err := reporting.BuildReport{Queries: index}.Run(reporting.Query{Since: from, Harness: only})
+	usage, err := usagedb.OpenReadOnly(*dbPath)
+	if err != nil {
+		return err
+	}
+	defer usage.Close()
+	rep, err := reporting.BuildReport{Queries: usage}.Run(reporting.Query{Since: from, Harness: only})
 	if err != nil {
 		return err
 	}

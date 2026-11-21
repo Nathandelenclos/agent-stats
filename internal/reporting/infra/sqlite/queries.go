@@ -1,14 +1,49 @@
+// Package sqlite answers the reporting context's usage queries from the SQLite index that the indexing
+// context writes. It opens the index read-only: the tables are the indexing context's published read model.
 package sqlite
 
 import (
+	"database/sql"
 	"fmt"
+	"net/url"
+	"path/filepath"
 	"strings"
-
 	"time"
 
+	_ "modernc.org/sqlite"
+
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 	report "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 )
+
+// SQLiteUsage reads usage from the SQLite index.
+type SQLiteUsage struct {
+	db *sql.DB
+}
+
+var _ reporting.UsageQueries = (*SQLiteUsage)(nil)
+
+// OpenReadOnly opens the index at path for reading only.
+func OpenReadOnly(path string) (*SQLiteUsage, error) {
+	abs, err := filepath.Abs(path) // a relative path would read as a URI authority
+	if err != nil {
+		return nil, err
+	}
+	dsn := (&url.URL{Scheme: "file", Path: abs, RawQuery: "mode=ro"}).String()
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, err
+	}
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return &SQLiteUsage{db: db}, nil
+}
+
+// Close closes the database.
+func (s *SQLiteUsage) Close() error { return s.db.Close() }
 
 // where turns a filter into SQL conditions; every value is a bound parameter.
 func where(f report.Filter, tsCol string) (string, []any) {
@@ -63,7 +98,7 @@ func fromMillis(ms int64) time.Time {
 }
 
 // UsageBy groups requests along d, most expensive first.
-func (s *SQLiteIndex) UsageBy(f report.Filter, d report.Dimension) ([]report.UsageGroup, error) {
+func (s *SQLiteUsage) UsageBy(f report.Filter, d report.Dimension) ([]report.UsageGroup, error) {
 	col, ok := groupColumns[d]
 	if !ok {
 		return nil, fmt.Errorf("unknown usage dimension %d", d)
@@ -89,7 +124,7 @@ func (s *SQLiteIndex) UsageBy(f report.Filter, d report.Dimension) ([]report.Usa
 }
 
 // Total aggregates every request matching f.
-func (s *SQLiteIndex) Total(f report.Filter) (report.Usage, error) {
+func (s *SQLiteUsage) Total(f report.Filter) (report.Usage, error) {
 	cond, args := where(f, "r.ts")
 	var row usageRow
 	err := s.db.QueryRow(`SELECT `+usageCols+` FROM requests r JOIN sessions s ON s.id = r.session_id`+cond, args...).Scan(row.args()...)
@@ -97,7 +132,7 @@ func (s *SQLiteIndex) Total(f report.Filter) (report.Usage, error) {
 }
 
 // Tools aggregates tool calls, most used first.
-func (s *SQLiteIndex) Tools(f report.Filter) ([]report.ToolUsage, error) {
+func (s *SQLiteUsage) Tools(f report.Filter) ([]report.ToolUsage, error) {
 	cond, args := where(f, "t.ts")
 	rows, err := s.db.Query(`SELECT t.name, t.server, COUNT(*), SUM(t.is_error), SUM(t.args_chars), SUM(t.result_chars),
 		COALESCE(AVG(t.duration_ms), 0), MAX(t.ts)
