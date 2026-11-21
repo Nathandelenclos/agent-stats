@@ -1,0 +1,25 @@
+# agent-stats
+
+Usage statistics across coding agents, read from the session logs they already write.
+No proxy, no wrapper, no account: one binary that reads local files.
+
+| Harness     | Logs read                                                        |
+|-------------|------------------------------------------------------------------|
+| Claude Code | `~/.claude/projects` (or `$CLAUDE_CONFIG_DIR/projects`)          |
+| Codex       | `~/.codex/sessions`, `~/.codex/archived_sessions` (`.zst` too)   |
+| oh-my-pi    | `~/.omp/agent/sessions`                                          |
+| pi          | `~/.pi/agent/sessions`                                           |
+
+```sh
+go build .
+./agent-stats                 # index new logs, print the summary
+./agent-stats --since 7d      # last 7 days (also 24h, 2026-11-01)
+./agent-stats --harness codex --json
+```
+
+The index lives in the user cache directory (`agent-stats/index.db`). Only changed log files are re-read,
+and rows survive when a harness deletes old logs.
+
+Costs come from the embedded LiteLLM price table (`internal/pricing/prices.json`, refresh with
+`go generate ./internal/pricing`) unless the harness logged the cost itself (oh-my-pi, pi).
+Override or add models with `--prices file.json` (`{"model": [input, output, cacheRead, cacheWrite]}`, USD per token).

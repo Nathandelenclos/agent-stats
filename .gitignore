@@ -1,0 +1,4 @@
+/agent-stats
+/dist/
+*.db
+*.db-*
