@@ -1,0 +1,4 @@
+{"type":"session","id":"p","timestamp":"2026-01-03T08:00:00Z","cwd":"/other"}
+{"type":"model_change","timestamp":"2026-01-03T08:00:00Z","provider":"anthropic","modelId":"claude-y"}
+{"type":"message","id":"p1","timestamp":"2026-01-03T08:00:01Z","message":{"role":"user","content":[{"type":"text","text":"no, stop, that's wrong"}]}}
+{"type":"message","id":"p2","timestamp":"2026-01-03T08:00:02Z","message":{"role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input":7,"output":8,"cacheRead":9,"cacheWrite":0},"stopReason":"stop"}}

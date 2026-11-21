@@ -1,0 +1,7 @@
+{"type":"session","id":"s","timestamp":"2026-01-01T12:00:00Z","cwd":"/repo","title":"Refactor"}
+{"type":"model_change","timestamp":"2026-01-01T12:00:00Z","model":"anthropic/claude-x"}
+{"type":"message","id":"e1","timestamp":"2026-01-01T12:00:01Z","message":{"role":"user","content":[{"type":"text","text":"POURQUOI ÇA CASSE ENCORE ?? putain, tu as cassé le build"}]}}
+{"type":"message","id":"e2","timestamp":"2026-01-01T12:00:02Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"t1","name":"mcp__ctx__docs","arguments":{"q":"x"}}],"usage":{"input":3,"output":4,"cacheRead":5,"cacheWrite":6,"cost":{"total":0.5}},"duration":1200,"ttft":300,"stopReason":"toolUse"}}
+{"type":"message","id":"e3","timestamp":"2026-01-01T12:00:03Z","message":{"role":"toolResult","toolCallId":"t1","isError":true,"content":[{"type":"text","text":"no"}]}}
+{"type":"message","id":"e4","timestamp":"2026-01-01T12:00:04Z","message":{"role":"assistant","provider":"openai","model":"gpt-x","content":[],"usage":{"input":100,"output":10,"cacheRead":0,"cacheWrite":0,"cost":{"total":0}},"stopReason":"stop"}}
+{"type":"message","id":"e5","timestamp":"2026-01-01T12:00:05Z","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"429"}}

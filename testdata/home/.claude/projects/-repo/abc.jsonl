@@ -1,0 +1,12 @@
+{"type":"custom-title","customTitle":"Fix login"}
+{"type":"user","uuid":"u1","timestamp":"2026-01-01T10:00:00Z","cwd":"/repo","message":{"role":"user","content":"Fix the login bug"}}
+{"type":"user","uuid":"u0","isMeta":true,"timestamp":"2026-01-01T10:00:00Z","message":{"role":"user","content":"injected"}}
+{"type":"api-request","id":"rq1","timestamp":"2026-01-01T10:00:01Z"}
+{"type":"assistant","requestRef":"rq1","timestamp":"2026-01-01T10:00:02Z","message":{"id":"m1","model":"claude-x","content":[{"type":"thinking","thinking":"…"}],"usage":{"input_tokens":5,"output_tokens":7,"cache_read_input_tokens":100,"cache_creation_input_tokens":20,"cache_creation":{"ephemeral_1h_input_tokens":20}}}}
+{"type":"assistant","requestRef":"rq1","timestamp":"2026-01-01T10:00:04Z","message":{"id":"m1","model":"claude-x","stop_reason":"tool_use","content":[{"type":"tool_use","id":"t1","name":"mcp__grace__review","input":{"a":1}}],"usage":{"input_tokens":5,"output_tokens":7,"cache_read_input_tokens":100,"cache_creation_input_tokens":20,"cache_creation":{"ephemeral_1h_input_tokens":20}}}}
+{not json
+{"type":"user","uuid":"u3","timestamp":"2026-01-01T10:00:06Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"boom","is_error":true}]}}
+{"type":"user","uuid":"u4","timestamp":"2026-01-01T10:00:07Z","message":{"role":"user","content":"Fix the login bug"}}
+{"type":"assistant","timestamp":"2026-01-01T10:00:08Z","message":{"id":"m2","model":"claude-x","stop_reason":"end_turn","content":[{"type":"tool_use","id":"t2","name":"Read","input":{"p":"x"}}],"usage":{"input_tokens":50,"output_tokens":70,"cache_read_input_tokens":1000,"cache_creation_input_tokens":0}}}
+{"type":"user","uuid":"u5","timestamp":"2026-01-01T10:00:09Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","content":"file body"}]}}
+{"type":"assistant","isApiErrorMessage":true,"timestamp":"2026-01-01T10:00:10Z","message":{"id":"e1","model":"<synthetic>","content":[{"type":"text","text":"overloaded"}]}}

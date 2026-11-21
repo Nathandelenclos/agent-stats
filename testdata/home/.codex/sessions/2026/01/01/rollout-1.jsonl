@@ -1,0 +1,11 @@
+{"timestamp":"2026-01-01T11:00:00Z","type":"session_meta","payload":{"id":"fork","forked_from_id":"orig","cwd":"/repo"}}
+{"timestamp":"2026-01-01T11:00:00Z","type":"session_meta","payload":{"id":"orig","cwd":"/elsewhere"}}
+{"timestamp":"2026-01-01T11:00:00Z","type":"turn_context","payload":{"model":"gpt-x"}}
+{"timestamp":"2026-01-01T11:00:01Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","id":"i1","content":[{"type":"text","text":"Run the tests!!"}]}}}
+{"timestamp":"2026-01-01T11:00:02Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","call_id":"c0","arguments":"{}"}}
+{"timestamp":"2026-01-01T11:00:02Z","type":"response_item","payload":{"type":"function_call","name":"wait","call_id":"c1","arguments":"{\"ms\":1}"}}
+{"timestamp":"2026-01-01T11:00:03Z","type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"done"}}
+{"timestamp":"2026-01-01T11:00:04Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","id":"x1","command":["go","test"],"aggregated_output":"FAIL","exit_code":1,"duration":{"secs":1,"nanos":500000000}}}}
+{"timestamp":"2026-01-01T11:00:05Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"McpToolCall","id":"x2","server":"github","tool":"get_issue","arguments":{"n":1},"result":{"ok":true},"status":"completed"}}}
+{"timestamp":"2026-01-01T11:00:06Z","type":"token_usage_record","payload":{"response_id":"r1","usage":{"input_tokens":1000,"cached_input_tokens":800,"output_tokens":50,"reasoning_output_tokens":10}}}
+{"timestamp":"2026-01-01T11:00:06Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000},"last_token_usage":{"input_tokens":1000}}}}
