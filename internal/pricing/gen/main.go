@@ -12,6 +12,8 @@ import (
 	"os"
 	"sort"
 	"time"
+
+	"github.com/Nathandelenclos/agent-stats/internal/usage"
 )
 
 const (
@@ -39,8 +41,8 @@ func main() {
 		if json.Unmarshal(msg, &e) != nil || e.InputCostPerToken == 0 || (e.Mode != "chat" && e.Mode != "responses") {
 			continue
 		}
-		if e.InputCostPerToken < 0 || e.OutputCostPerToken < 0 || e.CacheReadCostPerToken < 0 || e.CacheWriteCostPerToken < 0 {
-			log.Printf("skipping %s: negative price", name)
+		if _, err := usage.NewRates(e.InputCostPerToken, e.OutputCostPerToken, e.CacheReadCostPerToken, e.CacheWriteCostPerToken); err != nil {
+			log.Printf("skipping %s: %v", name, err)
 			continue
 		}
 		out[name] = [4]float64{e.InputCostPerToken, e.OutputCostPerToken, e.CacheReadCostPerToken, e.CacheWriteCostPerToken}

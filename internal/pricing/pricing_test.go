@@ -39,3 +39,15 @@ func TestOverrideRefusesNegativeRates(t *testing.T) {
 		t.Errorf("negative rate accepted: %v", err)
 	}
 }
+
+func TestOverrideRefusesMalformedEntries(t *testing.T) {
+	for _, body := range []string{`{"m": null}`, `{"m": [1, 2]}`, `{"m": [1, 2, 3, 4, 5]}`} {
+		path := filepath.Join(t.TempDir(), "prices.json")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(path); !errors.Is(err, usage.ErrInvalidRates) {
+			t.Errorf("%s accepted: %v", body, err)
+		}
+	}
+}

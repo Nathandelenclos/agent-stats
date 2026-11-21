@@ -40,12 +40,15 @@ func Load(path string) (usage.PriceList, error) {
 }
 
 func decode(raw []byte) (usage.PriceList, error) {
-	var table map[string][4]float64
+	var table map[string][]float64
 	if err := json.Unmarshal(raw, &table); err != nil {
 		return nil, err
 	}
 	list := make(usage.PriceList, len(table))
 	for model, r := range table {
+		if len(r) != 4 {
+			return nil, fmt.Errorf("model %q: %w: want [input, output, cacheRead, cacheWrite]", model, usage.ErrInvalidRates)
+		}
 		rates, err := usage.NewRates(r[0], r[1], r[2], r[3])
 		if err != nil {
 			return nil, fmt.Errorf("model %q: %w", model, err)
