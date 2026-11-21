@@ -13,6 +13,7 @@ type (
 	Usage      = domain.Usage
 	UsageGroup = domain.UsageGroup
 	ToolUsage  = domain.ToolUsage
+	USD        = domain.USD
 )
 
 // Query asks for the report of activity since a time (zero: all) and optionally one harness (empty: all).

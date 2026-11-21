@@ -74,9 +74,14 @@ func ParsePi(harness kernel.Harness) Parser {
 		p.Session.ID = id
 		for dir := filepath.Dir(path); dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
 			if m := sessionDir.FindStringSubmatch(filepath.Base(dir)); m != nil {
-				parent, _ := domain.NewSessionID(harness, m[1]) // the pattern captures a non-empty uuid
+				parent, err := domain.NewSessionID(harness, m[1])
+				if err != nil {
+					return domain.Transcript{}, err
+				}
+				if p.Session.ID, err = parent.Subagent(stem); err != nil {
+					return domain.Transcript{}, err
+				}
 				p.Session.ParentID = parent
-				p.Session.ID, _ = parent.Subagent(stem) // stem is not empty: checked above
 				p.Session.AgentType = domain.Subagent
 				break
 			}

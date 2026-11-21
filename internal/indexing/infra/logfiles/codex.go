@@ -103,13 +103,13 @@ func ParseCodex(path string, r io.Reader) (domain.Transcript, error) {
 		switch l.Type {
 		case "session_meta":
 			// A forked rollout replays its origin's session_meta after its own: the first one is this file's.
-			if p.Session.ID != "" {
+			if !p.Session.ID.IsZero() {
 				return
 			}
 			if id, err := domain.NewSessionID(kernel.Codex, pl.ID); err == nil {
 				p.Session.ID = id
-			} else {
-				p.Session.ID = codexFileID(path)
+			} else if id, err := codexFileID(path); err == nil {
+				p.Session.ID = id
 			}
 			if parent, err := domain.NewSessionID(kernel.Codex, pl.ForkedFrom); err == nil {
 				p.Session.ParentID = parent
@@ -175,8 +175,12 @@ func ParseCodex(path string, r io.Reader) (domain.Transcript, error) {
 	if len(p.Requests) == 0 {
 		p.Requests = fallback
 	}
-	if p.Session.ID == "" {
-		p.Session.ID = codexFileID(path)
+	if p.Session.ID.IsZero() {
+		id, idErr := codexFileID(path)
+		if idErr != nil {
+			return domain.Transcript{}, idErr
+		}
+		p.Session.ID = id
 	}
 	p.TitleFromFirstPrompt()
 	return *p, err
@@ -225,8 +229,7 @@ func codexItem(p *domain.Transcript, ts time.Time, pl *codexPayload) {
 	p.Tools = append(p.Tools, t)
 }
 
-// codexFileID names a session after its rollout file ("rollout-…", never empty) when the log carries no session id.
-func codexFileID(path string) domain.SessionID {
-	id, _ := domain.NewSessionID(kernel.Codex, strings.SplitN(filepath.Base(path), ".", 2)[0])
-	return id
+// codexFileID names a session after its rollout file when the log carries no session id.
+func codexFileID(path string) (domain.SessionID, error) {
+	return domain.NewSessionID(kernel.Codex, strings.SplitN(filepath.Base(path), ".", 2)[0])
 }

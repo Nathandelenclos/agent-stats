@@ -17,6 +17,7 @@ import (
 
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	"github.com/Nathandelenclos/agent-stats/internal/platform/files"
 )
 
 // Limits on what one log may cost to read. Logs are written by other programs: a corrupt or hostile
@@ -54,23 +55,10 @@ func ParseFile(path string, p Parser) (domain.Transcript, error) {
 }
 
 // ErrNotRegular reports a log path that is not a regular file (a FIFO, a device…).
-var ErrNotRegular = errors.New("not a regular file")
+var ErrNotRegular = files.ErrNotRegular
 
-// openRegular opens path for reading and refuses anything but a regular file, checked on the opened descriptor.
-func openRegular(path string) (*os.File, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
-		f.Close()
-		if err == nil {
-			err = ErrNotRegular
-		}
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	return f, nil
-}
+// openRegular opens a file another program wrote, refusing anything but a regular file without blocking.
+func openRegular(path string) (*os.File, error) { return files.OpenRegular(path) }
 
 // capped fails with ErrLogTooLarge instead of reading past its limit.
 type capped struct {

@@ -9,8 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 
+	"github.com/Nathandelenclos/agent-stats/internal/platform/files"
 	"github.com/Nathandelenclos/agent-stats/internal/pricing/domain"
 )
 
@@ -49,14 +49,11 @@ func Load(path string) (domain.PriceList, error) {
 
 // readOverride reads a regular file of at most maxOverrideBytes.
 func readOverride(path string) ([]byte, error) {
-	f, err := os.Open(path)
+	f, err := files.OpenRegular(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s: not a regular file", path)
-	}
 	raw, err := io.ReadAll(io.LimitReader(f, maxOverrideBytes+1))
 	if err != nil {
 		return nil, err

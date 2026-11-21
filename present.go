@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
+	"unicode"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
@@ -62,15 +64,15 @@ func toJSON(r reporting.Report) jsonReport {
 	out := jsonReport{Total: usageJSON(r.Total), ByHarness: groups(r.ByHarness), ByModel: groups(r.ByModel),
 		ByFolder: groups(r.ByFolder), ByAgent: groups(r.ByAgent)}
 	for _, t := range r.Tools {
-		out.Tools = append(out.Tools, jsonTool{t.Name, t.Server, t.Calls, t.Errors, t.ArgsChars, t.ResultChars, t.AvgMs,
-			kernel.UnixMilli(t.Last)})
+		out.Tools = append(out.Tools, jsonTool{t.Name, t.Server, t.Calls, t.Errors, t.ArgsChars, t.ResultChars,
+			float64(t.AvgDuration), kernel.UnixMilli(t.Last)})
 	}
 	return out
 }
 
 func usageJSON(u reporting.Usage) jsonUsage {
-	return jsonUsage{u.Requests, u.Failed, u.Input, u.Output, u.CacheRead, u.CacheWrite, u.CostUSD, u.Unpriced,
-		u.AvgDurationMs, u.AvgTTFTMs, u.CacheRate(), kernel.UnixMilli(u.First), kernel.UnixMilli(u.Last)}
+	return jsonUsage{u.Requests, u.Failed, u.Input, u.Output, u.CacheRead, u.CacheWrite, float64(u.Cost), u.Unpriced,
+		float64(u.AvgDuration), float64(u.AvgTTFT), u.CacheRate(), kernel.UnixMilli(u.First), kernel.UnixMilli(u.Last)}
 }
 
 func printReport(r reporting.Report) {
@@ -80,7 +82,7 @@ func printReport(r reporting.Report) {
 		return
 	}
 	fmt.Printf("%s requests (%s failed) · %s · %s in / %s out · cache %.0f%% · %s → %s\n",
-		num(t.Requests), num(t.Failed), usd(t.CostUSD), num(t.Input+t.CacheRead+t.CacheWrite), num(t.Output), t.CacheRate()*100,
+		num(t.Requests), num(t.Failed), usd(t.Cost), num(t.InputWithCache()), num(t.Output), t.CacheRate()*100,
 		day(t.First), day(t.Last))
 	if t.Unpriced > 0 {
 		fmt.Printf("%s requests have no known price (pass --prices to add them)\n", num(t.Unpriced))
@@ -97,7 +99,7 @@ func printReport(r reporting.Report) {
 		if i == 20 {
 			break
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t\n", x.Name, x.Server, num(x.Calls), num(x.Errors), num(x.ResultChars))
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t\n", printable(x.Name), printable(x.Server), num(x.Calls), num(x.Errors), num(x.ResultChars))
 	}
 	w.Flush()
 }
@@ -111,8 +113,19 @@ func usageTable(title string, rows []reporting.UsageGroup, limit int) {
 			fmt.Fprintf(w, "… %d more\t\t\t\t\t\t\t\n", len(rows)-limit)
 			break
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%.0f%%\t%s\t\n", shorten(x.Group, 50), num(x.Requests), num(x.Failed),
-			num(x.Input+x.CacheRead+x.CacheWrite), num(x.Output), x.CacheRate()*100, usd(x.CostUSD))
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%.0f%%\t%s\t\n", shorten(printable(x.Group), 50), num(x.Requests), num(x.Failed),
+			num(x.InputWithCache()), num(x.Output), x.CacheRate()*100, usd(x.Cost))
 	}
 	w.Flush()
+}
+
+// printable replaces control characters (escape sequences, tabs, newlines) in text read from session logs,
+// so a log cannot drive the terminal or break the table.
+func printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return '\uFFFD'
+		}
+		return r
+	}, s)
 }

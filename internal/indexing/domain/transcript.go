@@ -13,43 +13,58 @@ import (
 )
 
 // SessionID identifies a session across harnesses: "<harness>:<native id>", and "<parent id>/<name>" for a subagent.
-type SessionID string
+// Build it with NewSessionID; the zero SessionID means "none".
+type SessionID struct {
+	id string
+}
+
+// String returns the identity as stored: "<harness>:<native id>[/<name>]".
+func (id SessionID) String() string { return id.id }
+
+// IsZero reports the zero SessionID.
+func (id SessionID) IsZero() bool { return id.id == "" }
 
 // ErrEmptySessionID reports a missing native session id or subagent name.
 var ErrEmptySessionID = errors.New("empty session id")
 
 // NewSessionID returns the identity of a session that harness h names native.
 func NewSessionID(h kernel.Harness, native string) (SessionID, error) {
-	if native == "" {
-		return "", fmt.Errorf("%w for %s", ErrEmptySessionID, h)
+	if native == "" || h.IsZero() {
+		return SessionID{}, fmt.Errorf("%w for %q", ErrEmptySessionID, h)
 	}
-	return SessionID(string(h) + ":" + native), nil
+	return SessionID{h.String() + ":" + native}, nil
 }
 
 // Subagent returns the identity of the subagent session called name inside this session.
 func (id SessionID) Subagent(name string) (SessionID, error) {
-	if name == "" {
-		return "", fmt.Errorf("%w: subagent of %s", ErrEmptySessionID, id)
+	if name == "" || id.IsZero() {
+		return SessionID{}, fmt.Errorf("%w: subagent %q of %q", ErrEmptySessionID, name, id.id)
 	}
-	return SessionID(string(id) + "/" + name), nil
+	return SessionID{id.id + "/" + name}, nil
 }
 
 // AgentType tells a main conversation from a subagent; harnesses that name their subagent types use that name.
-type AgentType string
+// Use MainAgent, Subagent or ParseAgentType.
+type AgentType struct {
+	name string
+}
 
-const (
-	MainAgent AgentType = "main"
-	Subagent  AgentType = "subagent"
+var (
+	MainAgent = AgentType{"main"}
+	Subagent  = AgentType{"subagent"}
 )
+
+// String returns the agent type name.
+func (t AgentType) String() string { return t.name }
 
 var declaredAgentType = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 _.:-]{0,63}$`)
 
 // ParseAgentType accepts the subagent type a harness declares: a short name such as "Explore" or "code-reviewer".
 func ParseAgentType(name string) (AgentType, bool) {
 	if !declaredAgentType.MatchString(name) {
-		return "", false
+		return AgentType{}, false
 	}
-	return AgentType(name), true
+	return AgentType{name}, true
 }
 
 // Session is one conversation with an agent harness.

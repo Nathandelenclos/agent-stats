@@ -9,15 +9,24 @@ import (
 	"time"
 )
 
-// Harness is a coding agent whose session logs are read.
-type Harness string
+// Harness is a coding agent whose session logs are read. The zero Harness means "no harness";
+// the others are the variables below or the result of ParseHarness.
+type Harness struct {
+	name string
+}
 
-const (
-	Claude Harness = "claude"
-	Codex  Harness = "codex"
-	OMP    Harness = "omp"
-	Pi     Harness = "pi"
+var (
+	Claude = Harness{"claude"}
+	Codex  = Harness{"codex"}
+	OMP    = Harness{"omp"}
+	Pi     = Harness{"pi"}
 )
+
+// String returns the harness name.
+func (h Harness) String() string { return h.name }
+
+// IsZero reports the zero Harness, which stands for no harness in particular.
+func (h Harness) IsZero() bool { return h.name == "" }
 
 // Harnesses lists every supported harness.
 var Harnesses = []Harness{Claude, Codex, OMP, Pi}
@@ -28,11 +37,11 @@ var ErrUnknownHarness = errors.New("unknown harness")
 // ParseHarness accepts one of the supported harness names.
 func ParseHarness(name string) (Harness, error) {
 	for _, h := range Harnesses {
-		if string(h) == name {
+		if h.name == name {
 			return h, nil
 		}
 	}
-	return "", fmt.Errorf("%w %q: use claude, codex, omp or pi", ErrUnknownHarness, name)
+	return Harness{}, fmt.Errorf("%w %q: use claude, codex, omp or pi", ErrUnknownHarness, name)
 }
 
 // MaxTokenCount bounds one count of one request: far above any model's window (largest seen on real
@@ -67,14 +76,14 @@ func NewTokens(c TokenCounts) (Tokens, error) {
 	if c.CacheWrite1h > c.CacheWrite {
 		return Tokens{}, fmt.Errorf("%w: 1-hour cache writes over cache writes", ErrInvalidTokens)
 	}
+	if c.Reasoning > c.Output {
+		return Tokens{}, fmt.Errorf("%w: reasoning over output", ErrInvalidTokens)
+	}
 	return Tokens{c}, nil
 }
 
 // Counts returns a copy of the counts.
 func (t Tokens) Counts() TokenCounts { return t.counts }
-
-// Prompt is every token of the prompt: uncached, read from cache and written to cache.
-func (t Tokens) Prompt() int64 { return t.counts.Input + t.counts.CacheRead + t.counts.CacheWrite }
 
 // MaxRequestCost bounds the cost of one request (largest seen on real logs: about 10 USD).
 const MaxRequestCost = 1e6

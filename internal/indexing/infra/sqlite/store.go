@@ -57,9 +57,15 @@ type SQLiteIndex struct {
 
 var _ application.TranscriptStore = (*SQLiteIndex)(nil)
 
-// Open creates or opens the index at path. user ("name@host") is recorded on every session.
-// The index holds prompt texts, so it is readable by its owner only.
-func Open(path, user string) (*SQLiteIndex, error) {
+// Options locate the index and name who it belongs to.
+type Options struct {
+	Path string // the SQLite file
+	User string // "name@host", recorded on every session
+}
+
+// Open creates or opens the index. It holds prompt texts, so it is readable by its owner only.
+func Open(o Options) (*SQLiteIndex, error) {
+	path := o.Path
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
@@ -75,7 +81,7 @@ func Open(path, user string) (*SQLiteIndex, error) {
 		db.Close()
 		return nil, err
 	}
-	return &SQLiteIndex{db: db, user: user}, nil
+	return &SQLiteIndex{db: db, user: o.User}, nil
 }
 
 // private creates path if needed and restricts it, and SQLite's companion files, to their owner.
@@ -107,8 +113,12 @@ func (s *SQLiteIndex) IndexedFiles() (map[string]application.LogFile, error) {
 	known := map[string]application.LogFile{}
 	for rows.Next() {
 		var f application.LogFile
+		var harness string
 		var mtime int64
-		if err := rows.Scan(&f.Path, &f.Harness, &f.Size, &mtime); err != nil {
+		if err := rows.Scan(&f.Path, &harness, &f.Size, &mtime); err != nil {
+			return nil, err
+		}
+		if f.Harness, err = kernel.ParseHarness(harness); err != nil {
 			return nil, err
 		}
 		f.ModTime = time.Unix(0, mtime)
@@ -133,7 +143,7 @@ func (s *SQLiteIndex) Save(file application.LogFile, t application.IndexedTransc
 	}
 	ss := t.Session
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO sessions VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		string(ss.ID), path, file.Harness, nullStr(string(ss.ParentID)), ss.AgentType, ss.Title, ss.Folder, s.user,
+		ss.ID.String(), path, file.Harness.String(), nullStr(ss.ParentID.String()), ss.AgentType.String(), ss.Title, ss.Folder, s.user,
 		kernel.UnixMilli(ss.Start), kernel.UnixMilli(ss.End)); err != nil {
 		return err
 	}
@@ -144,7 +154,7 @@ func (s *SQLiteIndex) Save(file application.LogFile, t application.IndexedTransc
 	}
 	for i, r := range t.Requests {
 		c, n := t.Costs[i], r.Tokens.Counts()
-		if _, err := reqStmt.Exec(path, r.Key, string(ss.ID), kernel.UnixMilli(r.At), r.Model, r.Provider, n.Input, n.Output, n.CacheRead, n.CacheWrite, n.Reasoning,
+		if _, err := reqStmt.Exec(path, r.Key, ss.ID.String(), kernel.UnixMilli(r.At), r.Model, r.Provider, n.Input, n.Output, n.CacheRead, n.CacheWrite, n.Reasoning,
 			c.Cost.USD(), c.Priced, nullMillis(r.Duration), nullMillis(r.TTFT), r.StopReason, nullStr(r.Failure)); err != nil {
 			return err
 		}
@@ -155,7 +165,7 @@ func (s *SQLiteIndex) Save(file application.LogFile, t application.IndexedTransc
 		return err
 	}
 	for _, c := range t.Tools {
-		if _, err := toolStmt.Exec(path, c.Key, string(ss.ID), kernel.UnixMilli(c.At), c.Name, c.Server, c.ArgsChars, c.ResultChars, c.IsError, nullMillis(c.Duration)); err != nil {
+		if _, err := toolStmt.Exec(path, c.Key, ss.ID.String(), kernel.UnixMilli(c.At), c.Name, c.Server, c.ArgsChars, c.ResultChars, c.IsError, nullMillis(c.Duration)); err != nil {
 			return err
 		}
 	}
@@ -166,13 +176,13 @@ func (s *SQLiteIndex) Save(file application.LogFile, t application.IndexedTransc
 	}
 	for i, pr := range t.Prompts {
 		sig := t.Signals[i]
-		if _, err := promptStmt.Exec(path, pr.Key, string(ss.ID), kernel.UnixMilli(pr.At), pr.Text, sig.Chars, sig.Words, sig.Yelling, sig.Profanity,
+		if _, err := promptStmt.Exec(path, pr.Key, ss.ID.String(), kernel.UnixMilli(pr.At), pr.Text, sig.Chars, sig.Words, sig.Yelling, sig.Profanity,
 			sig.Anguish, sig.Negation, sig.Repeated, sig.Blame); err != nil {
 			return err
 		}
 	}
 
-	if _, err := tx.Exec(`INSERT OR REPLACE INTO files VALUES (?,?,?,?)`, path, file.Harness, file.Size, file.ModTime.UnixNano()); err != nil {
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO files VALUES (?,?,?,?)`, path, file.Harness.String(), file.Size, file.ModTime.UnixNano()); err != nil {
 		return err
 	}
 	return tx.Commit()

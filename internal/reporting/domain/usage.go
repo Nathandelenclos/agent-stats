@@ -24,25 +24,34 @@ const (
 	ByAgentType
 )
 
+// USD is a sum of request costs in US dollars.
+type USD float64
+
+// Milliseconds is an average duration in milliseconds, as the index computes it (not rounded).
+type Milliseconds float64
+
 // Usage aggregates model requests.
 type Usage struct {
-	Requests      int64
-	Failed        int64
-	Input         int64
-	Output        int64
-	CacheRead     int64
-	CacheWrite    int64
-	CostUSD       float64
-	Unpriced      int64 // requests whose model has no known price
-	AvgDurationMs float64
-	AvgTTFTMs     float64
-	First, Last   time.Time
+	Requests    int64
+	Failed      int64
+	Input       int64 // uncached input tokens
+	Output      int64
+	CacheRead   int64
+	CacheWrite  int64
+	Cost        USD
+	Unpriced    int64 // requests whose model has no known price
+	AvgDuration Milliseconds
+	AvgTTFT     Milliseconds
+	First, Last time.Time
 }
 
-// CacheRate is the share of prompt tokens served from cache, 0 when there was no prompt.
+// InputWithCache counts every input token: uncached, read from cache and written to cache.
+func (u Usage) InputWithCache() int64 { return u.Input + u.CacheRead + u.CacheWrite }
+
+// CacheRate is the share of input tokens read from cache, 0 when there was no input.
 func (u Usage) CacheRate() float64 {
-	if prompt := u.Input + u.CacheRead + u.CacheWrite; prompt > 0 {
-		return float64(u.CacheRead) / float64(prompt)
+	if in := u.InputWithCache(); in > 0 {
+		return float64(u.CacheRead) / float64(in)
 	}
 	return 0
 }
@@ -61,6 +70,6 @@ type ToolUsage struct {
 	Errors      int64
 	ArgsChars   int64
 	ResultChars int64
-	AvgMs       float64
+	AvgDuration Milliseconds
 	Last        time.Time
 }

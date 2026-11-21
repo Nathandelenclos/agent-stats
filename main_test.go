@@ -56,7 +56,7 @@ func TestReportApproved(t *testing.T) {
 		"gpt-x":    mustRates(t, pricing.RatesPerToken{Input: 1.25e-6, Output: 10e-6, CacheRead: 0.125e-6}),
 	}
 	dbPath := filepath.Join(t.TempDir(), "index.db")
-	index, err := sqlite.Open(dbPath, "me@host")
+	index, err := sqlite.Open(sqlite.Options{Path: dbPath, User: "me@host"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,5 +137,11 @@ func TestFormatting(t *testing.T) {
 	}
 	if got := shorten("/very/long/path", 6); got != "…/path" {
 		t.Errorf("shorten = %q", got)
+	}
+}
+
+func TestPrintableNeutralisesControlCharacters(t *testing.T) {
+	if got := printable("mcp\x1b[31mred\ttab\nline é"); got != "mcp�[31mred�tab�line é" {
+		t.Errorf("printable = %q", got)
 	}
 }

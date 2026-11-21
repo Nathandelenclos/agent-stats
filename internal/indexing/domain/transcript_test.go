@@ -11,10 +11,10 @@ import (
 
 func TestSessionIDs(t *testing.T) {
 	id, err := NewSessionID(kernel.Claude, "s1")
-	if err != nil || id != "claude:s1" {
+	if err != nil || id.String() != "claude:s1" {
 		t.Fatalf("id = %q %v", id, err)
 	}
-	if sub, err := id.Subagent("agent-a1"); err != nil || sub != "claude:s1/agent-a1" {
+	if sub, err := id.Subagent("agent-a1"); err != nil || sub.String() != "claude:s1/agent-a1" {
 		t.Errorf("subagent = %q %v", sub, err)
 	}
 	if _, err := NewSessionID(kernel.Codex, ""); !errors.Is(err, ErrEmptySessionID) {
@@ -22,6 +22,12 @@ func TestSessionIDs(t *testing.T) {
 	}
 	if _, err := id.Subagent(""); !errors.Is(err, ErrEmptySessionID) {
 		t.Errorf("empty subagent name accepted: %v", err)
+	}
+	if _, err := (SessionID{}).Subagent("x"); !errors.Is(err, ErrEmptySessionID) {
+		t.Errorf("subagent of no session accepted: %v", err)
+	}
+	if _, err := NewSessionID(kernel.Harness{}, "x"); !errors.Is(err, ErrEmptySessionID) {
+		t.Errorf("session of no harness accepted: %v", err)
 	}
 }
 

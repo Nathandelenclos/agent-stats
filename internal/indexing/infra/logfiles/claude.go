@@ -70,8 +70,10 @@ func ParseClaude(path string, r io.Reader) (domain.Transcript, error) {
 		if err != nil {
 			return domain.Transcript{}, err
 		}
+		if p.Session.ID, err = parent.Subagent(base); err != nil {
+			return domain.Transcript{}, err
+		}
 		p.Session.ParentID = parent
-		p.Session.ID, _ = parent.Subagent(base) // base is not empty: checked above
 		p.Session.AgentType = claudeAgentType(strings.TrimSuffix(path, ".jsonl") + ".meta.json")
 	}
 	invalid := map[string]bool{} // message ids whose token counts are impossible

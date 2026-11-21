@@ -59,7 +59,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	index, err := sqlite.Open(*dbPath, currentUser())
+	index, err := sqlite.Open(sqlite.Options{Path: *dbPath, User: currentUser()})
 	if err != nil {
 		return err
 	}
@@ -142,7 +142,7 @@ func num(n int64) string {
 	return s
 }
 
-func usd(f float64) string { return fmt.Sprintf("$%.2f", f) }
+func usd(c reporting.USD) string { return fmt.Sprintf("$%.2f", float64(c)) }
 
 // day formats t as a date, an unknown time reading as the Unix epoch.
 func day(t time.Time) string {

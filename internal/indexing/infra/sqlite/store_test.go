@@ -13,7 +13,7 @@ import (
 
 func open(t *testing.T) *SQLiteIndex {
 	t.Helper()
-	s, err := Open(filepath.Join(t.TempDir(), "index.db"), "me@host")
+	s, err := Open(Options{Path: filepath.Join(t.TempDir(), "index.db"), User: "me@host"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +24,12 @@ func open(t *testing.T) *SQLiteIndex {
 // hostile carries SQL metacharacters in every text value that reaches the database.
 const hostile = `o'brian"; DROP TABLE requests; --`
 
-func transcript(sessionID domain.SessionID, at time.Time) application.IndexedTranscript {
+func transcript(t *testing.T, native string, at time.Time) application.IndexedTranscript {
+	t.Helper()
+	sessionID, err := domain.NewSessionID(kernel.Claude, native)
+	if err != nil {
+		t.Fatal(err)
+	}
 	tokens, _ := kernel.NewTokens(kernel.TokenCounts{Input: 1000, Output: 100})
 	cost, _ := kernel.NewCost(2)
 	return application.IndexedTranscript{
@@ -44,7 +49,7 @@ func TestSaveKeepsValuesAsData(t *testing.T) {
 	s := open(t)
 	at := time.UnixMilli(1767261600000)
 	f := application.LogFile{Path: "/logs/" + hostile + ".jsonl", Harness: kernel.Claude, Size: 10, ModTime: time.Unix(0, 1767261600123456789)}
-	if err := s.Save(f, transcript("claude:s1", at)); err != nil {
+	if err := s.Save(f, transcript(t, "s1", at)); err != nil {
 		t.Fatal(err)
 	}
 	var model, file string
@@ -70,7 +75,7 @@ func TestMovedLogIsNotCountedTwice(t *testing.T) {
 	s := open(t)
 	at := time.UnixMilli(1767261600000)
 	for _, path := range []string{"/logs/sessions/s1.jsonl", "/logs/archived/s1.jsonl"} {
-		if err := s.Save(application.LogFile{Path: path, Harness: kernel.Claude}, transcript("claude:s1", at)); err != nil {
+		if err := s.Save(application.LogFile{Path: path, Harness: kernel.Claude}, transcript(t, "s1", at)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -83,12 +88,12 @@ func TestMovedLogIsNotCountedTwice(t *testing.T) {
 func TestIndexIsPrivate(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "cache", "agent-stats")
 	path := filepath.Join(dir, "index.db")
-	s, err := Open(path, "me@host")
+	s, err := Open(Options{Path: path, User: "me@host"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if err := s.Save(application.LogFile{Path: "/l.jsonl", Harness: kernel.Claude}, transcript("claude:s1", time.UnixMilli(1))); err != nil {
+	if err := s.Save(application.LogFile{Path: "/l.jsonl", Harness: kernel.Claude}, transcript(t, "s1", time.UnixMilli(1))); err != nil {
 		t.Fatal(err)
 	}
 	for _, p := range []string{dir, path, path + "-wal", path + "-shm"} {
@@ -106,7 +111,7 @@ func TestIndexIsPrivate(t *testing.T) {
 	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	s2, err := Open(path, "me@host")
+	s2, err := Open(Options{Path: path, User: "me@host"})
 	if err != nil {
 		t.Fatal(err)
 	}

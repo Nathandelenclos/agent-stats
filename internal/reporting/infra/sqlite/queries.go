@@ -52,8 +52,8 @@ func where(f report.Filter, tsCol string) (string, []any) {
 	if !f.Since.IsZero() {
 		conds, args = append(conds, tsCol+" >= ?"), append(args, kernel.UnixMilli(f.Since))
 	}
-	if f.Harness != "" {
-		conds, args = append(conds, "s.harness = ?"), append(args, string(f.Harness))
+	if !f.Harness.IsZero() {
+		conds, args = append(conds, "s.harness = ?"), append(args, f.Harness.String())
 	}
 	if len(conds) == 0 {
 		return "", nil
@@ -82,7 +82,7 @@ type usageRow struct {
 
 func (r *usageRow) args() []any {
 	return []any{&r.u.Requests, &r.u.Failed, &r.u.Input, &r.u.Output, &r.u.CacheRead, &r.u.CacheWrite,
-		&r.u.CostUSD, &r.u.Unpriced, &r.u.AvgDurationMs, &r.u.AvgTTFTMs, &r.first, &r.last}
+		&r.u.Cost, &r.u.Unpriced, &r.u.AvgDuration, &r.u.AvgTTFT, &r.first, &r.last}
 }
 
 func (r *usageRow) usage() report.Usage {
@@ -146,7 +146,7 @@ func (s *SQLiteUsage) Tools(f report.Filter) ([]report.ToolUsage, error) {
 	for rows.Next() {
 		var r report.ToolUsage
 		var last int64
-		if err := rows.Scan(&r.Name, &r.Server, &r.Calls, &r.Errors, &r.ArgsChars, &r.ResultChars, &r.AvgMs, &last); err != nil {
+		if err := rows.Scan(&r.Name, &r.Server, &r.Calls, &r.Errors, &r.ArgsChars, &r.ResultChars, &r.AvgDuration, &last); err != nil {
 			return nil, err
 		}
 		r.Last = fromMillis(last)

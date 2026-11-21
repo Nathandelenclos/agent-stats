@@ -1,14 +1,12 @@
 package sqlite
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	indexing "github.com/Nathandelenclos/agent-stats/internal/indexing/application"
-	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
-	index "github.com/Nathandelenclos/agent-stats/internal/indexing/infra/sqlite"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	report "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 )
@@ -16,28 +14,39 @@ import (
 // hostile carries SQL metacharacters in every text value that reaches the database.
 const hostile = `o'brian"; DROP TABLE requests; --`
 
-// indexed writes one session through the indexing context's adapter: this test checks the reader
-// against the schema that adapter publishes.
+// readModel is the part of the index this adapter reads: the indexing context's published read model.
+// contract_test.go at the module root checks it against the indexing adapter's real schema.
+const readModel = `
+CREATE TABLE sessions (id TEXT PRIMARY KEY, harness TEXT NOT NULL, agent_type TEXT NOT NULL, folder TEXT);
+CREATE TABLE requests (session_id TEXT NOT NULL, ts INTEGER NOT NULL, model TEXT NOT NULL,
+	input INTEGER NOT NULL, output INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL,
+	cost REAL NOT NULL, priced INTEGER NOT NULL, duration_ms REAL, ttft_ms REAL, error TEXT);
+CREATE TABLE tool_calls (session_id TEXT NOT NULL, ts INTEGER NOT NULL, name TEXT NOT NULL, server TEXT NOT NULL,
+	args_chars INTEGER NOT NULL, result_chars INTEGER NOT NULL, is_error INTEGER NOT NULL, duration_ms REAL);
+`
+
+// indexed writes one session into a fresh read model and returns the database path.
 func indexed(t *testing.T, at time.Time) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "index.db")
-	w, err := index.Open(path, "me@host")
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer w.Close()
-	tokens, _ := kernel.NewTokens(kernel.TokenCounts{Input: 1000, Output: 100})
-	cost, _ := kernel.NewCost(2)
-	err = w.Save(indexing.LogFile{Path: "/logs/s1.jsonl", Harness: kernel.Claude}, indexing.IndexedTranscript{
-		Transcript: domain.Transcript{
-			Session:  domain.Session{ID: "claude:s1", Harness: kernel.Claude, AgentType: domain.MainAgent, Folder: hostile, Start: at, End: at},
-			Requests: []domain.Request{{Key: "m1", At: at, Model: hostile, Tokens: tokens, Duration: 1500 * time.Millisecond}},
-			Tools:    []domain.ToolCall{{Key: "t1", At: at, Name: hostile, Server: "grace", IsError: true}},
-		},
-		Costs: []indexing.PricedCost{{Cost: cost, Priced: true}},
-	})
-	if err != nil {
-		t.Fatal(err)
+	defer db.Close()
+	ms := at.UnixMilli()
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{readModel, nil},
+		{`INSERT INTO sessions VALUES ('claude:s1', 'claude', 'main', ?)`, []any{hostile}},
+		{`INSERT INTO requests VALUES ('claude:s1', ?, ?, 1000, 100, 0, 0, 2, 1, 1500, NULL, NULL)`, []any{ms, hostile}},
+		{`INSERT INTO tool_calls VALUES ('claude:s1', ?, ?, 'grace', 0, 0, 1, NULL)`, []any{ms, hostile}},
+	} {
+		if _, err := db.Exec(stmt.sql, stmt.args...); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return path
 }
@@ -51,7 +60,7 @@ func TestQueriesReadTheIndex(t *testing.T) {
 	defer r.Close()
 
 	u, err := r.Total(report.Filter{})
-	if err != nil || u.Requests != 1 || u.CostUSD != 2 || u.Input != 1000 || u.AvgDurationMs != 1500 || !u.First.Equal(at) {
+	if err != nil || u.Requests != 1 || u.Cost != 2 || u.Input != 1000 || u.AvgDuration != 1500 || !u.First.Equal(at) {
 		t.Fatalf("total = %+v %v", u, err)
 	}
 	for _, d := range []report.Dimension{report.ByHarness, report.ByModel, report.ByFolder, report.ByAgentType} {
@@ -66,8 +75,8 @@ func TestQueriesReadTheIndex(t *testing.T) {
 		t.Errorf("tools = %+v %v", tools, err)
 	}
 	// A hostile harness filter is bound as a value: it matches nothing and breaks nothing.
-	if u, err := r.Total(report.Filter{Harness: kernel.Harness(hostile)}); err != nil || u.Requests != 0 {
-		t.Errorf("hostile harness filter = %+v %v", u, err)
+	if u, err := r.Total(report.Filter{Harness: kernel.Codex}); err != nil || u.Requests != 0 {
+		t.Errorf("other harness filter = %+v %v", u, err)
 	}
 	if u, _ := r.Total(report.Filter{Harness: kernel.Claude, Since: at.Add(time.Millisecond)}); u.Requests != 0 {
 		t.Errorf("since filter kept an older request: %+v", u)

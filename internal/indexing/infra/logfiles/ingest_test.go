@@ -37,7 +37,7 @@ func TestClaude(t *testing.T) {
 {"type":"assistant","isApiErrorMessage":true,"timestamp":"2026-01-01T10:00:07Z","message":{"id":"e1","model":"<synthetic>","content":[{"type":"text","text":"overloaded"}]}}
 `
 	p := parse(t, ParseClaude, "/x/projects/-repo/abc.jsonl", log)
-	if p.Session.ID != "claude:abc" || p.Session.Title != "Fix login" || p.Session.Folder != "/repo" {
+	if p.Session.ID.String() != "claude:abc" || p.Session.Title != "Fix login" || p.Session.Folder != "/repo" {
 		t.Errorf("session = %+v", p.Session)
 	}
 	if len(p.Prompts) != 1 || p.Prompts[0].Text != "Fix the login bug" {
@@ -73,7 +73,7 @@ func TestClaudeSubagent(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := parse(t, ParseClaude, filepath.Join(dir, "agent-a1.jsonl"), "")
-	if p.Session.ID != "claude:sess1/agent-a1" || p.Session.ParentID != "claude:sess1" || p.Session.AgentType != "Explore" {
+	if p.Session.ID.String() != "claude:sess1/agent-a1" || p.Session.ParentID.String() != "claude:sess1" || p.Session.AgentType.String() != "Explore" {
 		t.Errorf("session = %+v", p.Session)
 	}
 }
@@ -92,7 +92,7 @@ func TestCodex(t *testing.T) {
 {"timestamp":"2026-01-01T10:00:06Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000},"last_token_usage":{"input_tokens":1000}}}}
 `
 	p := parse(t, ParseCodex, "/x/rollout-1.jsonl", log)
-	if p.Session.ID != "codex:fork" || p.Session.ParentID != "codex:orig" || p.Session.Folder != "/repo" {
+	if p.Session.ID.String() != "codex:fork" || p.Session.ParentID.String() != "codex:orig" || p.Session.Folder != "/repo" {
 		t.Errorf("session = %+v", p.Session)
 	}
 	if len(p.Requests) != 1 {
@@ -131,7 +131,7 @@ func TestCodexTokenCountFallback(t *testing.T) {
 	if len(p.Requests) != 2 || p.Requests[1].Tokens.Counts().Input != 15 {
 		t.Errorf("want 2 requests (repeat skipped), got %+v", p.Requests)
 	}
-	if p.Session.ID != "codex:rollout-2" {
+	if p.Session.ID.String() != "codex:rollout-2" {
 		t.Errorf("fallback id = %s", p.Session.ID)
 	}
 }
@@ -147,7 +147,7 @@ func TestPi(t *testing.T) {
 	dir := filepath.Join("/x", "-repo", "2026-01-01T10-00-00-000Z_01a0b36b-c3dc-721d-97da-bbcb86adfadf", "Worker")
 	p := parse(t, ParsePi(kernel.OMP), filepath.Join(dir, "Worker.Task.jsonl"), log)
 	s := p.Session
-	if s.ParentID != "omp:01a0b36b-c3dc-721d-97da-bbcb86adfadf" || s.AgentType != "subagent" || s.Title != "Refactor" || s.Folder != "/repo" {
+	if s.ParentID.String() != "omp:01a0b36b-c3dc-721d-97da-bbcb86adfadf" || s.AgentType.String() != "subagent" || s.Title != "Refactor" || s.Folder != "/repo" {
 		t.Errorf("session = %+v", s)
 	}
 	if len(p.Requests) != 2 {
@@ -236,7 +236,7 @@ func TestCodexEmptySessionIDFallsBackToFileName(t *testing.T) {
 	log := `{"timestamp":"2026-01-01T10:00:00Z","type":"session_meta","payload":{"id":"","cwd":"/repo"}}
 {"timestamp":"2026-01-01T10:00:00Z","type":"session_meta","payload":{"id":"origin","cwd":"/elsewhere"}}
 `
-	if p := parse(t, ParseCodex, "/x/rollout-9.jsonl", log); p.Session.ID != "codex:rollout-9" || p.Session.Folder != "/repo" {
+	if p := parse(t, ParseCodex, "/x/rollout-9.jsonl", log); p.Session.ID.String() != "codex:rollout-9" || p.Session.Folder != "/repo" {
 		t.Errorf("session = %+v", p.Session)
 	}
 }
