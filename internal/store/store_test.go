@@ -1,6 +1,7 @@
 package store
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -95,5 +96,41 @@ func TestMovedLogIsNotCountedTwice(t *testing.T) {
 func TestUsageByRefusesUnknownDimension(t *testing.T) {
 	if _, err := open(t).UsageBy(app.Filter{}, app.Dimension(99)); err == nil {
 		t.Error("unknown dimension accepted")
+	}
+}
+
+func TestIndexIsPrivate(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "cache", "agent-stats")
+	path := filepath.Join(dir, "index.db")
+	s, err := Open(path, "me@host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.Save(app.LogFile{Path: "/l.jsonl", Harness: usage.Claude}, transcript("claude:s1", time.UnixMilli(1))); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{dir, path, path + "-wal", path + "-shm"} {
+		info, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm()&0o077 != 0 {
+			t.Errorf("%s is %v, want no group or other access", p, info.Mode().Perm())
+		}
+	}
+
+	// An index created by an older version is restricted when opened again.
+	s.Close()
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s2, err := Open(path, "me@host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
+		t.Errorf("reopened index is %v", info.Mode().Perm())
 	}
 }

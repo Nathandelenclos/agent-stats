@@ -55,8 +55,12 @@ type SQLiteIndex struct {
 var _ app.UsageIndex = (*SQLiteIndex)(nil)
 
 // Open creates or opens the index at path. user ("name@host") is recorded on every session.
+// The index holds prompt texts, so it is readable by its owner only.
 func Open(path, user string) (*SQLiteIndex, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	if err := private(path); err != nil {
 		return nil, err
 	}
 	db, err := sql.Open("sqlite", path)
@@ -69,6 +73,22 @@ func Open(path, user string) (*SQLiteIndex, error) {
 		return nil, err
 	}
 	return &SQLiteIndex{db: db, user: user}, nil
+}
+
+// private creates path if needed and restricts it, and SQLite's companion files, to their owner.
+// SQLite creates the -wal and -shm files with the permissions of the database file.
+func private(path string) error {
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return err
+	}
+	f.Close()
+	for _, p := range []string{path, path + "-wal", path + "-shm"} {
+		if err := os.Chmod(p, 0o600); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
 }
 
 // Close closes the database.
