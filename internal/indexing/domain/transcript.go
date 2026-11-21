@@ -106,6 +106,19 @@ func LoggedDuration(ms float64) time.Duration {
 	return time.Duration(math.Round(ms * float64(time.Millisecond)))
 }
 
+// Elapsed is the time from start to end at millisecond precision, as two log timestamps state it;
+// 0 (unknown) when either is missing, or the gap is negative or over MaxLoggedDuration.
+func Elapsed(start, end time.Time) time.Duration {
+	if start.IsZero() || end.IsZero() {
+		return 0
+	}
+	ms := end.UnixMilli() - start.UnixMilli()
+	if ms <= 0 || ms > int64(MaxLoggedDuration/time.Millisecond) {
+		return 0
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
 // UnspecifiedFailure is the failure of a request whose log says it failed without saying why.
 const UnspecifiedFailure = "error"
 

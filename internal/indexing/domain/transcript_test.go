@@ -126,3 +126,22 @@ func TestLoggedDurationBounds(t *testing.T) {
 		}
 	}
 }
+
+func TestElapsedBounds(t *testing.T) {
+	t0 := time.UnixMilli(1767261600000)
+	for name, c := range map[string]struct {
+		start, end time.Time
+		want       time.Duration
+	}{
+		"normal":        {t0, t0.Add(1500 * time.Millisecond), 1500 * time.Millisecond},
+		"missing start": {time.Time{}, t0, 0},
+		"missing end":   {t0, time.Time{}, 0},
+		"backwards":     {t0, t0.Add(-time.Second), 0},
+		"over a week":   {t0, t0.Add(8 * 24 * time.Hour), 0},
+		"year 9999":     {t0, time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC), 0},
+	} {
+		if got := Elapsed(c.start, c.end); got != c.want {
+			t.Errorf("%s: Elapsed = %v, want %v", name, got, c.want)
+		}
+	}
+}

@@ -15,7 +15,6 @@ import (
 	"github.com/klauspost/compress/zstd"
 
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
-	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	"github.com/Nathandelenclos/agent-stats/internal/platform/files"
 )
 
@@ -119,11 +118,8 @@ func parseTS(s string) time.Time {
 	return time.UnixMilli(t.UnixMilli())
 }
 
-// between is the time from start to end at millisecond precision, a missing time counting as the Unix epoch
-// (as the index stores it).
-func between(start, end time.Time) time.Duration {
-	return time.Duration(kernel.UnixMilli(end)-kernel.UnixMilli(start)) * time.Millisecond
-}
+// between is the time from start to end, see domain.Elapsed.
+func between(start, end time.Time) time.Duration { return domain.Elapsed(start, end) }
 
 // millis converts a duration logged in (possibly fractional) milliseconds.
 func millis(ms float64) time.Duration {
