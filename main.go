@@ -48,6 +48,12 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	var only usage.Harness // empty: every harness
+	if *harness != "" {
+		if only, err = usage.ParseHarness(*harness); err != nil {
+			return err
+		}
+	}
 	prices, err := pricing.Load(*pricesPath)
 	if err != nil {
 		return err
@@ -81,7 +87,7 @@ func run() error {
 		}
 	}
 
-	rep, err := app.BuildReport{Index: index}.Run(app.Filter{Since: from, Harness: usage.Harness(*harness)})
+	rep, err := app.BuildReport{Index: index}.Run(app.Filter{Since: from, Harness: only})
 	if err != nil {
 		return err
 	}
