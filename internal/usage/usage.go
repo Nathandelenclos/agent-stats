@@ -89,6 +89,12 @@ type Tokens struct {
 	CacheWrite1h int64 // part of CacheWrite written with Anthropic's 1-hour TTL
 }
 
+// Valid reports whether every count is non-negative and the 1-hour cache writes fit in the cache writes.
+func (t Tokens) Valid() bool {
+	return t.Input >= 0 && t.Output >= 0 && t.CacheRead >= 0 && t.CacheWrite >= 0 &&
+		t.CacheWrite1h >= 0 && t.CacheWrite1h <= t.CacheWrite
+}
+
 // USD is an amount in US dollars.
 type USD float64
 
@@ -144,6 +150,20 @@ type Transcript struct {
 	Prompts  []Prompt
 	// SkippedLines counts log lines that could not be read (malformed or oversized).
 	SkippedLines int
+}
+
+// DropInvalidRequests removes requests whose token counts or logged cost are impossible (negative),
+// counting each as a skipped line: a corrupt log must not lower the totals.
+func (t *Transcript) DropInvalidRequests() {
+	valid := t.Requests[:0]
+	for _, r := range t.Requests {
+		if r.Tokens.Valid() && r.Reasoning >= 0 && r.LoggedCost >= 0 {
+			valid = append(valid, r)
+		} else {
+			t.SkippedLines++
+		}
+	}
+	t.Requests = valid
 }
 
 const maxTitleRunes = 80

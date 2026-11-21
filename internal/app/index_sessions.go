@@ -42,6 +42,7 @@ func (uc IndexSessions) Run(progress func(IndexReport)) (IndexReport, error) {
 			continue
 		}
 		t, err := uc.Logs.Read(f)
+		t.DropInvalidRequests()
 		if err == nil {
 			err = uc.Index.Save(f, uc.indexed(t))
 		}

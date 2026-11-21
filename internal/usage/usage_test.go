@@ -120,3 +120,16 @@ func TestAnalyzeSessionFlagsRepeatedPrompts(t *testing.T) {
 		t.Errorf("repeated = %v %v %v", got[0].Repeated, got[1].Repeated, got[2].Repeated)
 	}
 }
+
+func TestDropInvalidRequests(t *testing.T) {
+	tr := Transcript{Requests: []Request{
+		{Key: "ok", Tokens: Tokens{Input: 1, CacheWrite: 2, CacheWrite1h: 2}},
+		{Key: "negative input", Tokens: Tokens{Input: -5}},
+		{Key: "1h over total", Tokens: Tokens{CacheWrite: 1, CacheWrite1h: 2}},
+		{Key: "negative cost", LoggedCost: -1},
+	}}
+	tr.DropInvalidRequests()
+	if len(tr.Requests) != 1 || tr.Requests[0].Key != "ok" || tr.SkippedLines != 3 {
+		t.Errorf("requests %+v, skipped %d", tr.Requests, tr.SkippedLines)
+	}
+}
