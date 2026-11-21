@@ -2,3 +2,9 @@
 /dist/
 *.db
 *.db-*
+
+# Grace kit: local state only
+.claude/settings.local.json
+__pycache__/
+.grace/kit-history/
+.grace/updates/
