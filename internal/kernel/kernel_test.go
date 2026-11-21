@@ -48,3 +48,10 @@ func TestNewCost(t *testing.T) {
 		}
 	}
 }
+
+func TestCacheWrite5m(t *testing.T) {
+	tok, _ := NewTokens(TokenCounts{CacheWrite: 30, CacheWrite1h: 20})
+	if tok.CacheWrite5m() != 10 {
+		t.Errorf("5m writes = %d", tok.CacheWrite5m())
+	}
+}

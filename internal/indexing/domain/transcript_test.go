@@ -2,6 +2,7 @@ package domain
 
 import (
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -108,5 +109,20 @@ func TestAnalyzeSessionFlagsRepeatedPrompts(t *testing.T) {
 	got := AnalyzeSession([]Prompt{{Text: "Fix  the bug"}, {Text: "other"}, {Text: "fix the\nBUG"}})
 	if got[0].Repeated || got[1].Repeated || !got[2].Repeated {
 		t.Errorf("repeated = %v %v %v", got[0].Repeated, got[1].Repeated, got[2].Repeated)
+	}
+}
+
+func TestLoggedDurationBounds(t *testing.T) {
+	for ms, want := range map[float64]time.Duration{
+		1200.5:      1200500 * time.Microsecond,
+		-5:          0,
+		0:           0,
+		math.NaN():  0,
+		math.Inf(1): 0,
+		float64(8 * 24 * time.Hour / time.Millisecond): 0,
+	} {
+		if got := LoggedDuration(ms); got != want {
+			t.Errorf("LoggedDuration(%v) = %v, want %v", ms, got, want)
+		}
 	}
 }

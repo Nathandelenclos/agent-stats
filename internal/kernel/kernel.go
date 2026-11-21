@@ -82,6 +82,9 @@ func NewTokens(c TokenCounts) (Tokens, error) {
 	return Tokens{c}, nil
 }
 
+// CacheWrite5m counts the cache writes with the default 5-minute TTL, billed at the cache-write rate.
+func (t Tokens) CacheWrite5m() int64 { return t.counts.CacheWrite - t.counts.CacheWrite1h }
+
 // Counts returns a copy of the counts.
 func (t Tokens) Counts() TokenCounts { return t.counts }
 

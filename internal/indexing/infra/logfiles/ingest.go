@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"strings"
 	"time"
@@ -128,5 +127,5 @@ func between(start, end time.Time) time.Duration {
 
 // millis converts a duration logged in (possibly fractional) milliseconds.
 func millis(ms float64) time.Duration {
-	return time.Duration(math.Round(ms * float64(time.Millisecond)))
+	return domain.LoggedDuration(ms)
 }

@@ -5,6 +5,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -90,6 +91,19 @@ func (s *Session) Span(t time.Time) {
 	if t.After(s.End) {
 		s.End = t
 	}
+}
+
+// MaxLoggedDuration bounds a duration a log states in milliseconds (longest seen on real logs: about 83 hours,
+// a tool call left waiting over a weekend).
+const MaxLoggedDuration = 7 * 24 * time.Hour
+
+// LoggedDuration converts a duration a log states in milliseconds; 0 (unknown) when it is negative,
+// not finite or over MaxLoggedDuration.
+func LoggedDuration(ms float64) time.Duration {
+	if !(ms > 0) || ms > float64(MaxLoggedDuration/time.Millisecond) {
+		return 0
+	}
+	return time.Duration(math.Round(ms * float64(time.Millisecond)))
 }
 
 // UnspecifiedFailure is the failure of a request whose log says it failed without saying why.
