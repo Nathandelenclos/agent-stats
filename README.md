@@ -20,6 +20,7 @@ go build .
 The index lives in the user cache directory (`agent-stats/index.db`). Only changed log files are re-read,
 and rows survive when a harness deletes old logs.
 
-Costs come from the embedded LiteLLM price table (`internal/pricing/prices.json`, refresh with
-`go generate ./internal/pricing`) unless the harness logged the cost itself (oh-my-pi, pi).
+Costs come from the embedded LiteLLM price table (`internal/pricing/prices.json`) unless the harness
+logged a positive cost itself (oh-my-pi, pi). To refresh it, set `commit` in `internal/pricing/gen/main.go`
+to a reviewed LiteLLM commit, then run `go generate ./internal/pricing`.
 Override or add models with `--prices file.json` (`{"model": [input, output, cacheRead, cacheWrite]}`, USD per token).

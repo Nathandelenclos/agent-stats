@@ -1,16 +1,24 @@
 // Command gen refreshes prices.json from LiteLLM's public price table (MIT).
-// Run with `go generate ./internal/pricing`.
+// Run with `go generate ./internal/pricing`. To take newer prices, set commit to a reviewed
+// BerriAI/litellm commit first: the table is read at that commit, never from a moving branch.
 package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"sort"
+	"time"
 )
 
-const source = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+const (
+	commit   = "39c0f0cc164af0f7b3514b0dd2b2935dc70c4c42" // BerriAI/litellm main on 2026-11-21
+	source   = "https://raw.githubusercontent.com/BerriAI/litellm/" + commit + "/model_prices_and_context_window.json"
+	maxBytes = 64 << 20
+)
 
 type entry struct {
 	InputCostPerToken      float64 `json:"input_cost_per_token"`
@@ -21,19 +29,18 @@ type entry struct {
 }
 
 func main() {
-	resp, err := http.Get(source)
+	raw, err := fetch()
 	if err != nil {
-		log.Fatal(err)
-	}
-	defer resp.Body.Close()
-	var raw map[string]json.RawMessage
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		log.Fatal(err)
 	}
 	out := map[string][4]float64{}
 	for name, msg := range raw {
 		var e entry
 		if json.Unmarshal(msg, &e) != nil || e.InputCostPerToken == 0 || (e.Mode != "chat" && e.Mode != "responses") {
+			continue
+		}
+		if e.InputCostPerToken < 0 || e.OutputCostPerToken < 0 || e.CacheReadCostPerToken < 0 || e.CacheWriteCostPerToken < 0 {
+			log.Printf("skipping %s: negative price", name)
 			continue
 		}
 		out[name] = [4]float64{e.InputCostPerToken, e.OutputCostPerToken, e.CacheReadCostPerToken, e.CacheWriteCostPerToken}
@@ -61,4 +68,21 @@ func main() {
 	}
 	f.WriteString("}\n")
 	log.Printf("%d models written", len(names))
+}
+
+func fetch() (map[string]json.RawMessage, error) {
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Get(source)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s: %s", source, resp.Status)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxBytes)).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("%s: %w", source, err)
+	}
+	return raw, nil
 }
