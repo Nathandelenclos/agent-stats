@@ -13,6 +13,8 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/usage"
 )
 
+// The prompts table keeps each prompt's frustration signals (usage.Signals). No query reads them yet:
+// they are indexed now for the sessions TUI (delivery step 2), so a re-index is not needed then (2026-11-21).
 const schema = `
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
