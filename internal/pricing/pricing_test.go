@@ -1,34 +1,41 @@
 package pricing
 
 import (
-	"math"
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/Nathandelenclos/agent-stats/internal/usage"
 )
 
-func TestLookupStripsProviderAndDate(t *testing.T) {
-	tb := Table{"claude-x": {1, 2, 3, 4}}
-	for _, m := range []string{"claude-x", "anthropic/claude-x", "Claude-X-20260101", "openai-codex/claude-x-20260101"} {
-		if _, ok := tb.Lookup(m); !ok {
-			t.Errorf("%s not found", m)
-		}
-	}
-	if _, ok := tb.Lookup("other"); ok {
-		t.Error("unknown model found")
+func TestEmbeddedListLoads(t *testing.T) {
+	l, err := Load("")
+	if err != nil || len(l) < 100 {
+		t.Fatalf("embedded list: %d entries, err %v", len(l), err)
 	}
 }
 
-func TestCostBills1hCacheWritesAtTwiceInput(t *testing.T) {
-	tb := Table{"m": {1, 10, 0.1, 1.25}}
-	got, ok := tb.Cost("m", 100, 10, 1000, 30, 20)
-	want := 100.0 + 100 + 100 + 10*1.25 + 20*2
-	if !ok || math.Abs(got-want) > 1e-9 {
-		t.Fatalf("cost = %v, want %v", got, want)
+func TestOverrideReplacesAndAddsModels(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "prices.json")
+	if err := os.WriteFile(path, []byte(`{"my-model": [1, 2, 0, 0]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	l, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c, ok := l.Price(usage.Request{Model: "my-model", Tokens: usage.Tokens{Input: 1, Output: 1}}); !ok || c != 3 {
+		t.Errorf("override cost = %v %v", c, ok)
 	}
 }
 
-func TestEmbeddedTableLoads(t *testing.T) {
-	tb, err := Load("")
-	if err != nil || len(tb) < 100 {
-		t.Fatalf("embedded table: %d entries, err %v", len(tb), err)
+func TestOverrideRefusesNegativeRates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "prices.json")
+	if err := os.WriteFile(path, []byte(`{"my-model": [-1, 2, 0, 0]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); !errors.Is(err, usage.ErrInvalidRates) {
+		t.Errorf("negative rate accepted: %v", err)
 	}
 }

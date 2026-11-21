@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/Nathandelenclos/agent-stats/internal/usage"
 )
 
 type piBlock struct {
@@ -54,19 +56,19 @@ var sessionDir = regexp.MustCompile(`^\d{4}-\d\d-\d\dT[\d-]+Z_([0-9a-f-]{36})$`)
 
 // ParsePi reads a pi or oh-my-pi session (~/.pi/agent/sessions, ~/.omp/agent/sessions).
 // Subagent sessions are stored in a directory named after their parent session.
-func ParsePi(harness string) Parser {
-	return func(path string, r io.Reader) (*Parsed, error) {
-		p := &Parsed{Session: Session{Harness: harness, AgentType: "main"}}
+func ParsePi(harness usage.Harness) Parser {
+	return func(path string, r io.Reader) (usage.Transcript, error) {
+		p := &usage.Transcript{Session: usage.Session{Harness: harness, AgentType: usage.MainAgent}}
 		stem := strings.TrimSuffix(filepath.Base(path), ".jsonl")
-		p.Session.ID = harness + ":" + stem
+		p.Session.ID = harness.SessionID(stem)
 		if m := sessionDir.FindStringSubmatch(stem); m != nil {
-			p.Session.ID = harness + ":" + m[1]
+			p.Session.ID = harness.SessionID(m[1])
 		}
 		for dir := filepath.Dir(path); dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
 			if m := sessionDir.FindStringSubmatch(filepath.Base(dir)); m != nil {
-				p.Session.ParentID = harness + ":" + m[1]
+				p.Session.ParentID = harness.SessionID(m[1])
 				p.Session.ID = p.Session.ParentID + "/" + stem
-				p.Session.AgentType = "subagent"
+				p.Session.AgentType = usage.Subagent
 				break
 			}
 		}
@@ -76,6 +78,7 @@ func ParsePi(harness string) Parser {
 		err := eachLine(r, func(line []byte) {
 			var l piLine
 			if json.Unmarshal(line, &l) != nil {
+				p.SkippedLines++
 				return
 			}
 			ts := parseTS(l.Timestamp)
@@ -102,7 +105,7 @@ func ParsePi(harness string) Parser {
 				if m == nil {
 					return
 				}
-				p.Session.span(ts)
+				p.Session.Span(ts)
 				var blocks []piBlock
 				_ = json.Unmarshal(m.Content, &blocks)
 				switch m.Role {
@@ -113,19 +116,20 @@ func ParsePi(harness string) Parser {
 							parts = append(parts, b.Text)
 						}
 					}
-					if text := strings.Join(parts, "\n"); strings.TrimSpace(text) != "" {
-						p.Prompts = append(p.Prompts, Prompt{Key: l.ID, TS: ts, Text: text})
+					if pr, ok := usage.NewPrompt(l.ID, ts, strings.Join(parts, "\n")); ok {
+						p.Prompts = append(p.Prompts, pr)
 					}
 				case "assistant":
-					req := Request{Key: l.ID, TS: ts, Provider: m.Provider, Model: m.Model,
-						DurationMs: m.Duration, TTFTMs: m.TTFT, StopReason: m.StopReason, Error: m.ErrorMessage}
+					req := usage.Request{Key: l.ID, At: ts, Provider: m.Provider, Model: m.Model,
+						Duration: millis(m.Duration), TTFT: millis(m.TTFT), StopReason: m.StopReason, Error: m.ErrorMessage}
 					if req.Model == "" {
 						req.Provider, req.Model = provider, model
 					}
 					if u := m.Usage; u != nil {
-						req.Input, req.Output, req.CacheRead, req.CacheWrite, req.Reasoning = u.Input, u.Output, u.CacheRead, u.CacheWrite, u.Reasoning
+						req.Tokens = usage.Tokens{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite}
+						req.Reasoning = u.Reasoning
 						if u.Cost != nil {
-							req.Cost = u.Cost.Total
+							req.LoggedCost = usage.USD(u.Cost.Total)
 						}
 					}
 					if req.Error == "" && req.StopReason == "error" {
@@ -136,18 +140,19 @@ func ParsePi(harness string) Parser {
 						if b.Type != "toolCall" {
 							continue
 						}
-						server, name := splitMCP(b.Name)
+						server, name := usage.SplitMCPToolName(b.Name)
 						toolIndex[b.ID] = len(p.Tools)
-						p.Tools = append(p.Tools, ToolCall{Key: b.ID, TS: ts, Name: name, Server: server, ArgsChars: len(b.Arguments)})
+						p.Tools = append(p.Tools, usage.ToolCall{Key: b.ID, At: ts, Name: name, Server: server, ArgsChars: len(b.Arguments)})
 					}
 				case "toolResult":
 					if i, ok := toolIndex[m.ToolCallID]; ok {
 						t := &p.Tools[i]
-						t.ResultChars, t.IsError, t.DurationMs = len(m.Content), m.IsError, float64(ts-t.TS)
+						t.ResultChars, t.IsError, t.Duration = len(m.Content), m.IsError, between(t.At, ts)
 					}
 				}
 			}
 		})
-		return p.finish(), err
+		p.TitleFromFirstPrompt()
+		return *p, err
 	}
 }

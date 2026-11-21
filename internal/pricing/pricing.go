@@ -1,4 +1,4 @@
-// Package pricing turns token counts into USD using an embedded price table.
+// Package pricing loads the price list: an embedded copy of LiteLLM's table, optionally overridden by a local file.
 package pricing
 
 //go:generate go run ./gen
@@ -6,72 +6,51 @@ package pricing
 import (
 	_ "embed"
 	"encoding/json"
+	"fmt"
 	"os"
-	"regexp"
-	"strings"
+
+	"github.com/Nathandelenclos/agent-stats/internal/usage"
 )
 
 //go:embed prices.json
 var embedded []byte
 
-// Rates are USD per token: input, output, cache read, cache write.
-type Rates [4]float64
-
-// Table maps a model name to its rates.
-type Table map[string]Rates
-
-// Load returns the embedded table, overridden entry by entry by the JSON file at path when given.
-func Load(path string) (Table, error) {
-	t := Table{}
-	if err := json.Unmarshal(embedded, &t); err != nil {
-		return nil, err
+// Load returns the embedded price list, overridden model by model by the JSON file at path when given.
+// Both use the format {"model": [input, output, cacheRead, cacheWrite]}, in USD per token.
+func Load(path string) (usage.PriceList, error) {
+	list, err := decode(embedded)
+	if err != nil {
+		return nil, fmt.Errorf("embedded prices: %w", err)
 	}
 	if path == "" {
-		return t, nil
+		return list, nil
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	override := Table{}
-	if err := json.Unmarshal(raw, &override); err != nil {
+	override, err := decode(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	for model, rates := range override {
+		list[model] = rates
+	}
+	return list, nil
+}
+
+func decode(raw []byte) (usage.PriceList, error) {
+	var table map[string][4]float64
+	if err := json.Unmarshal(raw, &table); err != nil {
 		return nil, err
 	}
-	for k, v := range override {
-		t[k] = v
-	}
-	return t, nil
-}
-
-var dateSuffix = regexp.MustCompile(`-\d{8}$`)
-
-// Lookup finds rates for a model, tolerating provider prefixes ("openai-codex/gpt-6") and date suffixes.
-func (t Table) Lookup(model string) (Rates, bool) {
-	m := strings.ToLower(model)
-	candidates := []string{m}
-	if i := strings.LastIndex(m, "/"); i >= 0 {
-		candidates = append(candidates, m[i+1:])
-	}
-	for _, c := range candidates[:len(candidates):len(candidates)] {
-		if d := dateSuffix.ReplaceAllString(c, ""); d != c {
-			candidates = append(candidates, d)
+	list := make(usage.PriceList, len(table))
+	for model, r := range table {
+		rates, err := usage.NewRates(r[0], r[1], r[2], r[3])
+		if err != nil {
+			return nil, fmt.Errorf("model %q: %w", model, err)
 		}
+		list[model] = rates
 	}
-	for _, c := range candidates {
-		if r, ok := t[c]; ok {
-			return r, true
-		}
-	}
-	return Rates{}, false
-}
-
-// Cost prices one request. cacheWrite1h is the part of cacheWrite written with Anthropic's 1-hour TTL,
-// billed at twice the input rate instead of the table's 5-minute rate. ok is false when the model is unknown.
-func (t Table) Cost(model string, input, output, cacheRead, cacheWrite, cacheWrite1h int64) (usd float64, ok bool) {
-	r, ok := t.Lookup(model)
-	if !ok {
-		return 0, false
-	}
-	return float64(input)*r[0] + float64(output)*r[1] + float64(cacheRead)*r[2] +
-		float64(cacheWrite-cacheWrite1h)*r[3] + float64(cacheWrite1h)*2*r[0], true
+	return list, nil
 }

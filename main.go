@@ -14,9 +14,11 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/Nathandelenclos/agent-stats/internal/app"
 	"github.com/Nathandelenclos/agent-stats/internal/ingest"
 	"github.com/Nathandelenclos/agent-stats/internal/pricing"
 	"github.com/Nathandelenclos/agent-stats/internal/store"
+	"github.com/Nathandelenclos/agent-stats/internal/usage"
 )
 
 func main() {
@@ -44,18 +46,19 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	st, err := store.Open(*dbPath, prices, currentUser())
+	index, err := store.Open(*dbPath, currentUser())
 	if err != nil {
 		return err
 	}
-	defer st.Close()
+	defer index.Close()
 
 	if !*noSync {
 		home, _ := os.UserHomeDir()
-		rep, err := st.Sync(ingest.DefaultSources(home), func(r store.SyncReport) {
-			fmt.Fprintf(os.Stderr, "\rindexing… %d files", r.Parsed)
+		logs := ingest.NewFileSessionLogs(ingest.DefaultSources(home))
+		rep, err := app.IndexSessions{Logs: logs, Index: index, Prices: prices}.Run(func(r app.IndexReport) {
+			fmt.Fprintf(os.Stderr, "\rindexing… %d files", r.Indexed)
 		})
-		if rep.Parsed >= 50 {
+		if rep.Indexed >= 50 {
 			fmt.Fprintln(os.Stderr)
 		}
 		if err != nil {
@@ -66,7 +69,7 @@ func run() error {
 		}
 	}
 
-	rep, err := buildReport(st, store.Filter{Since: from, Harness: *harness})
+	rep, err := app.BuildReport{Index: index}.Run(app.Filter{Since: from, Harness: usage.Harness(*harness)})
 	if err != nil {
 		return err
 	}
@@ -79,40 +82,7 @@ func run() error {
 	return nil
 }
 
-type report struct {
-	Total     store.Usage     `json:"total"`
-	ByHarness []store.Row     `json:"byHarness"`
-	ByModel   []store.Row     `json:"byModel"`
-	ByFolder  []store.Row     `json:"byFolder"`
-	ByAgent   []store.Row     `json:"byAgentType"`
-	Tools     []store.ToolRow `json:"tools"`
-}
-
-func buildReport(st *store.Store, f store.Filter) (report, error) {
-	var r report
-	var err error
-	if r.Total, err = st.Total(f); err != nil {
-		return r, err
-	}
-	groups := []struct {
-		dst  *[]store.Row
-		expr string
-	}{
-		{&r.ByHarness, "s.harness"},
-		{&r.ByModel, "r.model"},
-		{&r.ByFolder, "COALESCE(s.folder, '')"},
-		{&r.ByAgent, "s.agent_type"},
-	}
-	for _, g := range groups {
-		if *g.dst, err = st.UsageBy(f, g.expr); err != nil {
-			return r, err
-		}
-	}
-	r.Tools, err = st.Tools(f)
-	return r, err
-}
-
-func printReport(r report) {
+func printReport(r app.Report) {
 	t := r.Total
 	if t.Requests == 0 {
 		fmt.Println("No requests in this range.")
@@ -141,7 +111,7 @@ func printReport(r report) {
 	w.Flush()
 }
 
-func usageTable(title string, rows []store.Row, limit int) {
+func usageTable(title string, rows []app.UsageGroup, limit int) {
 	fmt.Println()
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', tabwriter.AlignRight)
 	fmt.Fprintln(w, title+"\tREQUESTS\tFAILED\tTOKENS IN\tTOKENS OUT\tCACHE\tCOST\t")
@@ -150,29 +120,29 @@ func usageTable(title string, rows []store.Row, limit int) {
 			fmt.Fprintf(w, "… %d more\t\t\t\t\t\t\t\n", len(rows)-limit)
 			break
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%.0f%%\t%s\t\n", shorten(x.Key, 50), num(x.Requests), num(x.Failed),
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%.0f%%\t%s\t\n", shorten(x.Group, 50), num(x.Requests), num(x.Failed),
 			num(x.Input+x.CacheRead+x.CacheWrite), num(x.Output), x.CacheRate*100, usd(x.Cost))
 	}
 	w.Flush()
 }
 
-// parseSince accepts a duration with a day unit (7d), a Go duration (12h) or a date.
-func parseSince(s string, now time.Time) (int64, error) {
+// parseSince accepts a duration with a day unit (7d), a Go duration (12h) or a date; zero when empty.
+func parseSince(s string, now time.Time) (time.Time, error) {
 	if s == "" {
-		return 0, nil
+		return time.Time{}, nil
 	}
 	if n, ok := strings.CutSuffix(s, "d"); ok {
 		if d, err := strconv.Atoi(n); err == nil {
-			return now.AddDate(0, 0, -d).UnixMilli(), nil
+			return now.AddDate(0, 0, -d), nil
 		}
 	}
 	if d, err := time.ParseDuration(s); err == nil {
-		return now.Add(-d).UnixMilli(), nil
+		return now.Add(-d), nil
 	}
 	if t, err := time.ParseInLocation("2006-01-02", s, time.Local); err == nil {
-		return t.UnixMilli(), nil
+		return t, nil
 	}
-	return 0, fmt.Errorf("invalid --since %q: use 24h, 7d or 2006-01-02", s)
+	return time.Time{}, fmt.Errorf("invalid --since %q: use 24h, 7d or 2006-01-02", s)
 }
 
 func currentUser() string {

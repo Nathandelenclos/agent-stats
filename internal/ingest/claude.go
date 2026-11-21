@@ -7,6 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/Nathandelenclos/agent-stats/internal/usage"
 )
 
 type claudeBlock struct {
@@ -54,26 +57,27 @@ type claudeLine struct {
 // ParseClaude reads a Claude Code transcript (~/.claude/projects/<folder>/<session>.jsonl,
 // subagents in <session>/subagents/agent-<id>.jsonl).
 // Claude Code writes one line per content block, repeating the message's usage on each: requests are keyed by message id.
-func ParseClaude(path string, r io.Reader) (*Parsed, error) {
-	p := &Parsed{}
+func ParseClaude(path string, r io.Reader) (usage.Transcript, error) {
+	p := &usage.Transcript{}
 	base := strings.TrimSuffix(filepath.Base(path), ".jsonl")
-	p.Session = Session{ID: "claude:" + base, Harness: "claude", AgentType: "main"}
+	p.Session = usage.Session{ID: usage.Claude.SessionID(base), Harness: usage.Claude, AgentType: usage.MainAgent}
 	if filepath.Base(filepath.Dir(path)) == "subagents" {
 		parent := filepath.Base(filepath.Dir(filepath.Dir(path)))
-		p.Session.ID = "claude:" + parent + "/" + base
-		p.Session.ParentID = "claude:" + parent
+		p.Session.ID = usage.Claude.SessionID(parent + "/" + base)
+		p.Session.ParentID = usage.Claude.SessionID(parent)
 		p.Session.AgentType = claudeAgentType(strings.TrimSuffix(path, ".jsonl") + ".meta.json")
 	}
 
-	requestStart := map[string]int64{} // api-request id -> ts
-	reqIndex := map[string]int{}       // message id -> index in p.Requests
+	requestStart := map[string]time.Time{} // api-request id -> ts
+	reqIndex := map[string]int{}           // message id -> index in p.Requests
 	toolIndex := map[string]int{}
-	firstBlock := map[string]int64{}
+	firstBlock := map[string]time.Time{}
 	var lastModel string
 
 	err := eachLine(r, func(line []byte) {
 		var l claudeLine
 		if json.Unmarshal(line, &l) != nil {
+			p.SkippedLines++
 			return
 		}
 		ts := parseTS(l.Timestamp)
@@ -89,12 +93,12 @@ func ParseClaude(path string, r io.Reader) (*Parsed, error) {
 			if l.Message == nil {
 				return
 			}
-			p.Session.span(ts)
+			p.Session.Span(ts)
 			m := l.Message
 			blocks := claudeBlocks(m.Content)
 			if m.Model == "<synthetic>" {
 				if l.IsAPIErrorMessage {
-					p.Requests = append(p.Requests, Request{Key: "err:" + m.ID, TS: ts, Model: lastModel, Provider: "anthropic", Error: firstText(blocks)})
+					p.Requests = append(p.Requests, usage.Request{Key: "err:" + m.ID, At: ts, Model: lastModel, Provider: "anthropic", Error: firstText(blocks)})
 				}
 				return
 			}
@@ -104,7 +108,7 @@ func ParseClaude(path string, r io.Reader) (*Parsed, error) {
 				i = len(p.Requests)
 				reqIndex[m.ID] = i
 				firstBlock[m.ID] = ts
-				p.Requests = append(p.Requests, Request{Key: m.ID, TS: ts, Model: m.Model, Provider: "anthropic"})
+				p.Requests = append(p.Requests, usage.Request{Key: m.ID, At: ts, Model: m.Model, Provider: "anthropic"})
 			}
 			req := &p.Requests[i]
 			if m.StopReason != "" {
@@ -120,23 +124,23 @@ func ParseClaude(path string, r io.Reader) (*Parsed, error) {
 				}
 			}
 			// Block timestamps are written when each block completes: the first approximates TTFT, the last the duration.
-			if start, ok := requestStart[l.RequestRef]; ok && start > 0 {
-				req.TTFTMs = float64(firstBlock[m.ID] - start)
-				req.DurationMs = float64(ts - start)
+			if start, ok := requestStart[l.RequestRef]; ok && !start.IsZero() {
+				req.TTFT = between(start, firstBlock[m.ID])
+				req.Duration = between(start, ts)
 			}
 			for _, b := range blocks {
 				if b.Type != "tool_use" {
 					continue
 				}
-				server, name := splitMCP(b.Name)
+				server, name := usage.SplitMCPToolName(b.Name)
 				toolIndex[b.ID] = len(p.Tools)
-				p.Tools = append(p.Tools, ToolCall{Key: b.ID, TS: ts, Name: name, Server: server, ArgsChars: len(b.Input)})
+				p.Tools = append(p.Tools, usage.ToolCall{Key: b.ID, At: ts, Name: name, Server: server, ArgsChars: len(b.Input)})
 			}
 		case "user":
 			if l.Message == nil || l.IsMeta {
 				return
 			}
-			p.Session.span(ts)
+			p.Session.Span(ts)
 			var text string
 			if json.Unmarshal(l.Message.Content, &text) == nil {
 				addClaudePrompt(p, l.UUID, ts, text)
@@ -148,7 +152,7 @@ func ParseClaude(path string, r io.Reader) (*Parsed, error) {
 					if i, ok := toolIndex[b.ToolUseID]; ok {
 						t := &p.Tools[i]
 						t.ResultChars, t.IsError = len(b.Content), b.IsError
-						t.DurationMs = float64(ts - t.TS)
+						t.Duration = between(t.At, ts)
 					}
 				case "text":
 					addClaudePrompt(p, fmt.Sprintf("%s:%d", l.UUID, j), ts, b.Text)
@@ -156,15 +160,18 @@ func ParseClaude(path string, r io.Reader) (*Parsed, error) {
 			}
 		}
 	})
-	return p.finish(), err
+	p.TitleFromFirstPrompt()
+	return *p, err
 }
 
-func addClaudePrompt(p *Parsed, key string, ts int64, text string) {
+func addClaudePrompt(p *usage.Transcript, key string, ts time.Time, text string) {
 	// Skip harness-injected messages: command wrappers, reminders, interruptions.
-	if t := strings.TrimSpace(text); t == "" || strings.HasPrefix(t, "<") || strings.HasPrefix(t, "[Request interrupted") {
+	if t := strings.TrimSpace(text); strings.HasPrefix(t, "<") || strings.HasPrefix(t, "[Request interrupted") {
 		return
 	}
-	p.Prompts = append(p.Prompts, Prompt{Key: key, TS: ts, Text: text})
+	if pr, ok := usage.NewPrompt(key, ts, text); ok {
+		p.Prompts = append(p.Prompts, pr)
+	}
 }
 
 func claudeBlocks(raw json.RawMessage) []claudeBlock {
@@ -182,12 +189,12 @@ func firstText(blocks []claudeBlock) string {
 	return "error"
 }
 
-func claudeAgentType(metaPath string) string {
+func claudeAgentType(metaPath string) usage.AgentType {
 	var meta struct {
 		AgentType string `json:"agentType"`
 	}
 	if raw, err := os.ReadFile(metaPath); err == nil && json.Unmarshal(raw, &meta) == nil && meta.AgentType != "" {
-		return meta.AgentType
+		return usage.AgentType(meta.AgentType)
 	}
-	return "subagent"
+	return usage.Subagent
 }

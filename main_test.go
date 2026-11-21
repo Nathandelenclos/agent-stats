@@ -10,9 +10,10 @@ import (
 
 	"github.com/klauspost/compress/zstd"
 
+	"github.com/Nathandelenclos/agent-stats/internal/app"
 	"github.com/Nathandelenclos/agent-stats/internal/ingest"
-	"github.com/Nathandelenclos/agent-stats/internal/pricing"
 	"github.com/Nathandelenclos/agent-stats/internal/store"
+	"github.com/Nathandelenclos/agent-stats/internal/usage"
 )
 
 // fixtureHome copies testdata/home into a temp dir and adds a zstd-compressed archived Codex rollout.
@@ -46,28 +47,29 @@ func fixtureHome(t *testing.T) string {
 // On a difference it writes testdata/report.received.json: read the diff, and only copy it over
 // report.approved.json if the change is intended.
 func TestReportApproved(t *testing.T) {
-	prices := pricing.Table{
-		"claude-x": {3e-6, 15e-6, 0.3e-6, 3.75e-6},
-		"claude-y": {1e-6, 5e-6, 0.1e-6, 1.25e-6},
-		"gpt-x":    {1.25e-6, 10e-6, 0.125e-6, 0},
+	prices := usage.PriceList{
+		"claude-x": mustRates(t, 3e-6, 15e-6, 0.3e-6, 3.75e-6),
+		"claude-y": mustRates(t, 1e-6, 5e-6, 0.1e-6, 1.25e-6),
+		"gpt-x":    mustRates(t, 1.25e-6, 10e-6, 0.125e-6, 0),
 	}
-	st, err := store.Open(filepath.Join(t.TempDir(), "index.db"), prices, "me@host")
+	index, err := store.Open(filepath.Join(t.TempDir(), "index.db"), "me@host")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer st.Close()
-	rep, err := st.Sync(ingest.DefaultSources(fixtureHome(t)), nil)
-	if err != nil || len(rep.Errors) > 0 {
-		t.Fatalf("sync: %+v %v", rep, err)
+	defer index.Close()
+	logs := ingest.NewFileSessionLogs(ingest.DefaultSources(fixtureHome(t)))
+	rep, err := app.IndexSessions{Logs: logs, Index: index, Prices: prices}.Run(nil)
+	if err != nil || len(rep.Errors) > 0 || rep.Indexed != 7 {
+		t.Fatalf("index: %+v %v", rep, err)
 	}
 
-	got := map[string]report{}
-	for name, f := range map[string]store.Filter{
+	got := map[string]app.Report{}
+	for name, f := range map[string]app.Filter{
 		"all":         {},
-		"omp":         {Harness: "omp"},
-		"since-jan-2": {Since: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC).UnixMilli()},
+		"omp":         {Harness: usage.OMP},
+		"since-jan-2": {Since: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
 	} {
-		if got[name], err = buildReport(st, f); err != nil {
+		if got[name], err = (app.BuildReport{Index: index}).Run(f); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -86,19 +88,28 @@ func TestReportApproved(t *testing.T) {
 	os.Remove("testdata/report.received.json")
 }
 
+func mustRates(t *testing.T, input, output, cacheRead, cacheWrite float64) usage.Rates {
+	t.Helper()
+	r, err := usage.NewRates(input, output, cacheRead, cacheWrite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
 func TestParseSince(t *testing.T) {
 	now := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
-	for in, want := range map[string]int64{
-		"":    0,
-		"7d":  now.AddDate(0, 0, -7).UnixMilli(),
-		"12h": now.Add(-12 * time.Hour).UnixMilli(),
+	for in, want := range map[string]time.Time{
+		"":    {},
+		"7d":  now.AddDate(0, 0, -7),
+		"12h": now.Add(-12 * time.Hour),
 	} {
-		if got, err := parseSince(in, now); err != nil || got != want {
-			t.Errorf("parseSince(%q) = %d, %v; want %d", in, got, err, want)
+		if got, err := parseSince(in, now); err != nil || !got.Equal(want) {
+			t.Errorf("parseSince(%q) = %v, %v; want %v", in, got, err, want)
 		}
 	}
-	if got, err := parseSince("2026-01-02", now); err != nil || got != time.Date(2026, 1, 2, 0, 0, 0, 0, time.Local).UnixMilli() {
-		t.Errorf("date: %d %v", got, err)
+	if got, err := parseSince("2026-01-02", now); err != nil || !got.Equal(time.Date(2026, 1, 2, 0, 0, 0, 0, time.Local)) {
+		t.Errorf("date: %v %v", got, err)
 	}
 	for _, bad := range []string{"yesterday", "7x", "-"} {
 		if _, err := parseSince(bad, now); err == nil {

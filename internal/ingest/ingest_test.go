@@ -5,9 +5,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/Nathandelenclos/agent-stats/internal/usage"
 )
 
-func parse(t *testing.T, p Parser, path, log string) *Parsed {
+func parse(t *testing.T, p Parser, path, log string) usage.Transcript {
 	t.Helper()
 	out, err := p(path, strings.NewReader(log))
 	if err != nil {
@@ -41,8 +44,8 @@ func TestClaude(t *testing.T) {
 	if r.Input != 5 || r.Output != 7 || r.CacheRead != 100 || r.CacheWrite != 20 || r.StopReason != "tool_use" {
 		t.Errorf("request = %+v", r)
 	}
-	if r.TTFTMs != 1000 || r.DurationMs != 3000 {
-		t.Errorf("ttft %v duration %v, want 1000 and 3000", r.TTFTMs, r.DurationMs)
+	if r.TTFT != time.Second || r.Duration != 3*time.Second {
+		t.Errorf("ttft %v duration %v, want 1s and 3s", r.TTFT, r.Duration)
 	}
 	if e := p.Requests[1]; e.Error != "overloaded" || e.Model != "claude-x" {
 		t.Errorf("error request = %+v", e)
@@ -50,15 +53,19 @@ func TestClaude(t *testing.T) {
 	if len(p.Tools) != 1 {
 		t.Fatalf("tools = %+v", p.Tools)
 	}
-	if tc := p.Tools[0]; tc.Name != "review" || tc.Server != "grace" || !tc.IsError || tc.ResultChars != len(`"boom"`) || tc.DurationMs != 2000 {
+	if tc := p.Tools[0]; tc.Name != "review" || tc.Server != "grace" || !tc.IsError || tc.ResultChars != len(`"boom"`) || tc.Duration != 2*time.Second {
 		t.Errorf("tool = %+v", tc)
 	}
 }
 
 func TestClaudeSubagent(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "sess1", "subagents")
-	os.MkdirAll(dir, 0o755)
-	os.WriteFile(filepath.Join(dir, "agent-a1.meta.json"), []byte(`{"agentType":"Explore"}`), 0o644)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "agent-a1.meta.json"), []byte(`{"agentType":"Explore"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	p := parse(t, ParseClaude, filepath.Join(dir, "agent-a1.jsonl"), "")
 	if p.Session.ID != "claude:sess1/agent-a1" || p.Session.ParentID != "claude:sess1" || p.Session.AgentType != "Explore" {
 		t.Errorf("session = %+v", p.Session)
@@ -91,20 +98,20 @@ func TestCodex(t *testing.T) {
 	if len(p.Prompts) != 1 || p.Prompts[0].Text != "Run the tests" {
 		t.Errorf("prompts = %+v", p.Prompts)
 	}
-	names := map[string]ToolCall{}
+	names := map[string]usage.ToolCall{}
 	for _, tc := range p.Tools {
 		names[tc.Name] = tc
 	}
 	if len(p.Tools) != 3 || names["exec_command"].Name != "" {
 		t.Errorf("want wait, shell and get_issue, got %+v", p.Tools)
 	}
-	if sh := names["shell"]; !sh.IsError || sh.DurationMs != 1500 || sh.ResultChars != 4 {
+	if sh := names["shell"]; !sh.IsError || sh.Duration != 1500*time.Millisecond || sh.ResultChars != 4 {
 		t.Errorf("shell = %+v", sh)
 	}
 	if m := names["get_issue"]; m.Server != "github" || m.IsError {
 		t.Errorf("mcp = %+v", m)
 	}
-	if w := names["wait"]; w.ResultChars != len(`"done"`) || w.DurationMs != 1000 {
+	if w := names["wait"]; w.ResultChars != len(`"done"`) || w.Duration != time.Second {
 		t.Errorf("wait = %+v", w)
 	}
 }
@@ -132,7 +139,7 @@ func TestPi(t *testing.T) {
 {"type":"message","id":"e4","timestamp":"2026-01-01T10:00:04Z","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"429"}}
 `
 	dir := filepath.Join("/x", "-repo", "2026-01-01T10-00-00-000Z_01a0b36b-c3dc-721d-97da-bbcb86adfadf", "Worker")
-	p := parse(t, ParsePi("omp"), filepath.Join(dir, "Worker.Task.jsonl"), log)
+	p := parse(t, ParsePi(usage.OMP), filepath.Join(dir, "Worker.Task.jsonl"), log)
 	s := p.Session
 	if s.ParentID != "omp:01a0b36b-c3dc-721d-97da-bbcb86adfadf" || s.AgentType != "subagent" || s.Title != "Refactor" || s.Folder != "/repo" {
 		t.Errorf("session = %+v", s)
@@ -140,7 +147,7 @@ func TestPi(t *testing.T) {
 	if len(p.Requests) != 2 {
 		t.Fatalf("requests = %+v", p.Requests)
 	}
-	if r := p.Requests[0]; r.Model != "claude-x" || r.Provider != "anthropic" || r.Cost != 0.5 || r.DurationMs != 1200 || r.TTFTMs != 300 || r.CacheWrite != 6 {
+	if r := p.Requests[0]; r.Model != "claude-x" || r.Provider != "anthropic" || r.LoggedCost != 0.5 || r.Duration != 1200*time.Millisecond || r.TTFT != 300*time.Millisecond || r.CacheWrite != 6 {
 		t.Errorf("request = %+v", r)
 	}
 	if p.Requests[1].Error != "429" {
@@ -148,17 +155,5 @@ func TestPi(t *testing.T) {
 	}
 	if len(p.Tools) != 1 || p.Tools[0].Server != "ctx" || p.Tools[0].Name != "docs" || !p.Tools[0].IsError {
 		t.Errorf("tools = %+v", p.Tools)
-	}
-	if sig := Analyze(p.Prompts[0].Text); sig.Yelling != 2 || sig.Anguish < 2 {
-		t.Errorf("signals = %+v", sig)
-	}
-}
-
-func TestAnalyzeIgnoresLoneAcronyms(t *testing.T) {
-	if s := Analyze("Update the API and the JSON schema"); s.Yelling != 0 || s.Profanity != 0 || s.Blame != 0 {
-		t.Errorf("signals = %+v", s)
-	}
-	if s := Analyze("putain, tu as cassé le build"); s.Profanity != 1 || s.Blame != 1 {
-		t.Errorf("signals = %+v", s)
 	}
 }

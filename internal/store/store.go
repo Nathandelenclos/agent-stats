@@ -1,18 +1,16 @@
-// Package store keeps parsed sessions in a local SQLite index and answers stats queries.
+// Package store is the SQLite usage index: it keeps indexed transcripts and answers usage queries.
 package store
 
 import (
-	"crypto/sha256"
 	"database/sql"
-	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
+	"time"
 
-	"github.com/Nathandelenclos/agent-stats/internal/ingest"
-	"github.com/Nathandelenclos/agent-stats/internal/pricing"
 	_ "modernc.org/sqlite"
+
+	"github.com/Nathandelenclos/agent-stats/internal/app"
+	"github.com/Nathandelenclos/agent-stats/internal/usage"
 )
 
 const schema = `
@@ -48,15 +46,16 @@ CREATE INDEX IF NOT EXISTS prompts_ts ON prompts (ts);
 CREATE INDEX IF NOT EXISTS sessions_started ON sessions (started_at);
 `
 
-// Store is the SQLite index.
-type Store struct {
-	DB     *sql.DB
-	prices pricing.Table
-	user   string
+// SQLiteIndex is the usage index kept in a local SQLite file.
+type SQLiteIndex struct {
+	db   *sql.DB
+	user string
 }
 
-// Open creates or opens the index at path.
-func Open(path string, prices pricing.Table, user string) (*Store, error) {
+var _ app.UsageIndex = (*SQLiteIndex)(nil)
+
+// Open creates or opens the index at path. user ("name@host") is recorded on every session.
+func Open(path, user string) (*SQLiteIndex, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
@@ -69,95 +68,50 @@ func Open(path string, prices pricing.Table, user string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{DB: db, prices: prices, user: user}, nil
+	return &SQLiteIndex{db: db, user: user}, nil
 }
 
 // Close closes the database.
-func (s *Store) Close() error { return s.DB.Close() }
+func (s *SQLiteIndex) Close() error { return s.db.Close() }
 
-// SyncReport says what a Sync did.
-type SyncReport struct {
-	Scanned, Parsed int
-	Errors          []string
-}
-
-// Sync re-parses every log file whose size or mtime changed since the last run.
-// A changed file is parsed again from the start and replaces its previous rows, which also covers truncation.
-// Rows of files deleted by the harness are kept, so history survives log rotation.
-// Rows are keyed by session, not file, so a log moved elsewhere (Codex archiving) is not counted twice.
-func (s *Store) Sync(sources []ingest.Source, progress func(SyncReport)) (SyncReport, error) {
-	known := map[string][2]int64{}
-	rows, err := s.DB.Query(`SELECT path, size, mtime FROM files`)
+// IndexedFiles returns every log file indexed so far, with its size and modification time at that point.
+func (s *SQLiteIndex) IndexedFiles() (map[string]app.LogFile, error) {
+	rows, err := s.db.Query(`SELECT path, harness, size, mtime FROM files`)
 	if err != nil {
-		return SyncReport{}, err
+		return nil, err
 	}
+	defer rows.Close()
+	known := map[string]app.LogFile{}
 	for rows.Next() {
-		var p string
-		var size, mtime int64
-		if err := rows.Scan(&p, &size, &mtime); err != nil {
-			rows.Close()
-			return SyncReport{}, err
+		var f app.LogFile
+		var mtime int64
+		if err := rows.Scan(&f.Path, &f.Harness, &f.Size, &mtime); err != nil {
+			return nil, err
 		}
-		known[p] = [2]int64{size, mtime}
+		f.ModTime = time.Unix(0, mtime)
+		known[f.Path] = f
 	}
-	rows.Close()
-
-	var rep SyncReport
-	for _, src := range sources {
-		err := filepath.WalkDir(src.Root, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				if os.IsNotExist(err) || os.IsPermission(err) {
-					return nil // a harness that is not installed is not an error
-				}
-				return err
-			}
-			if d.IsDir() || !src.Match(path) {
-				return nil
-			}
-			rep.Scanned++
-			info, err := d.Info()
-			if err != nil {
-				return nil
-			}
-			stamp := [2]int64{info.Size(), info.ModTime().UnixNano()}
-			if known[path] == stamp {
-				return nil
-			}
-			parsed, err := ingest.ParseFile(path, src.Parse)
-			if err == nil {
-				err = s.replace(path, src.Harness, stamp, parsed)
-			}
-			if err != nil {
-				rep.Errors = append(rep.Errors, fmt.Sprintf("%s: %v", path, err))
-				return nil
-			}
-			rep.Parsed++
-			if progress != nil && rep.Parsed%50 == 0 {
-				progress(rep)
-			}
-			return nil
-		})
-		if err != nil {
-			return rep, err
-		}
-	}
-	return rep, nil
+	return known, rows.Err()
 }
 
-func (s *Store) replace(path, harness string, stamp [2]int64, p *ingest.Parsed) error {
-	tx, err := s.DB.Begin()
+// Save replaces the rows indexed from file. Rows are keyed by session, not file,
+// so a log moved elsewhere (Codex archiving) is not counted twice.
+func (s *SQLiteIndex) Save(file app.LogFile, t app.IndexedTranscript) error {
+	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	for _, t := range []string{"sessions", "requests", "tool_calls", "prompts"} {
-		if _, err := tx.Exec(`DELETE FROM `+t+` WHERE file = ?`, path); err != nil {
+	path := file.Path
+	for _, table := range []string{"sessions", "requests", "tool_calls", "prompts"} {
+		if _, err := tx.Exec(`DELETE FROM `+table+` WHERE file = ?`, path); err != nil {
 			return err
 		}
 	}
-	ss := p.Session
+	ss := t.Session
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO sessions VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		ss.ID, path, harness, nullStr(ss.ParentID), ss.AgentType, ss.Title, ss.Folder, s.user, ss.Start, ss.End); err != nil {
+		ss.ID, path, file.Harness, nullStr(ss.ParentID), ss.AgentType, ss.Title, ss.Folder, s.user,
+		usage.UnixMilli(ss.Start), usage.UnixMilli(ss.End)); err != nil {
 		return err
 	}
 
@@ -165,13 +119,10 @@ func (s *Store) replace(path, harness string, stamp [2]int64, p *ingest.Parsed) 
 	if err != nil {
 		return err
 	}
-	for _, r := range p.Requests {
-		cost, priced := r.Cost, r.Cost > 0
-		if !priced {
-			cost, priced = s.prices.Cost(r.Model, r.Input, r.Output, r.CacheRead, r.CacheWrite, r.CacheWrite1h)
-		}
-		if _, err := reqStmt.Exec(path, r.Key, ss.ID, r.TS, r.Model, r.Provider, r.Input, r.Output, r.CacheRead, r.CacheWrite, r.Reasoning,
-			cost, priced, nullFloat(r.DurationMs), nullFloat(r.TTFTMs), r.StopReason, nullStr(r.Error)); err != nil {
+	for i, r := range t.Requests {
+		c := t.Costs[i]
+		if _, err := reqStmt.Exec(path, r.Key, ss.ID, usage.UnixMilli(r.At), r.Model, r.Provider, r.Input, r.Output, r.CacheRead, r.CacheWrite, r.Reasoning,
+			float64(c.USD), c.Priced, nullMillis(r.Duration), nullMillis(r.TTFT), r.StopReason, nullStr(r.Error)); err != nil {
 			return err
 		}
 	}
@@ -180,8 +131,8 @@ func (s *Store) replace(path, harness string, stamp [2]int64, p *ingest.Parsed) 
 	if err != nil {
 		return err
 	}
-	for _, t := range p.Tools {
-		if _, err := toolStmt.Exec(path, t.Key, ss.ID, t.TS, t.Name, t.Server, t.ArgsChars, t.ResultChars, t.IsError, nullFloat(t.DurationMs)); err != nil {
+	for _, c := range t.Tools {
+		if _, err := toolStmt.Exec(path, c.Key, ss.ID, usage.UnixMilli(c.At), c.Name, c.Server, c.ArgsChars, c.ResultChars, c.IsError, nullMillis(c.Duration)); err != nil {
 			return err
 		}
 	}
@@ -190,19 +141,15 @@ func (s *Store) replace(path, harness string, stamp [2]int64, p *ingest.Parsed) 
 	if err != nil {
 		return err
 	}
-	seen := map[[32]byte]bool{}
-	for _, pr := range p.Prompts {
-		sig := ingest.Analyze(pr.Text)
-		h := sha256.Sum256([]byte(strings.ToLower(strings.Join(strings.Fields(pr.Text), " "))))
-		repeated := seen[h]
-		seen[h] = true
-		if _, err := promptStmt.Exec(path, pr.Key, ss.ID, pr.TS, pr.Text, sig.Chars, sig.Words, sig.Yelling, sig.Profanity,
-			sig.Anguish, sig.Negation, repeated, sig.Blame); err != nil {
+	for i, pr := range t.Prompts {
+		sig := t.Signals[i]
+		if _, err := promptStmt.Exec(path, pr.Key, ss.ID, usage.UnixMilli(pr.At), pr.Text, sig.Chars, sig.Words, sig.Yelling, sig.Profanity,
+			sig.Anguish, sig.Negation, sig.Repeated, sig.Blame); err != nil {
 			return err
 		}
 	}
 
-	if _, err := tx.Exec(`INSERT OR REPLACE INTO files VALUES (?,?,?,?)`, path, harness, stamp[0], stamp[1]); err != nil {
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO files VALUES (?,?,?,?)`, path, file.Harness, file.Size, file.ModTime.UnixNano()); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -215,9 +162,10 @@ func nullStr(s string) any {
 	return s
 }
 
-func nullFloat(f float64) any {
-	if f <= 0 {
+// nullMillis stores a duration in milliseconds, NULL when unknown.
+func nullMillis(d time.Duration) any {
+	if d <= 0 {
 		return nil
 	}
-	return f
+	return float64(d) / float64(time.Millisecond)
 }

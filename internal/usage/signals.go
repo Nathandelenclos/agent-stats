@@ -1,4 +1,4 @@
-package ingest
+package usage
 
 import (
 	"regexp"
@@ -8,6 +8,7 @@ import (
 
 // Signals are cheap lexical hints of user frustration in a prompt (French and English).
 type Signals struct {
+	Repeated     bool // same text as an earlier prompt of the session, ignoring case and spacing
 	Chars, Words int
 	Yelling      int // words of 3+ letters written in capitals
 	Profanity    int
@@ -45,6 +46,19 @@ func Analyze(text string) Signals {
 	s.Negation = len(negation.FindAllStringIndex(text, -1))
 	s.Blame = len(blame.FindAllStringIndex(text, -1))
 	return s
+}
+
+// AnalyzeSession computes the signals of every prompt of one session, in order.
+func AnalyzeSession(prompts []Prompt) []Signals {
+	seen := map[string]bool{}
+	out := make([]Signals, len(prompts))
+	for i, p := range prompts {
+		out[i] = Analyze(p.Text)
+		norm := strings.ToLower(strings.Join(strings.Fields(p.Text), " "))
+		out[i].Repeated = seen[norm]
+		seen[norm] = true
+	}
+	return out
 }
 
 func isShouted(w string) bool {

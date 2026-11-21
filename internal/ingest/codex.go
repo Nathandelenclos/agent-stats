@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/Nathandelenclos/agent-stats/internal/usage"
 )
 
 type codexUsage struct {
@@ -21,11 +24,11 @@ type codexDuration struct {
 	Nanos float64 `json:"nanos"`
 }
 
-func (d *codexDuration) ms() float64 {
+func (d *codexDuration) duration() time.Duration {
 	if d == nil {
 		return 0
 	}
-	return d.Secs*1000 + d.Nanos/1e6
+	return millis(d.Secs*1000 + d.Nanos/1e6)
 }
 
 type codexPayload struct {
@@ -75,10 +78,10 @@ type codexPayload struct {
 
 // ParseCodex reads a Codex rollout (~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl[.zst]).
 // Real tool calls are the item_completed events: the model's "exec" custom tool is only a JS wrapper around them.
-func ParseCodex(path string, r io.Reader) (*Parsed, error) {
-	p := &Parsed{Session: Session{Harness: "codex", AgentType: "main"}}
+func ParseCodex(path string, r io.Reader) (usage.Transcript, error) {
+	p := &usage.Transcript{Session: usage.Session{Harness: usage.Codex, AgentType: usage.MainAgent}}
 	var model string
-	var fallback []Request // from token_count events, used only when the file has no token_usage_record
+	var fallback []usage.Request // from token_count events, used only when the file has no token_usage_record
 	var lastTotal codexUsage
 	callIndex := map[string]int{}
 	ordinal := 0
@@ -91,6 +94,7 @@ func ParseCodex(path string, r io.Reader) (*Parsed, error) {
 			Payload   codexPayload `json:"payload"`
 		}
 		if json.Unmarshal(line, &l) != nil {
+			p.SkippedLines++
 			return
 		}
 		ts := parseTS(l.Timestamp)
@@ -101,15 +105,15 @@ func ParseCodex(path string, r io.Reader) (*Parsed, error) {
 			if p.Session.ID != "" {
 				return
 			}
-			p.Session.ID = "codex:" + pl.ID
+			p.Session.ID = usage.Codex.SessionID(pl.ID)
 			if pl.ForkedFrom != "" {
-				p.Session.ParentID = "codex:" + pl.ForkedFrom
+				p.Session.ParentID = usage.Codex.SessionID(pl.ForkedFrom)
 			}
 			p.Session.Folder = pl.Cwd
 			if pl.ThreadSource == "subagent" {
-				p.Session.AgentType = "subagent"
+				p.Session.AgentType = usage.Subagent
 			}
-			p.Session.span(ts)
+			p.Session.Span(ts)
 		case "turn_context":
 			if pl.Model != "" {
 				model = pl.Model
@@ -118,9 +122,9 @@ func ParseCodex(path string, r io.Reader) (*Parsed, error) {
 			if pl.Usage != nil {
 				p.Requests = append(p.Requests, codexRequest(pl.ResponseID, ts, model, *pl.Usage))
 			}
-			p.Session.span(ts)
+			p.Session.Span(ts)
 		case "response_item":
-			p.Session.span(ts)
+			p.Session.Span(ts)
 			switch pl.Type {
 			case "function_call":
 				// exec_command/write_stdin also surface as CommandExecution items; count those instead.
@@ -128,11 +132,11 @@ func ParseCodex(path string, r io.Reader) (*Parsed, error) {
 					return
 				}
 				callIndex[pl.CallID] = len(p.Tools)
-				p.Tools = append(p.Tools, ToolCall{Key: pl.CallID, TS: ts, Name: pl.Name, ArgsChars: len(pl.Arguments)})
+				p.Tools = append(p.Tools, usage.ToolCall{Key: pl.CallID, At: ts, Name: pl.Name, ArgsChars: len(pl.Arguments)})
 			case "function_call_output":
 				if i, ok := callIndex[pl.CallID]; ok {
 					p.Tools[i].ResultChars = len(pl.Output)
-					p.Tools[i].DurationMs = float64(ts - p.Tools[i].TS)
+					p.Tools[i].Duration = between(p.Tools[i].At, ts)
 				}
 			}
 		case "event_msg":
@@ -158,23 +162,24 @@ func ParseCodex(path string, r io.Reader) (*Parsed, error) {
 		p.Requests = fallback
 	}
 	if p.Session.ID == "" {
-		p.Session.ID = "codex:" + strings.SplitN(filepath.Base(path), ".", 2)[0]
+		p.Session.ID = usage.Codex.SessionID(strings.SplitN(filepath.Base(path), ".", 2)[0])
 	}
-	return p.finish(), err
+	p.TitleFromFirstPrompt()
+	return *p, err
 }
 
-func codexRequest(key string, ts int64, model string, u codexUsage) Request {
-	return Request{
-		Key: key, TS: ts, Model: model, Provider: "openai",
-		Input: u.Input - u.Cached, CacheRead: u.Cached, CacheWrite: u.CacheW,
-		Output: u.Output, Reasoning: u.Reasoning,
+func codexRequest(key string, ts time.Time, model string, u codexUsage) usage.Request {
+	return usage.Request{
+		Key: key, At: ts, Model: model, Provider: "openai",
+		Tokens:    usage.Tokens{Input: u.Input - u.Cached, CacheRead: u.Cached, CacheWrite: u.CacheW, Output: u.Output},
+		Reasoning: u.Reasoning,
 	}
 }
 
-func codexItem(p *Parsed, ts int64, pl *codexPayload) {
+func codexItem(p *usage.Transcript, ts time.Time, pl *codexPayload) {
 	it := pl.Item
 	failed := it.Status == "failed" || (len(it.Error) > 0 && string(it.Error) != "null")
-	t := ToolCall{Key: it.ID, TS: ts, IsError: failed, DurationMs: it.Duration.ms()}
+	t := usage.ToolCall{Key: it.ID, At: ts, IsError: failed, Duration: it.Duration.duration()}
 	switch it.Type {
 	case "UserMessage":
 		var parts []string
@@ -183,8 +188,8 @@ func codexItem(p *Parsed, ts int64, pl *codexPayload) {
 				parts = append(parts, c.Text)
 			}
 		}
-		if text := strings.Join(parts, "\n"); strings.TrimSpace(text) != "" {
-			p.Prompts = append(p.Prompts, Prompt{Key: it.ID, TS: ts, Text: text})
+		if pr, ok := usage.NewPrompt(it.ID, ts, strings.Join(parts, "\n")); ok {
+			p.Prompts = append(p.Prompts, pr)
 		}
 		return
 	case "CommandExecution":
