@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -63,8 +62,8 @@ func ParseClaude(path string, r io.Reader) (usage.Transcript, error) {
 	p.Session = usage.Session{ID: usage.Claude.SessionID(base), Harness: usage.Claude, AgentType: usage.MainAgent}
 	if filepath.Base(filepath.Dir(path)) == "subagents" {
 		parent := filepath.Base(filepath.Dir(filepath.Dir(path)))
-		p.Session.ID = usage.Claude.SessionID(parent + "/" + base)
 		p.Session.ParentID = usage.Claude.SessionID(parent)
+		p.Session.ID = usage.SubagentSessionID(p.Session.ParentID, base)
 		p.Session.AgentType = claudeAgentType(strings.TrimSuffix(path, ".jsonl") + ".meta.json")
 	}
 
@@ -115,10 +114,11 @@ func ParseClaude(path string, r io.Reader) (usage.Transcript, error) {
 				req.StopReason = m.StopReason
 			}
 			if u := m.Usage; u != nil {
-				req.Input, req.Output, req.CacheRead, req.CacheWrite = u.Input, u.Output, u.CacheRead, u.CacheCreation
+				tokens := usage.Tokens{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheCreation}
 				if u.CacheDetail != nil {
-					req.CacheWrite1h = u.CacheDetail.OneHour
+					tokens.CacheWrite1h = u.CacheDetail.OneHour
 				}
+				req.Tokens = tokens
 				if u.OutputDetail != nil {
 					req.Reasoning = u.OutputDetail.Thinking
 				}
@@ -190,12 +190,24 @@ func firstText(blocks []claudeBlock) string {
 	return "error"
 }
 
+// maxMetaBytes bounds the subagent .meta.json read next to a transcript (real ones are a few hundred bytes).
+const maxMetaBytes = 64 << 10
+
+// claudeAgentType reads the subagent type Claude Code stores next to the transcript, "subagent" when absent or unusable.
 func claudeAgentType(metaPath string) usage.AgentType {
+	f, err := openRegular(metaPath)
+	if err != nil {
+		return usage.Subagent
+	}
+	defer f.Close()
 	var meta struct {
 		AgentType string `json:"agentType"`
 	}
-	if raw, err := os.ReadFile(metaPath); err == nil && json.Unmarshal(raw, &meta) == nil && meta.AgentType != "" {
-		return usage.AgentType(meta.AgentType)
+	if json.NewDecoder(io.LimitReader(f, maxMetaBytes)).Decode(&meta) != nil {
+		return usage.Subagent
+	}
+	if t, ok := usage.ParseAgentType(meta.AgentType); ok {
+		return t
 	}
 	return usage.Subagent
 }

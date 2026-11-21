@@ -67,7 +67,7 @@ func ParsePi(harness usage.Harness) Parser {
 		for dir := filepath.Dir(path); dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
 			if m := sessionDir.FindStringSubmatch(filepath.Base(dir)); m != nil {
 				p.Session.ParentID = harness.SessionID(m[1])
-				p.Session.ID = p.Session.ParentID + "/" + stem
+				p.Session.ID = usage.SubagentSessionID(p.Session.ParentID, stem)
 				p.Session.AgentType = usage.Subagent
 				break
 			}

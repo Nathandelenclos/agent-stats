@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -190,5 +191,51 @@ func TestDecompressedSizeIsBounded(t *testing.T) {
 	}
 	if _, err := ParseFile(path, ParseCodex); !errors.Is(err, ErrLogTooLarge) {
 		t.Errorf("err = %v, want ErrLogTooLarge", err)
+	}
+}
+
+func TestListSkipsSpecialFiles(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "ok.jsonl"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(root, "pipe.jsonl"), 0o600); err != nil {
+		t.Skip("mkfifo unavailable:", err)
+	}
+	logs := NewFileSessionLogs([]Source{{Harness: usage.Claude, Root: root, Match: func(string) bool { return true }, Parse: ParseClaude}})
+	files, problems, err := logs.List()
+	if err != nil || len(files) != 1 || len(problems) != 1 || !errors.Is(problems[0], ErrNotRegular) {
+		t.Fatalf("files %+v problems %v err %v", files, problems, err)
+	}
+	// Opening checks the descriptor too; a regular file still opens.
+	if _, err := ParseFile(filepath.Join(root, "ok.jsonl"), ParseClaude); err != nil {
+		t.Errorf("regular file refused: %v", err)
+	}
+}
+
+func TestClaudeSubagentRejectsUnusableMeta(t *testing.T) {
+	for name, meta := range map[string]string{
+		"invalid type": `{"agentType":"<script>alert(1)</script>"}`,
+		"oversized":    `{"agentType":"Explore","pad":"` + strings.Repeat("x", maxMetaBytes) + `"}`,
+	} {
+		dir := filepath.Join(t.TempDir(), "sess1", "subagents")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "agent-a1.meta.json"), []byte(meta), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if p := parse(t, ParseClaude, filepath.Join(dir, "agent-a1.jsonl"), ""); p.Session.AgentType != usage.Subagent {
+			t.Errorf("%s: agent type = %q", name, p.Session.AgentType)
+		}
+	}
+}
+
+func TestCodexEmptySessionIDFallsBackToFileName(t *testing.T) {
+	log := `{"timestamp":"2026-01-01T10:00:00Z","type":"session_meta","payload":{"id":"","cwd":"/repo"}}
+{"timestamp":"2026-01-01T10:00:00Z","type":"session_meta","payload":{"id":"origin","cwd":"/elsewhere"}}
+`
+	if p := parse(t, ParseCodex, "/x/rollout-9.jsonl", log); p.Session.ID != "codex:rollout-9" || p.Session.Folder != "/repo" {
+		t.Errorf("session = %+v", p.Session)
 	}
 }

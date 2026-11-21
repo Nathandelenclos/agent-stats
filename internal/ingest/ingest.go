@@ -35,7 +35,7 @@ type Parser func(path string, r io.Reader) (usage.Transcript, error)
 
 // ParseFile opens path (transparently decompressing .zst) and runs p on it.
 func ParseFile(path string, p Parser) (usage.Transcript, error) {
-	f, err := os.Open(path)
+	f, err := openRegular(path)
 	if err != nil {
 		return usage.Transcript{}, err
 	}
@@ -50,6 +50,25 @@ func ParseFile(path string, p Parser) (usage.Transcript, error) {
 		r = d
 	}
 	return p(path, &capped{r: r, left: maxLogBytes})
+}
+
+// ErrNotRegular reports a log path that is not a regular file (a FIFO, a device…).
+var ErrNotRegular = errors.New("not a regular file")
+
+// openRegular opens path for reading and refuses anything but a regular file, checked on the opened descriptor.
+func openRegular(path string) (*os.File, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
+		f.Close()
+		if err == nil {
+			err = ErrNotRegular
+		}
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return f, nil
 }
 
 // capped fails with ErrLogTooLarge instead of reading past its limit.

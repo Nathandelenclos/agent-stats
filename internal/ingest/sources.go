@@ -70,6 +70,10 @@ func (l *FileSessionLogs) List() ([]app.LogFile, []error, error) {
 			if d.IsDir() || !src.Match(path) {
 				return nil
 			}
+			if t := d.Type(); !t.IsRegular() && t&fs.ModeSymlink == 0 {
+				problems = append(problems, fmt.Errorf("%s: %w", path, ErrNotRegular))
+				return nil
+			}
 			info, err := d.Info()
 			if err != nil {
 				problems = append(problems, fmt.Errorf("%s: %w", path, err))

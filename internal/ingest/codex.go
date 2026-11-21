@@ -106,6 +106,9 @@ func ParseCodex(path string, r io.Reader) (usage.Transcript, error) {
 				return
 			}
 			p.Session.ID = usage.Codex.SessionID(pl.ID)
+			if pl.ID == "" {
+				p.Session.ID = codexFileID(path)
+			}
 			if pl.ForkedFrom != "" {
 				p.Session.ParentID = usage.Codex.SessionID(pl.ForkedFrom)
 			}
@@ -163,7 +166,7 @@ func ParseCodex(path string, r io.Reader) (usage.Transcript, error) {
 		p.Requests = fallback
 	}
 	if p.Session.ID == "" {
-		p.Session.ID = usage.Codex.SessionID(strings.SplitN(filepath.Base(path), ".", 2)[0])
+		p.Session.ID = codexFileID(path)
 	}
 	p.TitleFromFirstPrompt()
 	return *p, err
@@ -208,4 +211,9 @@ func codexItem(p *usage.Transcript, ts time.Time, pl *codexPayload) {
 		return // reasoning, agent messages, subagent notifications, collab calls already logged as function_call
 	}
 	p.Tools = append(p.Tools, t)
+}
+
+// codexFileID names a session after its rollout file when the log carries no session id.
+func codexFileID(path string) string {
+	return usage.Codex.SessionID(strings.SplitN(filepath.Base(path), ".", 2)[0])
 }
