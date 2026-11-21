@@ -6,6 +6,7 @@ package usage
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -39,6 +40,9 @@ func ParseHarness(name string) (Harness, error) {
 // SessionID returns the index-wide identity of a session: "<harness>:<native id>".
 func (h Harness) SessionID(native string) string { return string(h) + ":" + native }
 
+// SubagentSessionID returns the identity of a subagent session: "<parent session id>/<subagent name>".
+func SubagentSessionID(parentID, name string) string { return parentID + "/" + name }
+
 // UnixMilli is t in milliseconds since the Unix epoch, 0 for an unknown (zero) time.
 func UnixMilli(t time.Time) int64 {
 	if t.IsZero() {
@@ -54,6 +58,16 @@ const (
 	MainAgent AgentType = "main"
 	Subagent  AgentType = "subagent"
 )
+
+var declaredAgentType = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 _.:-]{0,63}$`)
+
+// ParseAgentType accepts the subagent type a harness declares: a short name such as "Explore" or "code-reviewer".
+func ParseAgentType(name string) (AgentType, bool) {
+	if !declaredAgentType.MatchString(name) {
+		return "", false
+	}
+	return AgentType(name), true
+}
 
 // Session is one conversation with an agent harness.
 type Session struct {
@@ -89,10 +103,18 @@ type Tokens struct {
 	CacheWrite1h int64 // part of CacheWrite written with Anthropic's 1-hour TTL
 }
 
-// Valid reports whether every count is non-negative and the 1-hour cache writes fit in the cache writes.
+// MaxTokenCount bounds one count of one request: far above any model's window (largest seen: under a million),
+// far below what would overflow the index's sums.
+const MaxTokenCount = 1 << 40
+
+// Valid reports whether every count is within 0..MaxTokenCount and the 1-hour cache writes fit in the cache writes.
 func (t Tokens) Valid() bool {
-	return t.Input >= 0 && t.Output >= 0 && t.CacheRead >= 0 && t.CacheWrite >= 0 &&
-		t.CacheWrite1h >= 0 && t.CacheWrite1h <= t.CacheWrite
+	for _, n := range []int64{t.Input, t.Output, t.CacheRead, t.CacheWrite, t.CacheWrite1h} {
+		if n < 0 || n > MaxTokenCount {
+			return false
+		}
+	}
+	return t.CacheWrite1h <= t.CacheWrite
 }
 
 // USD is an amount in US dollars.
@@ -157,7 +179,7 @@ type Transcript struct {
 func (t *Transcript) DropInvalidRequests() {
 	valid := t.Requests[:0]
 	for _, r := range t.Requests {
-		if r.Tokens.Valid() && r.Reasoning >= 0 && r.LoggedCost >= 0 {
+		if r.Tokens.Valid() && r.Reasoning >= 0 && r.Reasoning <= MaxTokenCount && r.LoggedCost >= 0 {
 			valid = append(valid, r)
 		} else {
 			t.SkippedLines++

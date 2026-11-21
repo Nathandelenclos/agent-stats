@@ -3,6 +3,7 @@ package usage
 import (
 	"errors"
 	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -131,5 +132,32 @@ func TestDropInvalidRequests(t *testing.T) {
 	tr.DropInvalidRequests()
 	if len(tr.Requests) != 1 || tr.Requests[0].Key != "ok" || tr.SkippedLines != 3 {
 		t.Errorf("requests %+v, skipped %d", tr.Requests, tr.SkippedLines)
+	}
+}
+
+func TestTokenCountsAreBounded(t *testing.T) {
+	tr := Transcript{Requests: []Request{{Key: "huge", Tokens: Tokens{Output: MaxTokenCount + 1}}, {Key: "huge reasoning", Reasoning: MaxTokenCount + 1}}}
+	tr.DropInvalidRequests()
+	if len(tr.Requests) != 0 || tr.SkippedLines != 2 {
+		t.Errorf("requests %+v", tr.Requests)
+	}
+}
+
+func TestParseAgentType(t *testing.T) {
+	for _, ok := range []string{"Explore", "code-reviewer", "grace-review-high", "general purpose"} {
+		if _, valid := ParseAgentType(ok); !valid {
+			t.Errorf("%q refused", ok)
+		}
+	}
+	for _, bad := range []string{"", " lead", "<b>", strings.Repeat("a", 65), "a\nb"} {
+		if _, valid := ParseAgentType(bad); valid {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
+func TestSubagentSessionID(t *testing.T) {
+	if got := SubagentSessionID(Claude.SessionID("s1"), "agent-a1"); got != "claude:s1/agent-a1" {
+		t.Errorf("id = %q", got)
 	}
 }

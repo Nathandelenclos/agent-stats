@@ -25,10 +25,12 @@ var (
 	blame     = regexp.MustCompile(`(?i)\b(tu as (cass|oubli|supprim|ignor)\w*|t'as (cass|oubli|supprim)\w*|you (broke|forgot|deleted|ignored)|je t'ai (dit|demand))`)
 )
 
-// Analyze computes the signals for one prompt.
-func Analyze(text string) Signals {
+// Analyze computes the signals for one prompt seen on its own.
+func Analyze(text string) Signals { return analyze(text, false) }
+
+func analyze(text string, repeated bool) Signals {
 	words := strings.Fields(text)
-	s := Signals{Chars: len([]rune(text)), Words: len(words)}
+	s := Signals{Repeated: repeated, Chars: len([]rune(text)), Words: len(words)}
 	// Only runs of 2+ capitalised words count, so lone acronyms (API, JSON) are not yelling.
 	run := 0
 	for i := 0; i <= len(words); i++ {
@@ -53,9 +55,8 @@ func AnalyzeSession(prompts []Prompt) []Signals {
 	seen := map[string]bool{}
 	out := make([]Signals, len(prompts))
 	for i, p := range prompts {
-		out[i] = Analyze(p.Text)
 		norm := strings.ToLower(strings.Join(strings.Fields(p.Text), " "))
-		out[i].Repeated = seen[norm]
+		out[i] = analyze(p.Text, seen[norm])
 		seen[norm] = true
 	}
 	return out
