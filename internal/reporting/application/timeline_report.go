@@ -23,7 +23,7 @@ type BuildTimelineReport struct {
 func (uc BuildTimelineReport) Run(ctx context.Context, q Query) (TimelineReport, error) {
 	var r TimelineReport
 	err := uc.Queries.Snapshot(ctx, func(u UsageReader) (err error) {
-		f := domain.Filter{Since: q.Since, Harness: q.Harness}
+		f := domain.Filter{Since: q.Since, Harness: q.Harness, Project: q.Project}
 		if r.Report, err = build(u, f); err != nil {
 			return err
 		}

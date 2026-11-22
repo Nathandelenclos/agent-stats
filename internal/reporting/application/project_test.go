@@ -116,3 +116,16 @@ func TestTheHomeFolderIsNotTheViewEvenWhenSessionsWorkedInIt(t *testing.T) {
 		t.Errorf("project = %v, %v", got, err)
 	}
 }
+
+func TestTheTimelineOfAProjectCountsItsRequestsOnly(t *testing.T) {
+	// Given sessions that worked in a project and elsewhere
+	app := appProject(t)
+
+	// When the report with its timeline is built for the project
+	r, err := BuildTimelineReport{Queries: recordedByProject{app}}.Run(context.Background(), Query{Project: app})
+
+	// Then it counts the requests of the project
+	if err != nil || r.Total.Requests != 3 {
+		t.Errorf("requests = %d, %v", r.Total.Requests, err)
+	}
+}
