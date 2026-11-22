@@ -1,0 +1,9 @@
+{
+  "sessionId":"example",
+  "session":{"modelCalls":4,"inputTokens":9000},
+  "turns":[
+    {"turnNumber":1,"endedAt":"2026-11-20T10:00:04Z","primaryModelId":"sample-model","modelCalls":1,"inputTokens":10,"outputTokens":4,"cachedReadTokens":2,"cacheCreationTokens":1,"reasoningTokens":1,"costUsdTicks":100000000,"modelUsage":{"sample-model":{"modelCalls":1,"inputTokens":10}}},
+    {"turnNumber":2,"endedAt":"2026-11-20T10:00:12Z","primaryModelId":"sample-model","modelCalls":3,"inputTokens":100,"outputTokens":15,"costUsdTicks":500000000},
+    {"turnNumber":3,"endedAt":"2026-11-20T10:00:15Z","primaryModelId":"sample-model","modelCalls":1,"usageIsIncomplete":true,"inputTokens":200,"outputTokens":15}
+  ]
+}

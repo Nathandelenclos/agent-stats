@@ -2,6 +2,7 @@ package logfiles
 
 import (
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -52,6 +53,7 @@ func DefaultSources(home string) []Source {
 			return filepath.Base(path) == "events.jsonl" && filepath.Dir(filepath.Dir(path)) == copilot
 		}},
 		{Harness: kernel.Zed, Root: zedThreadsDir(home), Database: zedDatabase{}},
+		grokSource(filepath.Join(envOr("GROK_HOME", filepath.Join(home, ".grok")), "sessions")),
 	}
 }
 
@@ -115,6 +117,9 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 			}
 			continue
 		}
+		first := len(files)
+		children := map[string]grokChild{}
+		parents := map[string]bool{}
 		err := filepath.WalkDir(src.Root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				if os.IsNotExist(err) || os.IsPermission(err) {
@@ -122,7 +127,13 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 				}
 				return err
 			}
-			if d.IsDir() || !src.Match(path) {
+			if src.Harness == kernel.Grok && d.Type().IsRegular() && d.Name() == "meta.json" {
+				if child := readGrokChild(src.Root, path); child.ID != "" {
+					children[child.ID] = child
+					parents[child.Parent] = true
+				}
+			}
+			if d.IsDir() || !src.Match(path) || (src.Harness == kernel.Grok && d.Type()&fs.ModeSymlink != 0) {
 				return nil
 			}
 			if t := d.Type(); !t.IsRegular() && t&fs.ModeSymlink == 0 {
@@ -140,6 +151,17 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 		})
 		if err != nil {
 			return files, problems, err
+		}
+		if src.Harness == kernel.Grok {
+			for i := first; i < len(files); i++ {
+				file := &files[i]
+				id := filepath.Base(filepath.Dir(file.Path))
+				child, hasChildren := children[id], parents[id]
+				file.Revision += fmt.Sprintf(":child=%q:%q:parent=%t", child.Parent, child.Type, hasChildren)
+				parsers[file.Path] = func(path string, r io.Reader) (domain.Transcript, error) {
+					return parseGrok(path, r, child, hasChildren)
+				}
+			}
 		}
 	}
 	l.mu.Lock()
@@ -172,6 +194,14 @@ func (l *FileSessionLogs) Read(f application.LogFile) (domain.Transcript, error)
 	}
 	if !ok {
 		return domain.Transcript{}, fmt.Errorf("%s was not listed", f.Path)
+	}
+	if f.Harness == kernel.Grok {
+		log, err := openGrokFile(f.Path)
+		if err != nil {
+			return domain.Transcript{}, err
+		}
+		defer log.Close()
+		return p(f.Path, &capped{r: log, left: maxLogBytes})
 	}
 	return ParseFile(f.Path, p)
 }

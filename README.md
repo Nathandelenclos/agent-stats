@@ -51,7 +51,7 @@ go generate ./web && go build -tags web .   # with the web page (needs Node 22.1
 ```sh
 agent-stats                          # on a terminal: open the interactive view, indexing new logs in the background
 agent-stats --since 7d               # last 7 days (also 24h, 30d, or a date: 2026-11-01)
-agent-stats --harness codex          # one harness: claude, codex, omp, pi, opencode, kilo, gemini or copilot
+agent-stats --harness codex          # filter to one harness
 agent-stats --harness claude --json  # machine-readable report
 agent-stats --no-sync                # report from the existing index, skip re-reading the logs
 agent-stats --all                    # every project, even from inside one
@@ -99,7 +99,7 @@ The sessions are not part of `--json` or the plain-text report. Both modes follo
 | Flag | Meaning |
 |------|---------|
 | `--since` | Only count activity after this point: `24h`, `7d` (days), any Go duration, or a `2006-01-02` date. |
-| `--harness` | Restrict the report to `claude`, `codex`, `omp`, `pi`, `opencode`, `kilo`, `gemini` or `copilot`. |
+| `--harness` | Restrict the report to one of the [supported harnesses](#supported-harnesses). |
 | `--all` | Count every project, not only the one of the current folder, see [Per-project view](#per-project-view). |
 | `--project DIR` | Count only the project at `DIR` (folder or below), see [Per-project view](#per-project-view). |
 | `--json` | Print the report as JSON instead of tables. |
@@ -176,7 +176,7 @@ no toggle.
 
 The page reads a small JSON API, which is also usable with `curl`. Every route is a `GET`; errors are
 [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem documents (`application/problem+json`) with a stable `type`.
-`since` and `harness` take what the command line takes (`7d`, `24h`, `2006-01-02`; `claude`, `codex`, `omp`, `pi`, `opencode`, `kilo`, `gemini`, `copilot`) and
+`since` and `harness` take the same values as the command-line flags and
 may be omitted. `project` is `current` (the project the server runs in) or `all`, and when omitted is what the page opens
 on; `current` is refused with `400` when the server found no project, as is any other value, a folder included.
 Unknown or repeated parameters are refused with `400`.
@@ -255,7 +255,7 @@ what the usage covers.
 | oh-my-pi    | `~/.omp/agent/mcp.json`, skills (`~/.omp/agent/skills`, `~/.agents/skills`), agents (`~/.omp/agent/agents`), plugins (`~/.omp/plugins`) |
 | pi          | skills (`~/.pi/agent/skills`, `~/.agents/skills`), packages of `~/.pi/agent/settings.json`                           |
 
-OpenCode, Kilo Code, Gemini CLI, GitHub Copilot CLI and Zed Agent have no configuration reader yet: their tools show up with the `logs` scope, from the
+OpenCode, Kilo Code, Gemini CLI, GitHub Copilot CLI, Zed Agent and Grok Build CLI have no configuration reader yet: their tools show up with the `logs` scope, from the
 usage their sessions record, and nothing of them is listed as installed (so none is reported unused).
 
 The per-project MCP servers of `~/.claude.json` are listed for every project it names, not only for `--project`.
@@ -301,6 +301,7 @@ file, a name with control characters) is left out and noted on stderr (`skipped`
 | Gemini CLI | `~/.gemini/tmp/<project>/chats/*.json` and `*.jsonl` (under `$GEMINI_CLI_HOME` when set), including subagent journals |
 | GitHub Copilot CLI | `~/.copilot/session-state/<session-id>/events.jsonl` (under `$COPILOT_HOME` when set) |
 | Zed Agent | `threads/threads.db` in `~/Library/Application Support/Zed` on macOS, `${FLATPAK_XDG_DATA_HOME:-$XDG_DATA_HOME}/zed` on Linux (`~/.local/share/zed` by default), or `%LOCALAPPDATA%/Zed` on Windows |
+| Grok Build CLI | `~/.grok/sessions/<encoded-cwd>/<id>/updates.jsonl` (under `$GROK_HOME` when set), with session metadata and usage from neighbouring files |
 
 A harness that is not installed is simply skipped. The index lives in the user cache directory
 (`agent-stats/index.db`). Only changed log files are re-read, and indexed rows survive when a harness deletes its
@@ -343,6 +344,13 @@ What the newer readers count:
   parents. Project filtering applies to single-folder workspaces. Prompts and tools have no timestamps, so tool calls
   appear in session details and all-time reports. Zed stores aggregate token usage per turn and per thread, which the
   index leaves out. Agent 1 archives, shared exports, ACP sessions and custom data locations are outside this reader.
+- **Grok Build CLI** reads the local ACP update log, joins user prompt fragments, and groups tool updates by call ID.
+  It uses the session summary, project directory and subagent metadata to place and link each session. The usage report
+  includes complete turns that identify exactly one model call, dated at the recorded end of the turn. Session totals,
+  multi-call turns and parent ledgers that can include child usage are excluded, so reported Grok usage is partial.
+  Tool durations, request durations and time to first token are unknown. Copied fork history, chat history, the search
+  index and checkpoints are excluded. The ACP log records historical activity, including activity later rewound.
+  The on-disk schema was checked against [Grok Build's storage and usage source](https://github.com/xai-org/grok-build/tree/2bdd1d6a63/crates/codegen/xai-grok-shell/src/session).
 
 A SQLite database holds many sessions, while the index keeps one record per log: each session of a database is a log of its
 own, named `<database>#<session id>`. Zed revisions hash each thread's stored payload and metadata. OpenCode and Kilo
