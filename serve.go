@@ -36,6 +36,8 @@ func runServe(args []string) error {
 	since := fs.String("since", "", "period the page opens on: 24h, 7d, 30d or 2006-01-02 (default: all)")
 	harness := fs.String("harness", "", "harness the page opens on: claude, codex, omp, pi (default: all)")
 	noSync := fs.Bool("no-sync", false, "skip re-reading the logs")
+	all := fs.Bool("all", false, "open the page on every project, not only the one of the current folder (it wins over --project)")
+	projectDir := fs.String("project", "", "the project the page offers: this folder or below it (default: the project of the current folder, if sessions worked in it)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -83,6 +85,10 @@ func runServe(args []string) error {
 		return err
 	}
 	defer usage.Close()
+	cov, err := coverageOf(*all, *projectDir, reporting.DetectProject{Queries: usage, Home: homeProject()}.Run)
+	if err != nil {
+		return err
+	}
 
 	ln, err := net.Listen("tcp", *addr)
 	if err != nil {
@@ -94,7 +100,7 @@ func runServe(args []string) error {
 	if *allowRemote {
 		fmt.Fprintln(os.Stderr, "agent-stats: --allow-remote: every machine that can reach this port can read your prompts. Host headers are not checked.")
 	}
-	fmt.Fprintf(os.Stderr, "agent-stats: serving http://%s (Ctrl-C to stop)\n", ln.Addr())
+	fmt.Fprintf(os.Stderr, "agent-stats: serving http://%s, covering: %s (Ctrl-C to stop)\n", ln.Addr(), cov.label())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -107,6 +113,8 @@ func runServe(args []string) error {
 		Assets:      webui.Assets(),
 		Since:       *since,
 		Harness:     only,
+		Project:     cov.project,
+		Restricted:  cov.restricted,
 		AllowRemote: *allowRemote,
 		Log:         log.New(os.Stderr, "agent-stats: ", log.LstdFlags),
 	})
