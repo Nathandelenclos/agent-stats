@@ -15,8 +15,9 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 )
 
-// The prompts table keeps each prompt's frustration signals (usage.Signals). No query reads them yet:
-// they are indexed now for the sessions TUI (delivery step 2), so a re-index is not needed then (2026-11-21).
+// The prompts table keeps each prompt's frustration signals (domain.Signals). The sessions view reads them
+// through the session_prompts view below, which closes the debt of indexing them before anything read them
+// (2026-11-21, closed 2026-11-22): no re-index was needed.
 const schema = `
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
@@ -48,7 +49,8 @@ CREATE INDEX IF NOT EXISTS sessions_file ON sessions (file);
 CREATE INDEX IF NOT EXISTS tool_calls_ts ON tool_calls (ts);
 CREATE INDEX IF NOT EXISTS prompts_ts ON prompts (ts);
 CREATE INDEX IF NOT EXISTS sessions_started ON sessions (started_at);
--- Published read model: the only part of the index other contexts may read. Prompt texts stay private.
+-- Published read model: the only part of the index other contexts may read. Prompt texts stay private,
+-- except in session_prompts, which exists to show a session's own prompts.
 CREATE VIEW IF NOT EXISTS usage_requests AS
 	SELECT r.ts, r.model, r.input, r.output, r.cache_read, r.cache_write, r.cost, r.priced, r.duration_ms, r.ttft_ms, r.error,
 		s.harness, s.agent_type, s.folder
@@ -56,6 +58,24 @@ CREATE VIEW IF NOT EXISTS usage_requests AS
 CREATE VIEW IF NOT EXISTS usage_tool_calls AS
 	SELECT t.ts, t.name, t.server, t.args_chars, t.result_chars, t.is_error, t.duration_ms, s.harness
 	FROM tool_calls t JOIN sessions s ON s.id = t.session_id;
+-- Session views. root_id is the session a listing shows: the session itself, or the session it is a subagent of
+-- when that one is indexed. A subagent whose parent log was never indexed (or was deleted) is its own root.
+CREATE VIEW IF NOT EXISTS session_overview AS
+	SELECT s.id, CASE WHEN p.id IS NULL THEN s.id ELSE p.id END AS root_id, s.harness, s.agent_type, s.title, s.folder,
+		s.started_at, s.ended_at
+	FROM sessions s LEFT JOIN sessions p ON p.id = s.parent_id;
+CREATE VIEW IF NOT EXISTS session_requests AS
+	SELECT o.root_id, r.session_id, r.ts, r.model, r.input, r.output, r.cache_read, r.cache_write, r.cost, r.priced,
+		r.duration_ms, r.ttft_ms, r.error
+	FROM requests r JOIN session_overview o ON o.id = r.session_id;
+CREATE VIEW IF NOT EXISTS session_tool_calls AS
+	SELECT o.root_id, t.session_id, t.ts, t.name, t.server, t.args_chars, t.result_chars, t.is_error, t.duration_ms
+	FROM tool_calls t JOIN session_overview o ON o.id = t.session_id;
+-- position is the prompt's place in its session: rows are inserted in log order.
+CREATE VIEW IF NOT EXISTS session_prompts AS
+	SELECT p.session_id, p.rowid AS position, p.ts, p.text, p.chars, p.words, p.yelling, p.profanity, p.anguish, p.negation,
+		p.repetition, p.blame
+	FROM prompts p;
 `
 
 // SQLiteIndex is the usage index kept in a local SQLite file.

@@ -120,3 +120,104 @@ func TestIndexIsPrivate(t *testing.T) {
 		t.Errorf("reopened index is %v", info.Mode().Perm())
 	}
 }
+
+// subagentOf returns the transcript of a subagent of parent (an indexed session or not).
+func subagentOf(t *testing.T, parent, name string, at time.Time) application.IndexedTranscript {
+	t.Helper()
+	p, err := domain.NewSessionID(kernel.Claude, parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := p.Subagent(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := transcript(t, "unused", at)
+	tr.Session.ID, tr.Session.ParentID, tr.Session.AgentType = id, p, domain.Subagent
+	return tr
+}
+
+func TestSessionViewsGroupSubagentsUnderTheirIndexedParent(t *testing.T) {
+	// Given a session with a subagent, and a subagent whose parent log was never indexed
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	for _, f := range []struct {
+		path string
+		tr   application.IndexedTranscript
+	}{
+		{"/logs/main.jsonl", transcript(t, "main", at)},
+		{"/logs/child.jsonl", subagentOf(t, "main", "child", at)},
+		{"/logs/orphan.jsonl", subagentOf(t, "gone", "orphan", at)},
+	} {
+		if err := s.Save(application.LogFile{Path: f.path, Harness: kernel.Claude}, f.tr); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// When the session views are read
+	roots := map[string]string{}
+	rows, err := s.db.Query(`SELECT id, root_id FROM session_overview`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, root string
+		if err := rows.Scan(&id, &root); err != nil {
+			t.Fatal(err)
+		}
+		roots[id] = root
+	}
+
+	// Then the subagent belongs to its parent and the orphan is its own root
+	want := map[string]string{"claude:main": "claude:main", "claude:main/child": "claude:main", "claude:gone/orphan": "claude:gone/orphan"}
+	if len(roots) != len(want) {
+		t.Fatalf("roots = %v, want %v", roots, want)
+	}
+	for id, root := range want {
+		if roots[id] != root {
+			t.Errorf("root of %s = %q, want %q", id, roots[id], root)
+		}
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM session_requests WHERE root_id = 'claude:main'`).Scan(&n); err != nil || n != 2 {
+		t.Errorf("requests of the main session's tree = %d, %v; want its own and its subagent's", n, err)
+	}
+}
+
+func TestSessionPromptsKeepLogOrderAndSignals(t *testing.T) {
+	// Given a session whose prompts were logged in a different order than their keys or times sort
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	tr := transcript(t, "s1", at)
+	tr.Prompts = []domain.Prompt{{Key: "z", At: at, Text: "first"}, {Key: "a", At: at, Text: hostile}}
+	tr.Signals = []domain.Signals{{Chars: 5, Words: 1}, {Chars: 9, Words: 2, Yelling: 3, Profanity: 1, Anguish: 2, Negation: 4, Blame: 5, Repeated: true}}
+	if err := s.Save(application.LogFile{Path: "/logs/s1.jsonl", Harness: kernel.Claude}, tr); err != nil {
+		t.Fatal(err)
+	}
+
+	// When the prompts are read through the published view, by position
+	rows, err := s.db.Query(`SELECT text, chars, yelling, profanity, anguish, negation, repetition, blame
+		FROM session_prompts WHERE session_id = 'claude:s1' ORDER BY position`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var texts []string
+	var last [7]int
+	for rows.Next() {
+		var text string
+		if err := rows.Scan(&text, &last[0], &last[1], &last[2], &last[3], &last[4], &last[5], &last[6]); err != nil {
+			t.Fatal(err)
+		}
+		texts = append(texts, text)
+	}
+
+	// Then they come back in log order, with the signals of each
+	if len(texts) != 2 || texts[0] != "first" || texts[1] != hostile {
+		t.Errorf("prompts = %q", texts)
+	}
+	if last != [7]int{9, 3, 1, 2, 4, 1, 5} {
+		t.Errorf("signals of the second prompt = %v", last)
+	}
+}

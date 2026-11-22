@@ -61,7 +61,10 @@ func TestIndexReadModelContract(t *testing.T) {
 	}
 }
 
-// TestReadModelHidesPromptTexts checks that the published views expose no prompt text.
+// publishedViews is the index's read model; only session_prompts may carry prompt text.
+const publishedViews = "session_overview,session_prompts,session_requests,session_tool_calls,usage_requests,usage_tool_calls"
+
+// TestReadModelHidesPromptTexts checks that the published views expose no prompt text, except the one made for it.
 func TestReadModelHidesPromptTexts(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "index.db")
 	w, err := sqlite.Open(sqlite.Options{Path: path, User: "me@host"})
@@ -85,12 +88,12 @@ func TestReadModelHidesPromptTexts(t *testing.T) {
 		if err := rows.Scan(&name, &def); err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(def, "prompts") || strings.Contains(def, "text") {
+		if name != "session_prompts" && (strings.Contains(def, "prompts") || strings.Contains(def, "text")) {
 			t.Errorf("view %s exposes prompts: %s", name, def)
 		}
 		views = append(views, name)
 	}
-	if strings.Join(views, ",") != "usage_requests,usage_tool_calls" {
+	if strings.Join(views, ",") != publishedViews {
 		t.Errorf("views = %v", views)
 	}
 }
