@@ -416,3 +416,137 @@ func TestGoReleaserPublishesTheChosenBody(t *testing.T) {
 		t.Error("GoReleaser does not publish the body the previous step chose")
 	}
 }
+
+// step returns the one step of the job that holds text.
+func step(t *testing.T, job, text string) string {
+	t.Helper()
+	found := stepsMentioning(t, jobWithoutComments(t, job), text)
+	if len(found) != 1 {
+		t.Fatalf("%d steps of the %s job hold %q, want 1", len(found), job, text)
+	}
+	return found[0]
+}
+
+// script is the shell script of a step, as bash receives it.
+func script(t *testing.T, job, text string) string {
+	t.Helper()
+	_, body, ok := strings.Cut(step(t, job, text), "run: |\n")
+	if !ok {
+		t.Fatalf("the step %q has no run block", text)
+	}
+	var lines []string
+	for _, line := range strings.Split(body, "\n") {
+		lines = append(lines, strings.TrimPrefix(line, "          "))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// runScript runs a step's script in dir with the given environment and returns what GITHUB_OUTPUT received.
+func runScript(t *testing.T, script, dir string, env ...string) (output string, out []byte, err error) {
+	t.Helper()
+	outFile := filepath.Join(t.TempDir(), "github_output")
+	cmd := exec.Command("bash", "-c", script)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GITHUB_OUTPUT="+outFile, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null",
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
+	cmd.Env = append(cmd.Env, env...)
+	out, err = cmd.CombinedOutput()
+	raw, _ := os.ReadFile(outFile)
+	return string(raw), out, err
+}
+
+// The tag step runs again on "Re-run failed jobs", with the plan's create_tag=true of the first attempt, although the
+// tag was pushed by it. It creates the tag only if it is missing, accepts one that already names this commit and refuses
+// one that names another.
+
+// gitRepo returns a work clone with two commits, its bare origin, and the SHAs of the first and the second commit.
+func gitRepo(t *testing.T) (work, origin, first, second string) {
+	t.Helper()
+	root := t.TempDir()
+	origin, work = filepath.Join(root, "origin.git"), filepath.Join(root, "work")
+	git := func(dir string, args ...string) string {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null",
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git(root, "init", "-q", "--bare", origin)
+	git(root, "init", "-q", "-b", "main", work)
+	git(work, "remote", "add", "origin", origin)
+	git(work, "commit", "-q", "--allow-empty", "-m", "first")
+	first = git(work, "rev-parse", "HEAD")
+	git(work, "commit", "-q", "--allow-empty", "-m", "second")
+	second = git(work, "rev-parse", "HEAD")
+	git(work, "push", "-q", "origin", "main")
+	return work, origin, first, second
+}
+
+func tagOf(t *testing.T, repo, tag string) string {
+	t.Helper()
+	cmd := exec.Command("git", "-C", repo, "rev-parse", "-q", "--verify", "refs/tags/"+tag+"^{commit}")
+	out, _ := cmd.Output()
+	return strings.TrimSpace(string(out))
+}
+
+func TestTheTagStepCreatesAndPushesAMissingTag(t *testing.T) {
+	work, origin, _, head := gitRepo(t)
+	if _, out, err := runScript(t, script(t, "release", "name: Create the tag"), work, "VERSION=v1.2.3"); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if tagOf(t, work, "v1.2.3") != head || tagOf(t, origin, "v1.2.3") != head {
+		t.Error("the tag is not on HEAD, locally and on origin")
+	}
+}
+
+func TestTheTagStepAcceptsATagAlreadyOnThisCommit(t *testing.T) {
+	// Given the first attempt pushed the tag, then GoReleaser or the attestation failed and the job is re-run
+	work, origin, _, head := gitRepo(t)
+	step := script(t, "release", "name: Create the tag")
+	if _, out, err := runScript(t, step, work, "VERSION=v1.2.3"); err != nil {
+		t.Fatalf("first attempt: %v\n%s", err, out)
+	}
+
+	// When the step runs again
+	_, out, err := runScript(t, step, work, "VERSION=v1.2.3")
+
+	// Then it succeeds and leaves the tag where it was
+	if err != nil || tagOf(t, work, "v1.2.3") != head || tagOf(t, origin, "v1.2.3") != head {
+		t.Errorf("err = %v\n%s", err, out)
+	}
+}
+
+func TestTheTagStepPushesAnExistingLocalTagThatOriginLacks(t *testing.T) {
+	work, origin, _, head := gitRepo(t)
+	if out, err := exec.Command("git", "-C", work, "tag", "v1.2.3", head).CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if _, out, err := runScript(t, script(t, "release", "name: Create the tag"), work, "VERSION=v1.2.3"); err != nil || tagOf(t, origin, "v1.2.3") != head {
+		t.Errorf("err = %v\n%s", err, out)
+	}
+}
+
+func TestTheTagStepRefusesATagThatNamesAnotherCommit(t *testing.T) {
+	// Given a tag of the same name on an older commit
+	work, origin, first, _ := gitRepo(t)
+	for _, repo := range []string{work, origin} {
+		if out, err := exec.Command("git", "-C", repo, "tag", "v1.2.3", first).CombinedOutput(); err != nil {
+			t.Fatalf("%v\n%s", err, out)
+		}
+	}
+
+	// When the step runs
+	_, out, err := runScript(t, script(t, "release", "name: Create the tag"), work, "VERSION=v1.2.3")
+
+	// Then it fails, and the tag stays on the older commit everywhere
+	if err == nil {
+		t.Fatalf("the step accepted a tag on another commit\n%s", out)
+	}
+	if tagOf(t, work, "v1.2.3") != first || tagOf(t, origin, "v1.2.3") != first {
+		t.Error("the tag was moved")
+	}
+}

@@ -380,13 +380,24 @@ jobs:
             echo "path=$notes" >> "$GITHUB_OUTPUT"
           fi
 
+      # The tag step runs again on "Re-run failed jobs", with the plan's create_tag=true although a first attempt pushed the
+      # tag. A tag that already names this commit is accepted (and pushed if origin lacks it); one that names another
+      # commit is refused, never moved.
       - name: Create the tag
         if: needs.plan.outputs.create_tag == 'true'
         env:
           VERSION: ${{ needs.plan.outputs.version }}
         run: |
           set -euo pipefail
-          git tag "$VERSION" HEAD
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            if [ "$(git rev-parse "refs/tags/$VERSION^{commit}")" != "$(git rev-parse HEAD)" ]; then
+              echo "::error::$VERSION already exists on another commit: refusing to move a tag."
+              exit 1
+            fi
+            echo "::notice::$VERSION already names this commit: not creating it again."
+          else
+            git tag "$VERSION" HEAD
+          fi
           git push origin "refs/tags/$VERSION"
 
       # GoReleaser builds once and uploads the assets and the notes to a DRAFT release: nothing is public
