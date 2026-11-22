@@ -47,13 +47,13 @@ skill  shared-skill    user     ?     loads     ?
 agent  worker          user     ?     requests  ?
 
 pi · 6 installed, 0 never used
-KIND    ITEM                                        SCOPE  USES  UNIT         LAST USED
-skill   shared-skill                                user   ?     loads        ?
-plugin  git+https://git.example.test/org/pkg.git    user   ?     invocations  ?
-plugin  git:git.example.test/org/third.git          user   ?     invocations  ?
-plugin  git:https://git.example.test/org/other.git  user   ?     invocations  ?
-plugin  npm:@org/pkg                                user   ?     invocations  ?
-plugin  pi-extras                                   user   ?     invocations  ?
-tool    bash                                        logs   1     calls        2026-01-05
+KIND    ITEM          SCOPE  USES  UNIT         LAST USED
+skill   shared-skill  user   ?     loads        ?
+plugin  npm:@org/pkg  user   ?     invocations  ?
+plugin  other         user   ?     invocations  ?
+plugin  pi-extras     user   ?     invocations  ?
+plugin  pkg           user   ?     invocations  ?
+plugin  third         user   ?     invocations  ?
+tool    bash          logs   1     calls        2026-01-05
 --- stderr ---
 skipped ~/.claude/plugins/installed_plugins.json: plugin escape@market: install path points outside its directory

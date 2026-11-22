@@ -61,57 +61,43 @@ func (c *collector) piPackages(path string, scope domain.Scope) {
 			}
 			src = obj.Source
 		}
-		c.add(domain.Plugin, withoutCredentials(src), scope, domain.Name{}, path, false)
+		c.add(domain.Plugin, packageLabel(src), scope, domain.Name{}, path, false)
 	}
 }
 
-// userinfo matches "user@" or "user:secret@" at the start of a source that has no "://".
-var userinfo = regexp.MustCompile(`^[^\s/@:]+(?::[^\s/@]*)?@`)
+// npmSource is a package name, with or without "npm:", scope and version: the whole source is then safe to show. A
+// version starts like one (a digit or a range operator), so that "user@host" is not taken for "name@version".
+var npmSource = regexp.MustCompile(`^(?:npm:)?(?:@[A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+(?:@[\^~<>=]*[0-9*][A-Za-z0-9.*+-]*)?$`)
 
-// withoutCredentials drops what a package source may carry that is secret. A source string may hold several, so each
-// blank-separated one is cleaned alone: a remote one (it has "://" or "@", or starts with "git:") loses everything from its first "?" or "#",
-// then the user and password of every "scheme://user:secret@host" and of the forms without "://" that pi accepts
-// ("git:user:token@host/path", "user:token@host:path", "user@host:path"). An npm name ("pkg@1.2", "@org/pkg") and a
-// path are kept as is. A token written inside a path is not a credential form and is not recognised.
-func withoutCredentials(src string) string {
+// pathName is what the last path segment of a source must look like to be shown.
+var pathName = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// packageLabel is how a pi package source is shown. A source can hold anything, a token in a path as well as a
+// password in a URL, so nothing of it is shown that is not needed to recognise the package: a package name as is,
+// otherwise the last path segment (without ".git") when it is a plain name, else "<package>". The host, the user,
+// the password, the query, the fragment and the other segments never appear. A source string may hold several
+// blank-separated sources, each labelled alone.
+func packageLabel(src string) string {
 	words := strings.Fields(src)
 	for i, w := range words {
-		isGit := strings.HasPrefix(strings.ToLower(w), "git:")
-		if !isGit && !strings.Contains(w, "://") && !strings.Contains(w, "@") {
-			continue
-		}
-		if j := strings.IndexAny(w, "?#"); j >= 0 {
-			w = w[:j]
-		}
-		switch {
-		case strings.Contains(w, "://"):
-			w = stripURLUserinfo(w)
-		case isGit:
-			w = w[:len("git:")] + userinfo.ReplaceAllString(w[len("git:"):], "")
-		case strings.Contains(w, ":") && !strings.HasPrefix(strings.ToLower(w), "npm:"):
-			w = userinfo.ReplaceAllString(w, "")
-		}
-		words[i] = w
+		words[i] = wordLabel(w)
+	}
+	if len(words) == 0 {
+		return "<package>"
 	}
 	return strings.Join(words, " ")
 }
 
-// stripURLUserinfo removes the user and password of every "scheme://user:secret@host" in src.
-func stripURLUserinfo(src string) string {
-	for from := 0; ; {
-		i := strings.Index(src[from:], "://")
-		if i < 0 {
-			return src
-		}
-		start := from + i + len("://")
-		end := len(src)
-		if j := strings.IndexAny(src[start:], "/?#"); j >= 0 {
-			end = start + j
-		}
-		if at := strings.LastIndex(src[start:end], "@"); at >= 0 {
-			src = src[:start] + src[start+at+1:]
-			end -= at + 1
-		}
-		from = end
+func wordLabel(w string) string {
+	if j := strings.IndexAny(w, "?#"); j >= 0 {
+		w = w[:j]
 	}
+	if npmSource.MatchString(w) {
+		return w
+	}
+	last := w[strings.LastIndex(w, "/")+1:]
+	if name := strings.TrimSuffix(last, ".git"); name != "" && pathName.MatchString(name) {
+		return name
+	}
+	return "<package>"
 }

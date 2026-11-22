@@ -300,7 +300,7 @@ func TestPiInventoryListsPackagesWithoutTheirCredentials(t *testing.T) {
 
 	// Then it lists the shared skill and the packages, whose sources lost what was secret
 	expect(t, describe(pi), "skill:shared-skill@user", "plugin:pi-extras@user",
-		"plugin:git+https://git.example.test/org/pkg.git@user", "plugin:git:https://git.example.test/org/other.git@user", "plugin:git:git.example.test/org/third.git@user", "plugin:npm:@org/pkg@user")
+		"plugin:pkg@user", "plugin:other@user", "plugin:third@user", "plugin:npm:@org/pkg@user")
 }
 
 func TestHomeIsNotAProject(t *testing.T) {
@@ -466,34 +466,44 @@ func TestADirectoryOverTheEntryBoundIsReadUpToIt(t *testing.T) {
 	}
 }
 
-func TestPackageSourcesLoseTheirCredentials(t *testing.T) {
+func TestPackageSourcesShowOnlyTheNameThatRecognisesThem(t *testing.T) {
 	for in, want := range map[string]string{
-		"https://u:p@host/x.git?token=t#f":          "https://host/x.git",
-		"npm:@org/pkg":                              "npm:@org/pkg",
-		"./local/dir":                               "./local/dir",
-		"git:https://u:TOKEN@host/org/pkg":          "git:https://host/org/pkg",
-		"npm:https://u:p@w@h/pkg?x=1":               "npm:https://h/pkg",
-		"https://h/a@b":                             "https://h/a@b",
-		"git+ssh://git@h/org/pkg#ref":               "git+ssh://h/org/pkg",
-		"https://a:b@h/x https://c:d@i/y":           "https://h/x https://i/y",
-		"git:user:TOKEN@github.com/org/r":           "git:github.com/org/r",
-		"git:github.com/org/r?token=T":              "git:github.com/org/r",
-		"git@github.com:org/repo":                   "github.com:org/repo",
-		"user:TOKEN@host:org/repo#ref":              "host:org/repo",
-		"HTTPS://u:p@h/x":                           "HTTPS://h/x",
-		"git:user:TOKEN@github.com/org/r#https://x": "git:github.com/org/r",
-		"user:TOKEN@host:org/repo?mirror=https://m": "host:org/repo",
-		"user:TOKEN@github.com/org/repo":            "github.com/org/repo",
-		"GIT:user:TOKEN@host/r":                     "GIT:host/r",
-		"git:a:T@h/x git:b:U@i/y":                   "git:h/x git:i/y",
-		"  git:user:TOKEN@host/r  ":                 "git:host/r",
-		"pkg@1.2.3":                                 "pkg@1.2.3",
-		"npm:pkg@1.2.3":                             "npm:pkg@1.2.3",
-		"@org/pkg@1.2.3":                            "@org/pkg@1.2.3",
+		// package names, which are the whole source
+		"pi-extras":      "pi-extras",
+		"npm:@org/pkg":   "npm:@org/pkg",
+		"pkg@1.2.3":      "pkg@1.2.3",
+		"npm:pkg@^1.2":   "npm:pkg@^1.2",
+		"@org/pkg@1.2.3": "@org/pkg@1.2.3",
+		// remote sources show their last path segment alone: no host, user, password, query, fragment or other segment
+		"https://u:p@host/x.git?token=SECRET-Q#SECRET-F": "x",
+		"https://host/SECRET-PATH/org/pkg.git":           "pkg",
+		"https://HOST/org/SECRET-MID/pkg":                "pkg",
+		"github.com/org/repo?token=SECRET-SHORT-QUERY":   "repo",
+		"github.com/SECRET-SHORT-PATH/repo#SECRET-FRAG":  "repo",
+		"git+ssh://git@h/org/pkg#SECRET-REF":             "pkg",
+		"git:user:SECRET-TOKEN@github.com/org/r":         "r",
+		"git:https://u:SECRET@host/org/other.git":        "other",
+		"npm:https://u:SECRET-P@w@h/pkg?x=1":             "pkg",
+		"git@github.com:org/repo":                        "repo",
+		"user:SECRET-TOKEN@host:org/repo#ref":            "repo",
+		"user:SECRET-TOKEN@github.com/org/repo":          "repo",
+		"https://a:SECRET-A@h/x https://c:SECRET-C@i/y":  "x y",
+		"./local/dir":         "dir",
+		"/abs/SECRET-DIR/ext": "ext",
+		// what has no safe name is not shown at all
+		"user:SECRET-TOKEN@host":    "<package>",
+		"SECRET-TOKEN@host.example": "<package>",
+		"https://host/":             "<package>",
+		"https://host/org/a%20b?x":  "<package>",
+		"":                          "<package>",
 	} {
-		// Given a package source, when its credentials are dropped, then only what is safe to show remains
-		if got := withoutCredentials(in); got != want {
-			t.Errorf("withoutCredentials(%q) = %q, want %q", in, got, want)
+		// Given a package source, when its label is made, then only the name remains
+		got := packageLabel(in)
+		if got != want {
+			t.Errorf("packageLabel(%q) = %q, want %q", in, got, want)
+		}
+		if strings.Contains(got, "SECRET") && !strings.Contains(want, "SECRET") {
+			t.Errorf("packageLabel(%q) leaks: %q", in, got)
 		}
 	}
 }
