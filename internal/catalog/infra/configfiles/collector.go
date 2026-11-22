@@ -21,6 +21,29 @@ type collector struct {
 	harness kernel.Harness
 	items   []domain.Item
 	skipped []string
+	// confine, when set, is a real directory that everything read must stay in, whatever links lead elsewhere.
+	confine string
+}
+
+// inside reports whether path, once its symbolic links are resolved, lies in the confinement directory; a path
+// outside it is noted and not read. A path that does not exist is inside: reading it finds nothing.
+// ponytail: checked before reading, not atomically; a link swapped in between is out of scope for a read-only lister.
+func (c *collector) inside(path string) bool {
+	if c.confine == "" {
+		return true
+	}
+	real, err := filepath.EvalSymlinks(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return true
+	case err != nil:
+		c.problem(path, err)
+		return false
+	case !within(real, c.confine):
+		c.problem(path, errOutsideDir)
+		return false
+	}
+	return true
 }
 
 // show writes a path for display, the home directory as "~" and characters a terminal could misread as "?".
@@ -67,6 +90,9 @@ func (c *collector) serverNames(names []string, scope domain.Scope, origin domai
 // serversFile adds the MCP servers a JSON file defines: under "mcpServers", or as its top-level keys (a plugin's .mcp.json).
 func (c *collector) serversFile(path string, scope domain.Scope, origin domain.Name) {
 	var raw map[string]jsonValue
+	if !c.inside(path) {
+		return
+	}
 	if err := readJSON(path, &raw); err != nil {
 		c.problem(path, err)
 		return
@@ -85,6 +111,9 @@ func (c *collector) serversFile(path string, scope domain.Scope, origin domain.N
 // skillsDir adds the skills found one level below dir: a directory with a SKILL.md, whose frontmatter may name it.
 // A plugin's skills are named "plugin:skill".
 func (c *collector) skillsDir(dir string, scope domain.Scope, origin domain.Name) {
+	if !c.inside(dir) {
+		return
+	}
 	entries, err := listDir(dir)
 	c.problem(dir, err)
 	for _, e := range entries {
@@ -92,7 +121,7 @@ func (c *collector) skillsDir(dir string, scope domain.Scope, origin domain.Name
 			continue
 		}
 		path := filepath.Join(dir, e.Name())
-		if !isDir(path) {
+		if !isDir(path) || !c.inside(path) || !c.inside(filepath.Join(path, "SKILL.md")) {
 			continue
 		}
 		head, err := readHead(filepath.Join(path, "SKILL.md"), maxHeadBytes)
@@ -106,6 +135,9 @@ func (c *collector) skillsDir(dir string, scope domain.Scope, origin domain.Name
 
 // agentFiles adds the agents defined by the files of dir with the extension ext; read says how to find a name in one.
 func (c *collector) agentFiles(dir, ext string, scope domain.Scope, origin domain.Name, nameIn func(head []byte, fallback string) string) {
+	if !c.inside(dir) {
+		return
+	}
 	entries, err := listDir(dir)
 	c.problem(dir, err)
 	for _, e := range entries {
@@ -114,6 +146,9 @@ func (c *collector) agentFiles(dir, ext string, scope domain.Scope, origin domai
 			continue
 		}
 		path := filepath.Join(dir, e.Name())
+		if !c.inside(path) {
+			continue
+		}
 		head, err := readHead(path, maxHeadBytes)
 		if err != nil {
 			c.problem(path, err)

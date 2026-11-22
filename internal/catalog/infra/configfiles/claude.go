@@ -2,6 +2,8 @@ package configfiles
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"path/filepath"
 
 	"github.com/Nathandelenclos/agent-stats/internal/catalog/domain"
@@ -89,13 +91,16 @@ func (i Inventory) pluginsIn(c *collector, pluginsDir, settings string) {
 			if enabled, ok := s.Enabled[id]; ok && !enabled {
 				off = true
 			}
-			c.add(domain.Plugin, id, scope, domain.Name{}, in.InstallPath, off)
-			if off {
-				continue
-			}
+			// The install path comes from the file: it is shown, and read, only once it is known to lie inside pluginsDir.
 			root := filepath.Clean(in.InstallPath)
-			if !filepath.IsAbs(root) || !within(root, pluginsDir) {
-				c.problem(in.InstallPath, errOutsideDir)
+			ok := insidePluginsDir(root, pluginsDir)
+			source := root
+			if !ok {
+				source = list
+				c.skipped = append(c.skipped, c.show(list)+": plugin "+id+": install path "+reason(errOutsideDir))
+			}
+			c.add(domain.Plugin, id, scope, domain.Name{}, source, off)
+			if off || !ok {
 				continue
 			}
 			c.pluginContents(root, name)
@@ -103,14 +108,37 @@ func (i Inventory) pluginsIn(c *collector, pluginsDir, settings string) {
 	}
 }
 
+// insidePluginsDir reports whether an install path is absolute and, once symbolic links are resolved, under
+// pluginsDir (resolved too). A path that does not exist is accepted: reading it finds nothing.
+func insidePluginsDir(root, pluginsDir string) bool {
+	if !filepath.IsAbs(root) || !within(root, pluginsDir) {
+		return false
+	}
+	base, err := filepath.EvalSymlinks(pluginsDir)
+	if err != nil {
+		base = filepath.Clean(pluginsDir)
+	}
+	real, err := filepath.EvalSymlinks(root)
+	return errors.Is(err, fs.ErrNotExist) || err == nil && within(real, base)
+}
+
 // pluginContents lists the skills, agents and MCP servers a plugin carries.
 func (c *collector) pluginContents(root string, plugin domain.Name) {
+	// everything read below must stay in the plugin once links are followed
+	c.confine = root
+	if real, err := filepath.EvalSymlinks(root); err == nil {
+		c.confine = real
+	}
+	defer func() { c.confine = "" }()
 	c.skillsDir(filepath.Join(root, "skills"), domain.ScopePlugin, plugin)
 	c.agentFiles(filepath.Join(root, "agents"), ".md", domain.ScopePlugin, plugin, frontmatterName)
 	c.serversFile(filepath.Join(root, ".mcp.json"), domain.ScopePlugin, plugin)
 
 	// plugin.json may declare servers inline, as a path, or as a list of either
 	manifest := filepath.Join(root, ".claude-plugin", "plugin.json")
+	if !c.inside(manifest) {
+		return
+	}
 	var m struct {
 		MCPServers jsonValue `json:"mcpServers"`
 	}

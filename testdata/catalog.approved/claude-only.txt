@@ -25,4 +25,4 @@ plugin  off@market (off)  user         ?     invocations  ?
 tool    Skill             logs         4     calls        2026-01-05
 tool    Read              logs         1     calls        2026-01-05
 --- stderr ---
-skipped /etc: points outside its directory
+skipped ~/.claude/plugins/installed_plugins.json: plugin escape@market: install path points outside its directory

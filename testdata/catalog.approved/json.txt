@@ -253,7 +253,7 @@
       "name": "escape@market",
       "scope": "user",
       "origin": "",
-      "source": "/etc",
+      "source": "~/.claude/plugins/installed_plugins.json",
       "installed": true,
       "enabled": true,
       "uses": null,
@@ -587,6 +587,6 @@
     }
   ],
   "skipped": [
-    "/etc: points outside its directory"
+    "~/.claude/plugins/installed_plugins.json: plugin escape@market: install path points outside its directory"
   ]
 }

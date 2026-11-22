@@ -1,6 +1,7 @@
 package configfiles
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -122,8 +123,131 @@ func TestPluginThatEscapesItsDirectoryIsListedButNotRead(t *testing.T) {
 	if !slices.Contains(describe(in), "plugin:escape@market@user") {
 		t.Error("the escaping plugin is not listed")
 	}
-	if !slices.ContainsFunc(in.Skipped, func(s string) bool { return strings.HasSuffix(s, "/etc: points outside its directory") }) {
+	if !slices.ContainsFunc(in.Skipped, func(s string) bool {
+		return strings.HasSuffix(s, "installed_plugins.json: plugin escape@market: install path points outside its directory")
+	}) {
 		t.Errorf("skipped: %q", in.Skipped)
+	}
+}
+
+// withInstalledPlugins adds entries (id -> installPath, all user scope) to the plugins the Claude fixture lists.
+func withInstalledPlugins(t *testing.T, r Roots, extra map[string]string) {
+	t.Helper()
+	list := filepath.Join(r.ClaudeDir, "plugins", "installed_plugins.json")
+	var doc struct {
+		Version int                         `json:"version"`
+		Plugins map[string][]map[string]any `json:"plugins"`
+	}
+	b, err := os.ReadFile(list)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for id, path := range extra {
+		doc.Plugins[id] = []map[string]any{{"scope": "user", "installPath": path}}
+	}
+	out, _ := json.Marshal(doc)
+	mustWrite(t, list, string(out))
+}
+
+func TestPluginInstallPathThatIsRejectedIsNeverShown(t *testing.T) {
+	// Given plugins whose install path is a URL, a relative path and a path outside the plugins directory, each holding a marker
+	r := fixtureRoots(t)
+	withInstalledPlugins(t, r, map[string]string{
+		"url@market":  "https://host/SECRET-URL-PATH?token=SECRET-URL-QUERY",
+		"rel@market":  "../SECRET-REL",
+		"away@market": "/SECRET-ABS/elsewhere",
+	})
+
+	// When the inventory is read
+	in := installed(t, r, kernel.Claude)
+
+	// Then the plugins are listed, no marker is anywhere, and each note names the file and the plugin
+	noSecret(t, in)
+	for _, id := range []string{"url@market", "rel@market", "away@market"} {
+		if !slices.Contains(describe(in), "plugin:"+id+"@user") {
+			t.Errorf("%s is not listed: %q", id, describe(in))
+		}
+		want := "installed_plugins.json: plugin " + id + ": install path points outside its directory"
+		if !slices.ContainsFunc(in.Skipped, func(s string) bool { return strings.HasSuffix(s, want) }) {
+			t.Errorf("no note %q in %q", want, in.Skipped)
+		}
+	}
+}
+
+func TestPluginReachedThroughASymbolicLinkOutOfItsDirectoryIsNotRead(t *testing.T) {
+	// Given a plugin whose install path is a link, inside the plugins directory, to a directory outside it that holds servers and skills
+	r := fixtureRoots(t)
+	outside := filepath.Join(t.TempDir(), "outside")
+	mustMkdir(t, filepath.Join(outside, "skills", "stolen-skill"))
+	mustWrite(t, filepath.Join(outside, "skills", "stolen-skill", "SKILL.md"), "x\n")
+	mustWrite(t, filepath.Join(outside, ".mcp.json"), `{"stolen-server": {}}`)
+	link := filepath.Join(r.ClaudeDir, "plugins", "cache", "linked")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	withInstalledPlugins(t, r, map[string]string{"linked@market": link})
+
+	// When the inventory is read
+	in := installed(t, r, kernel.Claude)
+
+	// Then the plugin is listed, nothing it points to is, and the note holds no path
+	if !slices.Contains(describe(in), "plugin:linked@market@user") || hasItemNamed(in, "stolen-server") || hasItemNamed(in, "linked:stolen-skill") {
+		t.Errorf("items: %q", describe(in))
+	}
+	if notes := strings.Join(in.Skipped, "\n"); !strings.Contains(notes, "plugin linked@market: install path points outside its directory") || strings.Contains(notes, outside) {
+		t.Errorf("notes: %q", in.Skipped)
+	}
+}
+
+func TestFilesOfAPluginThatLinkOutOfItAreNotRead(t *testing.T) {
+	// Given a plugin whose .mcp.json, skills directory and agent file are links to files outside the plugin
+	r := fixtureRoots(t)
+	root := filepath.Join(r.ClaudeDir, "plugins", "cache", "leaky")
+	outside := t.TempDir()
+	mustWrite(t, filepath.Join(outside, "servers.json"), `{"stolen-server": {}}`)
+	mustMkdir(t, filepath.Join(outside, "skills", "stolen-skill"))
+	mustWrite(t, filepath.Join(outside, "skills", "stolen-skill", "SKILL.md"), "x\n")
+	mustWrite(t, filepath.Join(outside, "stolen-agent.md"), "x\n")
+	mustMkdir(t, filepath.Join(root, "agents"))
+	for link, target := range map[string]string{
+		filepath.Join(root, ".mcp.json"):                 filepath.Join(outside, "servers.json"),
+		filepath.Join(root, "skills"):                    filepath.Join(outside, "skills"),
+		filepath.Join(root, "agents", "stolen-agent.md"): filepath.Join(outside, "stolen-agent.md"),
+	} {
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+	}
+	withInstalledPlugins(t, r, map[string]string{"leaky@market": root})
+
+	// When the inventory is read
+	in := installed(t, r, kernel.Claude)
+
+	// Then the plugin is listed and nothing the links lead to is
+	for _, n := range []string{"stolen-server", "leaky:stolen-skill", "leaky:stolen-agent"} {
+		if hasItemNamed(in, n) {
+			t.Errorf("%s was read through a link: %q", n, describe(in))
+		}
+	}
+}
+
+func TestPluginLinkedWithinItsDirectoryIsStillRead(t *testing.T) {
+	// Given a plugin whose skills directory is a link to another directory of the same plugin
+	r := fixtureRoots(t)
+	root := filepath.Join(r.ClaudeDir, "plugins", "cache", "tidy")
+	mustMkdir(t, filepath.Join(root, "shared", "kept"))
+	mustWrite(t, filepath.Join(root, "shared", "kept", "SKILL.md"), "x\n")
+	if err := os.Symlink(filepath.Join(root, "shared"), filepath.Join(root, "skills")); err != nil {
+		t.Fatal(err)
+	}
+	withInstalledPlugins(t, r, map[string]string{"tidy@market": root})
+
+	// When the inventory is read, then its skill is listed
+	if in := installed(t, r, kernel.Claude); !hasItemNamed(in, "tidy:kept") {
+		t.Errorf("items: %q", describe(in))
 	}
 }
 
