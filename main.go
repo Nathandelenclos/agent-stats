@@ -17,6 +17,7 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/infra/logfiles"
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/infra/sqlite"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	"github.com/Nathandelenclos/agent-stats/internal/platform/termquiet"
 	"github.com/Nathandelenclos/agent-stats/internal/pricing/infra/pricetable"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 	usagedb "github.com/Nathandelenclos/agent-stats/internal/reporting/infra/sqlite"
@@ -63,6 +64,7 @@ func main() {
 }
 
 func run() error {
+	termquiet.Restore()
 	defaultDB := ""
 	if cache, err := os.UserCacheDir(); err == nil {
 		defaultDB = filepath.Join(cache, "agent-stats", "index.db")

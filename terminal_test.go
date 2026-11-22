@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -45,6 +46,12 @@ func onATerminal(t *testing.T, noStdin bool, args ...string) *session {
 	}
 	s := &session{done: make(chan error, 1)}
 	s.cmd = exec.Command(script, append([]string{"-q", "/dev/null", "sh", "-c", run, bin}, args...)...)
+	for _, kv := range os.Environ() { // CI would switch the colours off, TERM must allow them
+		if !strings.HasPrefix(kv, "CI=") && !strings.HasPrefix(kv, "TERM=") {
+			s.cmd.Env = append(s.cmd.Env, kv)
+		}
+	}
+	s.cmd.Env = append(s.cmd.Env, "TERM=xterm-256color")
 	if s.in, err = s.cmd.StdinPipe(); err != nil {
 		t.Fatal(err)
 	}
@@ -109,4 +116,29 @@ func TestInterfaceOpensOnATerminalEvenWithStdinRedirected(t *testing.T) {
 	if err := s.wait(t, 10*time.Second); err != nil {
 		t.Errorf("the interface did not quit cleanly: %v", err)
 	}
+}
+
+// A terminal that never answers must not slow down the non-interactive paths: the libraries behind the
+// interface query the terminal's colours when they load, and wait five seconds for an answer.
+func TestJSONOnATerminalDoesNotQueryTheTerminal(t *testing.T) {
+	start := time.Now()
+	s := onATerminal(t, false, "--json")
+	if err := s.wait(t, 20*time.Second); err != nil {
+		t.Fatalf("agent-stats --json: %v\n%q", err, s.output())
+	}
+	if out := s.output(); strings.Contains(out, "\x1b]") || strings.Contains(out, "\x1b[6n") || !strings.Contains(out, `"total"`) {
+		t.Errorf("the terminal was queried or the report is missing: %q", out)
+	}
+	if d := time.Since(start); d > 3*time.Second {
+		t.Errorf("--json took %v on a terminal that does not answer", d)
+	}
+}
+
+func TestInterfaceDoesNotWaitForTheTerminalToOpen(t *testing.T) {
+	s := onATerminal(t, false)
+	s.waitFor(t, "agent-stats", 2*time.Second)
+	// the colour detection is back on once the program runs: the active tab is drawn in reverse video
+	s.waitFor(t, "\x1b[7m", 2*time.Second)
+	s.in.Write([]byte("q"))
+	s.wait(t, 10*time.Second)
 }
