@@ -5,7 +5,7 @@ package logfiles
 // it must still mean now. Do not edit them to follow the parsers. The deliberate changes since are marked
 // "deliberate change since 80bf4b1" at the line they change; each is written here the way the commit that made it
 // wrote it, never copied from the current parsers: the Codex session span (d4a12c3), the skill of a Claude Skill
-// call (1fcf976) and the MCP server of a Codex function call (713f385).
+// call and the MCP server of a Codex function call.
 
 import (
 	"bufio"
@@ -162,7 +162,7 @@ func legacyParseClaude(path string, r io.Reader) (domain.Transcript, error) {
 				server, name := domain.SplitMCPToolName(b.Name)
 				toolIndex[b.ID] = len(p.Tools)
 				call := domain.ToolCall{Key: b.ID, At: ts, Name: name, Server: server, ArgsChars: len(b.Input)}
-				if server == "" && name == "Skill" { // deliberate change since 80bf4b1 (commit 1fcf976): the skill a Skill call loads
+				if server == "" && name == "Skill" { // deliberate change since 80bf4b1: the skill a Skill call loads
 					call.Skill = legacyClaudeSkill(b.Input)
 				}
 				p.Tools = append(p.Tools, call)
@@ -215,7 +215,7 @@ func legacyAddClaudePrompt(p *domain.Transcript, key string, ts time.Time, text 
 	}
 }
 
-// legacyClaudeSkill is the skill a Skill call loads, empty when its input names none usable (commit 1fcf976).
+// legacyClaudeSkill is the skill a Skill call loads, empty when its input names none usable.
 func legacyClaudeSkill(input json.RawMessage) string {
 	var in struct {
 		Skill string `json:"skill"`
@@ -229,7 +229,7 @@ func legacyClaudeSkill(input json.RawMessage) string {
 	return ""
 }
 
-// legacyDeclaredSkill is the name of a skill as commit 1fcf976 accepted it, written here so that the oracle does not
+// legacyDeclaredSkill is the name of a skill as the Skill call parsers accepted it, written here so that the oracle does not
 // share it with the parsers it checks.
 var legacyDeclaredSkill = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 _.:-]{0,127}$`)
 
@@ -398,7 +398,7 @@ func legacyParseCodex(path string, r io.Reader) (domain.Transcript, error) {
 				if pl.Name == "exec_command" || pl.Name == "write_stdin" {
 					return
 				}
-				server, name := domain.SplitMCPToolName(pl.Name) // deliberate change since 80bf4b1 (commit 713f385): the MCP server is split out of the name
+				server, name := domain.SplitMCPToolName(pl.Name) // deliberate change since 80bf4b1: the MCP server is split out of the name
 				callIndex[pl.CallID] = len(p.Tools)
 				p.Tools = append(p.Tools, domain.ToolCall{Key: pl.CallID, At: ts, Name: name, Server: server, ArgsChars: len(pl.Arguments)})
 			case "function_call_output":

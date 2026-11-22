@@ -74,10 +74,10 @@ func indexedCatalogHome(t *testing.T) []string {
 	return append(base, "--no-sync")
 }
 
-// TestCatalogApproved locks what the subcommand prints (configuration trees, indexing of the logs, linking, tables
+// TestCatalogPrintsTheApprovedOutputForEachWayOfAskingForIt locks what the subcommand prints (configuration trees, indexing of the logs, linking, tables
 // and JSON) on fixtures, one approved file per way of asking. On a difference it writes <name>.received.txt next to
 // the approved file: read the diff, and only copy it over if the change is intended.
-func TestCatalogApproved(t *testing.T) {
+func TestCatalogPrintsTheApprovedOutputForEachWayOfAskingForIt(t *testing.T) {
 	// Given fixture configurations and session logs for the four harnesses, indexed by a first run
 	base := indexedCatalogHome(t)
 	for _, c := range catalogCases {

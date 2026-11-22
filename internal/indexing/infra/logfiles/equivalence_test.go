@@ -80,8 +80,8 @@ func TestParsersReadLinesAsTheLegacyOnesDid(t *testing.T) {
 // TestParsersMatchTheFrozenLegacyOutput checks the legacy oracle itself: testdata/legacy.golden was written
 // by a build of commit 80bf4b1, then regenerated with the deliberate changes since (all marked in legacy_test.go): the
 // Codex session-span fix of d4a12c3 (session end times only), then, from the legacy oracle and not from the current
-// parsers, the skill of a Claude Skill call (1fcf976: the new Skill field of every tool call, set on Skill calls only)
-// and the MCP server split out of a Codex function call name (713f385: Name and Server of those calls only), with corpus
+// parsers, the skill of a Claude Skill call (the new Skill field of every tool call, set on Skill calls only)
+// and the MCP server split out of a Codex function call name (Name and Server of those calls only), with corpus
 // lines for both. The current parsers must still write the same.
 func TestParsersMatchTheFrozenLegacyOutput(t *testing.T) {
 	golden, err := os.ReadFile("testdata/legacy.golden")
