@@ -340,11 +340,17 @@ func (m *Model) layout() {
 	if m.sessions.sort.col >= len(sg.headers) { // sorted by a column this terminal cannot hold
 		m.sessions.sort = reportOrder
 	}
+	selected := m.selectedSession()
 	m.sessions.shown = nil
 	for _, i := range sg.order(m.sessions.sort) {
 		m.sessions.shown = append(m.sessions.shown, m.sessions.list.Sessions[i])
 	}
 	fit(&m.sessions.table, sg, m.sessions.sort, m.width, m.height)
+	for i, s := range m.sessions.shown { // the selection follows its session, not its row: fit may have put the cursor back at the top
+		if s.ID == selected {
+			m.sessions.table.SetCursor(i)
+		}
+	}
 	if d := &m.sessions.detail; d.open {
 		d.display = max(4, m.height-detailChromeLines)
 		if d.loaded {

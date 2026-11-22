@@ -709,3 +709,23 @@ func TestTheSessionsHelpStillOffersQuitOnAn80ColumnTerminalWhileIndexing(t *test
 		}
 	}
 }
+
+func TestResizingTheTerminalKeepsTheSelectedSession(t *testing.T) {
+	// Given the second session selected on a wide terminal
+	sessions := sampleSessions()
+	sessions.details["claude:dear"] = detailOf(sessions.list[1])
+	m := press(t, inSessions(t, sessions), "down")
+
+	// When the terminal is narrowed to 80 columns, which drops columns
+	m = send(t, m, tea.WindowSizeMsg{Width: 80, Height: 30})
+
+	// Then Enter still opens that session
+	m, cmd := pressType(t, m, tea.KeyEnter)
+	if cmd == nil {
+		t.Fatal("no detail was requested")
+	}
+	m = send(t, m, cmd())
+	if got := sessions.asked; len(got) != 1 || got[0] != "claude:dear" {
+		t.Errorf("asked for %v, want the selected session", got)
+	}
+}

@@ -101,13 +101,20 @@ func (m Model) switchMode() (Model, tea.Cmd) {
 	return m.reload()
 }
 
+// selectedSession is the session on the selected row, the zero SessionID when there is none.
+func (m Model) selectedSession() reporting.SessionID {
+	if i := m.sessions.table.Cursor(); i >= 0 && i < len(m.sessions.shown) {
+		return m.sessions.shown[i].ID
+	}
+	return reporting.SessionID{}
+}
+
 // openSelected opens the detail of the session on the selected row.
 func (m Model) openSelected() (Model, tea.Cmd) {
-	i := m.sessions.table.Cursor()
-	if i < 0 || i >= len(m.sessions.shown) {
+	id := m.selectedSession()
+	if id == (reporting.SessionID{}) {
 		return m, nil
 	}
-	id := m.sessions.shown[i].ID
 	m.sessions.detail = sessionDetail{open: true, id: id}
 	m.layout()
 	detail := m.loadDetail(id) // before the return: loadDetail counts the request in m
