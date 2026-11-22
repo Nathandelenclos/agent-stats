@@ -67,7 +67,7 @@ resolved, so a project reached through a link is the same project. A linked Git 
 - The project is used when an indexed session worked in its folder or below it. Otherwise the report covers every
   project, as before. The home folder is never a project, since every other project lies below it.
 - `--all` forces every project. `--project DIR` forces the project at `DIR`, whether or not sessions worked there.
-  The two exclude each other.
+  With both, `--all` wins and the interface can switch to `DIR` with `a`.
 - A session belongs to a project when its working folder is the project's folder or lies below it. Folders are compared
   element by element, so `/work/app-2` is not in `/work/app`. A session with no folder, or a folder that is not an
   absolute path, belongs to no project and shows only in the view of every project.

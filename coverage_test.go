@@ -12,11 +12,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
-	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 )
 
 // A workplace is a home folder and, next to it, an app in a Git repository (with a sub-folder), a sibling whose name
@@ -202,10 +202,16 @@ func TestTheFlagProjectCountsTheProjectItNamesFromAnyFolder(t *testing.T) {
 	}
 }
 
-func TestTheFlagsAllAndProjectExcludeEachOther(t *testing.T) {
+func TestTheFlagAllWinsOverTheFlagProject(t *testing.T) {
+	// Given the same sessions
 	w := newScopedWorkplace(t)
-	if _, _, err := w.report(t, w.app, "--all", "--project", w.sibling); err == nil || !strings.Contains(err.Error(), "exclude each other") {
-		t.Errorf("err = %v", err)
+
+	// When the report is printed for every project and for a project at once
+	out, _, err := w.report(t, w.app, "--all", "--project", w.sibling)
+
+	// Then every project is counted
+	if requests, first := requestsOf(t, out); err != nil || requests != "7" || first != "All projects" {
+		t.Errorf("%s requests, first line %q, %v", requests, first, err)
 	}
 }
 
@@ -213,34 +219,40 @@ func TestTheJSONOfAProjectKeepsItsFormatAndNamesTheProjectOnStderr(t *testing.T)
 	// Given the same sessions
 	w := newScopedWorkplace(t)
 
-	// When the JSON report is printed from the repository, and from the home folder
+	// When the JSON report is printed from the repository
 	out, errOut, err := w.report(t, w.app, "--json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	whole, wholeErr, err := w.report(t, w.home, "--json")
-	if err != nil {
-		t.Fatal(err)
-	}
 
-	// Then both have the same fields, the project's counts only its sessions, and stdout holds nothing but the JSON
-	var scoped, global map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(out), &scoped); err != nil {
+	// Then stdout holds nothing but the JSON with its usual fields, counting the project's sessions, and stderr names the project
+	var report map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
 		t.Fatalf("stdout is not JSON: %v\n%s", err, out)
 	}
-	if err := json.Unmarshal([]byte(whole), &global); err != nil {
-		t.Fatal(err)
-	}
-	if len(scoped) != len(global) || len(scoped) != 6 {
-		t.Errorf("fields: %d scoped, %d global", len(scoped), len(global))
+	for _, field := range []string{"total", "byHarness", "byModel", "byFolder", "byAgentType", "tools"} {
+		if _, ok := report[field]; !ok {
+			t.Errorf("field %q is missing", field)
+		}
 	}
 	var total struct{ Requests int }
-	_ = json.Unmarshal(scoped["total"], &total)
-	if total.Requests != 3 {
-		t.Errorf("requests = %d", total.Requests)
+	_ = json.Unmarshal(report["total"], &total)
+	if len(report) != 6 || total.Requests != 3 || !strings.Contains(errOut, "Project: app ("+w.app+")") {
+		t.Errorf("%d fields, %d requests, stderr %q", len(report), total.Requests, errOut)
 	}
-	if !strings.Contains(errOut, "Project: app ("+w.app+")") || strings.Contains(wholeErr, "Project:") {
-		t.Errorf("stderr: %q and %q", errOut, wholeErr)
+}
+
+func TestTheJSONOfEveryProjectCountsThemAllAndIsSilentOnStderr(t *testing.T) {
+	// Given the same sessions
+	w := newScopedWorkplace(t)
+
+	// When the JSON report is printed from the home folder
+	out, errOut, err := w.report(t, w.home, "--json")
+
+	// Then every session is counted and stderr names no project
+	var report struct{ Total struct{ Requests int } }
+	if jsonErr := json.Unmarshal([]byte(out), &report); err != nil || jsonErr != nil || report.Total.Requests != 7 || strings.Contains(errOut, "Project:") {
+		t.Errorf("requests = %d (%v, %v), stderr %q", report.Total.Requests, err, jsonErr, errOut)
 	}
 }
 
@@ -288,74 +300,68 @@ func TestTheCatalogWithAllCountsEveryProjectButStillListsTheProjectsOwnItems(t *
 	}
 }
 
-func TestTheCatalogProjectFlagKeepsItsMeaningAndScopesToo(t *testing.T) {
+func TestTheCatalogProjectFlagNamesTheProjectWhoseSessionsCount(t *testing.T) {
 	// Given the same workplace
 	w := newScopedWorkplace(t)
 
-	// When the catalogue is printed from the home folder for the sibling project, then with no project at all
-	sibling, err := w.catalogFrom(t, w.home, "--project", w.sibling)
-	if err != nil {
-		t.Fatal(err)
-	}
-	none, err := w.catalogFrom(t, w.app, "--project", "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	// When the catalogue is printed from the home folder for the sibling project
+	out, err := w.catalogFrom(t, w.home, "--project", w.sibling)
 
-	// Then the first is about the sibling alone, and the second reads no project-level configuration and counts everyone
-	if !strings.HasPrefix(sibling, "Project: app-2 (") || !strings.Contains(sibling, "Grep") || strings.Contains(sibling, "Read") {
-		t.Errorf("sibling:\n%s", sibling)
-	}
-	if !strings.HasPrefix(none, "All projects") || strings.Contains(none, "app-skill") || !strings.Contains(none, "Grep") {
-		t.Errorf("no project:\n%s", none)
+	// Then it is about the sibling alone
+	if err != nil || !strings.HasPrefix(out, "Project: app-2 (") || !strings.Contains(out, "Grep") || strings.Contains(out, "Read") {
+		t.Errorf("catalogue (%v):\n%s", err, out)
 	}
 }
 
-// foundIn is a project index that holds sessions of the projects it is given.
-type foundIn []kernel.Project
+func TestTheCatalogWithAnEmptyProjectReadsNoProjectLevelConfigurationAndCountsEveryone(t *testing.T) {
+	// Given the same workplace
+	w := newScopedWorkplace(t)
 
-func (f foundIn) HasSessions(p kernel.Project) (bool, error) {
-	for _, known := range f {
-		if known == p {
-			return true, nil
-		}
+	// When the catalogue is printed from the app with no project at all
+	out, err := w.catalogFrom(t, w.app, "--project", "")
+
+	// Then the app's own skill is not listed and every project's usage counts
+	if err != nil || !strings.HasPrefix(out, "All projects") || strings.Contains(out, "app-skill") || !strings.Contains(out, "Grep") {
+		t.Errorf("catalogue (%v):\n%s", err, out)
 	}
-	return false, nil
 }
 
-func TestTheScopeFollowsWhereSessionsWorkedAndWhatTheUserAskedFor(t *testing.T) {
+// workedIn answers like an index that holds sessions of the projects it is given.
+func workedIn(projects ...kernel.Project) func(kernel.Project) (bool, error) {
+	return func(p kernel.Project) (bool, error) { return slices.Contains(projects, p), nil }
+}
+
+func TestTheCoverageFollowsWhereSessionsWorkedAndWhatTheUserAskedFor(t *testing.T) {
 	app, _ := kernel.NewProject("/work/app")
 	home, _ := kernel.NewProject("/home/me")
 	other, _ := kernel.NewProject("/work/other")
-	sessions := reporting.DetectProject{Queries: foundIn{app}}
+	index := workedIn(app, home)
 	for name, c := range map[string]struct {
 		all            bool
 		given, working kernel.Project
-		want           scope
+		want           coverage
 	}{
-		"the working folder's project, with sessions":      {false, kernel.Project{}, app, scope{app, true}},
-		"a working folder with no session":                 {false, kernel.Project{}, home, scope{}},
-		"--all, which keeps the project to switch to":      {true, kernel.Project{}, app, scope{app, false}},
-		"--all from a folder with no session":              {true, kernel.Project{}, home, scope{}},
-		"--project, even where no session worked":          {false, other, app, scope{other, true}},
-		"--project with --all (the catalogue allows both)": {true, other, app, scope{other, false}},
-		"no working folder":                                {false, kernel.Project{}, kernel.Project{}, scope{}},
+		"the working folder's project, with sessions":      {false, kernel.Project{}, app, coverage{app, true}},
+		"a working folder with no session":                 {false, kernel.Project{}, other, coverage{}},
+		"the home folder, though sessions worked below it": {false, kernel.Project{}, home, coverage{}},
+		"--all, which keeps the project to switch to":      {true, kernel.Project{}, app, coverage{app, false}},
+		"--all from a folder with no session":              {true, kernel.Project{}, other, coverage{}},
+		"--project, even where no session worked":          {false, other, app, coverage{other, true}},
+		"--project with --all, which wins":                 {true, other, app, coverage{other, false}},
+		"no working folder":                                {false, kernel.Project{}, kernel.Project{}, coverage{}},
 	} {
-		got, err := chooseScope(c.all, c.given, c.working, sessions)
+		got, err := chooseCoverage(c.all, c.given, c.working, home, index)
 		if err != nil || got != c.want {
-			t.Errorf("%s: scope = %+v, %v, want %+v", name, got, err, c.want)
+			t.Errorf("%s: coverage = %+v, %v, want %+v", name, got, err, c.want)
 		}
 	}
 }
 
-func TestTheScopeOfAnIndexThatCannotBeReadIsAnError(t *testing.T) {
+func TestTheCoverageOfAnIndexThatCannotBeReadIsAnError(t *testing.T) {
 	boom := errors.New("boom")
 	app, _ := kernel.NewProject("/work/app")
-	if _, err := chooseScope(false, kernel.Project{}, app, reporting.DetectProject{Queries: failing{boom}}); !errors.Is(err, boom) {
+	_, err := chooseCoverage(false, kernel.Project{}, app, kernel.Project{}, func(kernel.Project) (bool, error) { return false, boom })
+	if !errors.Is(err, boom) {
 		t.Errorf("err = %v", err)
 	}
 }
-
-type failing struct{ err error }
-
-func (f failing) HasSessions(kernel.Project) (bool, error) { return false, f.err }

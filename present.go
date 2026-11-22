@@ -74,8 +74,8 @@ func usageJSON(u reporting.Usage) jsonUsage {
 		float64(u.AvgDuration), float64(u.AvgTTFT), u.CacheRate(), kernel.UnixMilli(u.First), kernel.UnixMilli(u.Last)}
 }
 
-func printReport(r reporting.Report, sc scope) {
-	fmt.Println(sc.label())
+func printReport(r reporting.Report, cov coverage) {
+	fmt.Println(cov.label())
 	t := r.Total
 	if t.Requests == 0 {
 		fmt.Println("No requests in this range.")

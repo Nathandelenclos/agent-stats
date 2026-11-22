@@ -16,8 +16,6 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	"github.com/Nathandelenclos/agent-stats/internal/platform/projectscope"
 	"github.com/Nathandelenclos/agent-stats/internal/pricing/infra/pricetable"
-	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
-	usagedb "github.com/Nathandelenclos/agent-stats/internal/reporting/infra/sqlite"
 )
 
 // runCatalog is the `agent-stats catalog` subcommand: what each harness has installed, linked to how much it was used.
@@ -103,12 +101,7 @@ func runCatalog(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	defer activity.Close()
-	sessions, err := usagedb.OpenReadOnly(*dbPath)
-	if err != nil {
-		return err
-	}
-	defer sessions.Close()
-	sc, err := chooseScope(*all, given, working, reporting.DetectProject{Queries: sessions})
+	cov, err := chooseCoverage(*all, given, working, homeProject(), activity.HasSessions)
 	if err != nil {
 		return err
 	}
@@ -116,19 +109,19 @@ func runCatalog(args []string, stdout, stderr io.Writer) error {
 	c, err := catalog.BuildCatalog{
 		Inventory: configfiles.Inventory{Roots: configfiles.DefaultRoots(home, configDir, os.Getenv)},
 		Activity:  activity,
-	}.Run(catalog.Query{Since: from, Harness: only, UnusedOnly: *unused, Project: sc.restriction()})
+	}.Run(catalog.Query{Since: from, Harness: only, UnusedOnly: *unused, Project: cov.restriction()})
 	if err != nil {
 		return err
 	}
 	if *asJSON {
-		if sc.scoped { // the JSON has no field for it, and its numbers differ from those of the whole
-			fmt.Fprintln(stderr, sc.label())
+		if cov.restricted { // the JSON has no field for it, and its numbers differ from those of the whole
+			fmt.Fprintln(stderr, cov.label())
 		}
 		return writeCatalogJSON(stdout, c)
 	}
 	for _, note := range c.Skipped {
 		fmt.Fprintln(stderr, "skipped", printable(note))
 	}
-	printCatalog(stdout, c, *unused, sc)
+	printCatalog(stdout, c, *unused, cov)
 	return nil
 }

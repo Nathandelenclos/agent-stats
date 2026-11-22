@@ -12,6 +12,7 @@ import (
 
 	"github.com/Nathandelenclos/agent-stats/internal/catalog/domain"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	"github.com/Nathandelenclos/agent-stats/internal/platform/projectscope"
 )
 
 // workplace is a disk with an app, a sub-folder of it, a sibling sharing the app's name as a prefix, and a link to the
@@ -138,5 +139,30 @@ func TestTheActivityOfNoProjectIsEveryonesAndThatOfAFolderHoldingSeveralIsTheirs
 	}
 	if got, want := w.activityIn(t, filepath.Dir(w.app)), by("app", "sub", "sibling", "link", "dotdot"); got != want {
 		t.Errorf("activity of the folder holding both = %q", got)
+	}
+}
+
+func TestTheCatalogAdapterTellsWhetherSessionsWorkedInAProject(t *testing.T) {
+	// Given the workplace and a folder next to it that no session worked in
+	w := newWorkplace(t)
+	u, err := OpenReadOnly(w.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer u.Close()
+	elsewhere := filepath.Join(filepath.Dir(w.app), "elsewhere")
+
+	for dir, want := range map[string]bool{w.app: true, w.link: true, w.sibling: true, elsewhere: false} {
+		// When asking whether sessions worked in each folder
+		project, err := projectscope.Of(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := u.HasSessions(project)
+
+		// Then only the folders sessions worked in, or below, say yes
+		if err != nil || got != want {
+			t.Errorf("HasSessions(%s) = %v, %v, want %v", dir, got, err, want)
+		}
 	}
 }

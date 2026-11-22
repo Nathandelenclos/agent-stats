@@ -167,21 +167,48 @@ func TestCatalogCanListOnlyWhatIsUnusedWhileCountingEverything(t *testing.T) {
 	}
 }
 
-func TestCatalogCountsOnlyTheUsageOfTheProjectAsked(t *testing.T) {
-	// Given skills installed in a harness, and a project to look at
-	inv, act := twoHarnesses(t)
+// loggedByProject is what the logs say per project: the activity of the sessions that worked in each project, and the
+// zero Project's, which is every project's.
+type loggedByProject map[kernel.Project]domain.Activity
+
+func (l loggedByProject) Activity(f domain.Filter) (domain.Activity, error) { return l[f.Project], nil }
+
+// usedInTheApp is an index in which a skill was loaded twice in /work/app and five times in all.
+func usedInTheApp(t *testing.T) (BuildCatalog, kernel.Project) {
+	t.Helper()
 	app, err := kernel.NewProject("/work/app")
 	if err != nil {
 		t.Fatal(err)
 	}
+	loads := func(n int64) domain.Activity {
+		return domain.Activity{Skills: []domain.SkillActivity{{Harness: kernel.Claude, Skill: "used", Calls: n}}}
+	}
+	inv := &fakeInventory{byHarness: map[kernel.Harness]Installed{kernel.Claude: {Items: []domain.Item{skill(t, kernel.Claude, "used")}}}}
+	return BuildCatalog{Inventory: inv, Activity: loggedByProject{app: loads(2), {}: loads(5)}}, app
+}
+
+func TestCatalogCountsOnlyTheUsageOfTheProjectAsked(t *testing.T) {
+	// Given a skill loaded twice in a project and five times in all
+	uc, app := usedInTheApp(t)
 
 	// When the catalogue is built for that project
-	if _, err := (BuildCatalog{Inventory: inv, Activity: act}).Run(Query{Project: app}); err != nil {
-		t.Fatal(err)
-	}
+	c, err := uc.Run(Query{Harness: kernel.Claude, Project: app})
 
-	// Then the logs are asked about the sessions of that project only
-	if act.filter.Project != app {
-		t.Errorf("activity asked for %+v", act.filter)
+	// Then the skill shows the two loads of the project
+	if err != nil || len(c.Entries) != 1 || c.Entries[0].Uses != 2 {
+		t.Errorf("entries: %+v, %v", c.Entries, err)
+	}
+}
+
+func TestCatalogCountsTheUsageOfEveryProjectWhenNoneIsAsked(t *testing.T) {
+	// Given the same skill
+	uc, _ := usedInTheApp(t)
+
+	// When the catalogue is built for no project in particular
+	c, err := uc.Run(Query{Harness: kernel.Claude})
+
+	// Then the skill shows its five loads
+	if err != nil || len(c.Entries) != 1 || c.Entries[0].Uses != 5 {
+		t.Errorf("entries: %+v, %v", c.Entries, err)
 	}
 }

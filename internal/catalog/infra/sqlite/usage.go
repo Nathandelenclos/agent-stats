@@ -44,6 +44,12 @@ func OpenReadOnly(path string) (*Usage, error) {
 // Close closes the database.
 func (u *Usage) Close() error { return u.db.Close() }
 
+// HasSessions reports whether a session of the index worked in the project's folder or below it.
+func (u *Usage) HasSessions(p kernel.Project) (bool, error) {
+	folders, err := projectscope.Folders(u.db, p)
+	return len(folders) > 0, err
+}
+
 // where turns a filter into SQL conditions on the harness, timestamp and folder columns; every value is a bound parameter.
 func where(q querier, f domain.Filter, extra ...string) (string, []any, error) {
 	conds := extra

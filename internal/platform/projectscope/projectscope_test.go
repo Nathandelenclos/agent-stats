@@ -35,7 +35,7 @@ func mkdir(t *testing.T, parts ...string) string {
 
 func detected(t *testing.T, cwd string) string {
 	t.Helper()
-	p, err := Detect(cwd, "")
+	p, err := Detect(cwd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,36 +255,5 @@ func TestAProjectWithNoSessionKeepsNoRow(t *testing.T) {
 	// Then none is kept
 	if err != nil || n != 0 {
 		t.Errorf("rows kept = %d, %v", n, err)
-	}
-}
-
-func TestTheHomeFolderIsNobodysProject(t *testing.T) {
-	// Given a home folder holding a project, and a folder of dotfiles kept in Git
-	home := mkdir(t, tree(t), "home")
-	app := mkdir(t, home, "work", "app")
-	mkdir(t, app, ".git")
-	dotfiles := mkdir(t, tree(t), "dots")
-	mkdir(t, dotfiles, ".git")
-	link := filepath.Join(tree(t), "home-link")
-	if err := os.Symlink(home, link); err != nil {
-		t.Fatal(err)
-	}
-
-	notes := mkdir(t, home, "notes")
-	for name, c := range map[string]struct{ cwd, home, want string }{
-		"the home folder":                         {home, home, ""},
-		"a folder of the home with no repository": {notes, home, notes},
-		"a project in the home folder":            {app, home, app},
-		"the home folder, reached by a link":      {home, link, ""},
-		"a home that is a Git repository":         {dotfiles, dotfiles, ""},
-		"no home known":                           {home, "", home},
-	} {
-		// When the project of that folder is detected
-		p, err := Detect(c.cwd, c.home)
-
-		// Then the home folder gives no project, and the rest is as usual
-		if err != nil || p.Root() != c.want {
-			t.Errorf("%s: project = %q, %v, want %q", name, p.Root(), err, c.want)
-		}
 	}
 }

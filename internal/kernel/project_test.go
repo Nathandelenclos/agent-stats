@@ -68,3 +68,79 @@ func TestAProjectIsNamedAfterItsFolderAndNeedsAnAbsoluteRoot(t *testing.T) {
 		}
 	}
 }
+
+// sessionsIn is the answer of an index that holds sessions of the projects it is given.
+func sessionsIn(projects ...Project) func(Project) (bool, error) {
+	return func(p Project) (bool, error) {
+		for _, known := range projects {
+			if known == p {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+}
+
+func projectAt(t *testing.T, root string) Project {
+	t.Helper()
+	p, err := NewProject(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestTheProjectOfTheWorkingFolderIsKeptWhenSessionsWorkedInIt(t *testing.T) {
+	// Given an index with sessions of /work/app
+	app, home := projectAt(t, "/work/app"), projectAt(t, "/home/me")
+
+	// When the project of the working folder /work/app is chosen
+	got, err := WorkingProject(app, home, sessionsIn(app))
+
+	// Then the view is about that project
+	if err != nil || got != app {
+		t.Errorf("project = %v, %v", got, err)
+	}
+}
+
+func TestAWorkingFolderNoSessionWorkedInGivesTheViewOfEveryProject(t *testing.T) {
+	// Given an index with sessions of /work/app only
+	app, other, home := projectAt(t, "/work/app"), projectAt(t, "/work/other"), projectAt(t, "/home/me")
+
+	// When the project of another folder is chosen
+	got, err := WorkingProject(other, home, sessionsIn(app))
+
+	// Then the view is about every project
+	if err != nil || !got.IsZero() {
+		t.Errorf("project = %v, %v", got, err)
+	}
+}
+
+func TestTheHomeFolderIsNobodysProjectEvenWhenSessionsWorkedBelowIt(t *testing.T) {
+	// Given an index with sessions in the home folder and below it, which makes the home hold every project
+	home := projectAt(t, "/home/me")
+
+	// When the project of the home folder is chosen
+	got, err := WorkingProject(home, home, sessionsIn(home))
+
+	// Then the view is about every project
+	if err != nil || !got.IsZero() {
+		t.Errorf("project = %v, %v", got, err)
+	}
+}
+
+func TestNoWorkingFolderGivesTheViewOfEveryProject(t *testing.T) {
+	got, err := WorkingProject(Project{}, Project{}, sessionsIn())
+	if err != nil || !got.IsZero() {
+		t.Errorf("project = %v, %v", got, err)
+	}
+}
+
+func TestAnIndexThatCannotBeReadIsReportedNotTakenForAnEmptyOne(t *testing.T) {
+	boom := errors.New("boom")
+	app := projectAt(t, "/work/app")
+	_, err := WorkingProject(app, Project{}, func(Project) (bool, error) { return true, boom })
+	if !errors.Is(err, boom) {
+		t.Errorf("err = %v", err)
+	}
+}

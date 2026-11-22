@@ -34,7 +34,7 @@ func TestTheInterfaceOpensOnTheProjectItIsGiven(t *testing.T) {
 	}
 }
 
-func TestTheKeyAMovesBetweenTheProjectAndEveryProject(t *testing.T) {
+func TestTheKeyAShowsEveryProjectWhenTheInterfaceIsOnAProject(t *testing.T) {
 	// Given the interface on a project
 	reports := &fakeReports{report: sampleReport()}
 	m := startWith(t, reports, Options{Project: appProject(t), Scoped: true})
@@ -57,6 +57,14 @@ func TestTheKeyAMovesBetweenTheProjectAndEveryProject(t *testing.T) {
 	if view := m.View(); !strings.Contains(view, "· all projects") || strings.Contains(view, "project: app") {
 		t.Errorf("title does not say every project:\n%s", view)
 	}
+}
+
+func TestTheKeyAGoesBackToTheProjectFromEveryProject(t *testing.T) {
+	// Given the interface that showed every project after a first press of a
+	reports := &fakeReports{report: sampleReport()}
+	m := startWith(t, reports, Options{Project: appProject(t), Scoped: true})
+	m, cmd := pressCmd(t, m, "a")
+	m = answer(t, m, cmd)
 
 	// When the user presses a again
 	m, cmd = pressCmd(t, m, "a")
@@ -128,23 +136,34 @@ func TestAProjectNameIsShownWithoutItsControlCharacters(t *testing.T) {
 	}
 }
 
-func TestTheSessionsFollowTheScopeToo(t *testing.T) {
-	// Given the interface on a project, in the sessions mode
+// onTheSessionsOfTheProject opens the interface on a project, in the sessions mode.
+func onTheSessionsOfTheProject(t *testing.T) (Model, *fakeSessions) {
+	t.Helper()
 	sessions := sampleSessions()
 	m := New(Options{Reports: build(&fakeReports{report: sampleReport()}), Project: appProject(t), Scoped: true,
 		Sessions: reporting.ListSessions{Queries: sessions}, Session: reporting.ShowSession{Queries: sessions}})
 	m.now = func() time.Time { return noon }
 	m = send(t, m, m.Init()())
 	m, cmd := pressCmd(t, m, "m")
-	m = answer(t, m, cmd)
+	return answer(t, m, cmd), sessions
+}
+
+func TestTheSessionsOfTheProjectAreListedUnderATitleThatNamesIt(t *testing.T) {
+	// Given the interface on a project, in the sessions mode
+	m, sessions := onTheSessionsOfTheProject(t)
 
 	// Then the sessions listed are those of the project, under a title that names it
 	if got := sessions.filters[len(sessions.filters)-1].Project; got != appProject(t) || !strings.Contains(m.View(), "project: app") {
 		t.Errorf("sessions asked about %v:\n%s", got, m.View())
 	}
+}
+
+func TestTheKeyAListsTheSessionsOfEveryProject(t *testing.T) {
+	// Given the interface on a project, in the sessions mode
+	m, sessions := onTheSessionsOfTheProject(t)
 
 	// When the user presses a
-	m, cmd = pressCmd(t, m, "a")
+	m, cmd := pressCmd(t, m, "a")
 	m = answer(t, m, cmd)
 
 	// Then the sessions of every project are listed

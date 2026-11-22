@@ -71,8 +71,6 @@ func (s *SQLiteUsage) Snapshot(fn func(reporting.UsageReader) error) error {
 // Close closes the database.
 func (s *SQLiteUsage) Close() error { return s.db.Close() }
 
-var _ reporting.ProjectQueries = (*SQLiteUsage)(nil)
-
 // HasSessions reports whether a session of the index worked in the project's folder or below it.
 func (s *SQLiteUsage) HasSessions(p kernel.Project) (bool, error) {
 	folders, err := projectscope.Folders(s.db, p)

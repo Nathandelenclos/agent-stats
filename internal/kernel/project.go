@@ -40,6 +40,21 @@ func (p Project) Name() string {
 	return filepath.Base(p.root)
 }
 
+// WorkingProject decides which project a view is about when the user did not name one: candidate, the project of the
+// folder the program runs in, if workedIn says sessions worked in it. A folder no session worked in (a new one) has
+// nothing to report on its own, and the home folder is nobody's project since every other one lies below it: the view is
+// then about every project, the zero Project. An error of workedIn is returned, never taken for "no session".
+func WorkingProject(candidate, home Project, workedIn func(Project) (bool, error)) (Project, error) {
+	if candidate.IsZero() || candidate == home {
+		return Project{}, nil
+	}
+	found, err := workedIn(candidate)
+	if err != nil || !found {
+		return Project{}, err
+	}
+	return candidate, nil
+}
+
 // Contains reports whether folder is the project's root or lies below it. The paths are compared element by element,
 // never as text, so "/work/app-2" is not in "/work/app". A folder that is not absolute names no place and is in no
 // project; the zero Project contains every folder, a relative one too.

@@ -172,26 +172,32 @@ func TestTheSessionsOfAProjectAreTheOnesThatWorkedInIt(t *testing.T) {
 	// Given the workplace
 	w := newWorkplace(t)
 
-	// When the sessions of the app are listed, with and without the project
+	// When the sessions of the app are listed
 	inApp, err := w.index.Sessions().Sessions(report.Filter{Project: projectAt(t, w.app)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	everyone, err := w.index.Sessions().Sessions(report.Filter{})
-	if err != nil {
-		t.Fatal(err)
-	}
 
-	// Then the project keeps the sessions of its folders, each with its own figures, and without it every session is listed
+	// Then the project keeps the sessions of its folders, each with its own figures
 	var cost report.USD
 	for _, s := range inApp {
 		cost += s.Cost
 	}
-	if got := ids(inApp); len(inApp) != 3 || cost != costOf(w, "app", "sub", "link") {
-		t.Errorf("sessions of the app = %q costing %v", got, cost)
+	if len(inApp) != 3 || cost != costOf(w, "app", "sub", "link") {
+		t.Errorf("sessions of the app = %q costing %v", ids(inApp), cost)
 	}
-	if len(everyone) != 6 {
-		t.Errorf("sessions without a project = %q", ids(everyone))
+}
+
+func TestEverySessionIsListedWhenNoProjectIsAsked(t *testing.T) {
+	// Given the workplace
+	w := newWorkplace(t)
+
+	// When the sessions are listed without a project
+	everyone, err := w.index.Sessions().Sessions(report.Filter{})
+
+	// Then every session is listed, those of folders that are not paths too
+	if err != nil || len(everyone) != 6 {
+		t.Errorf("sessions without a project = %q, %v", ids(everyone), err)
 	}
 }
 
