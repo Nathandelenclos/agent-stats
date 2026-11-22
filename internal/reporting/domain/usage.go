@@ -85,3 +85,11 @@ type ToolUsage struct {
 	AvgDuration Milliseconds
 	Last        time.Time
 }
+
+// ToolModelUsage estimates the invoking request usage attributed to matched tool calls.
+type ToolModelUsage struct {
+	Tool, Server, Model, Provider string
+	Calls, Errors, PricedCalls    int64
+	Tokens                        float64
+	Cost                          USD
+}

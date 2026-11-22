@@ -83,3 +83,14 @@ func build(u UsageReader, f domain.Filter) (Report, error) {
 	r.Tools, err = u.Tools(f)
 	return r, err
 }
+
+// AttributeTools reads model usage that can be linked to indexed tool calls.
+type AttributeTools struct {
+	Queries interface {
+		ToolsByModel(context.Context, domain.Filter) ([]domain.ToolModelUsage, error)
+	}
+}
+
+func (uc AttributeTools) Run(ctx context.Context, q Query) ([]domain.ToolModelUsage, error) {
+	return uc.Queries.ToolsByModel(ctx, domain.Filter{Since: q.Since, Harness: q.Harness, Project: q.Project})
+}

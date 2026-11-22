@@ -120,6 +120,7 @@ func runServe(args []string) error {
 		SessionPrompt:   reporting.ShowSessionPrompt{Queries: sessions},
 		Prompts:         reporting.ReviewPrompts{Queries: usage.Prompts()},
 		ModelSignals:    reporting.CompareModelSignals{Queries: usage.Prompts()},
+		ToolModels:      reporting.AttributeTools{Queries: sessions},
 		Catalog:         interactiveCatalog(*dbPath, *projectDir),
 		Quotas:          readQuotas,
 		RecordQuotas:    index.RecordQuotaWindows,

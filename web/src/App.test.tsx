@@ -544,3 +544,18 @@ it("opens the performance timeline for a selected model", async () => {
   await eventually(() => expect(details()?.querySelector("tbody")?.textContent).toContain("300 ms150 msn/a"));
   expect(fetch).toHaveBeenCalledWith("/api/model-activity?model=opus&since=7d&project=all", expect.any(Object));
 });
+
+it("shows matched tool usage and cost per model", async () => {
+  const base = serveReports(() => report()).getMockImplementation()!;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input).startsWith("/api/tool-models?")) return new Response(JSON.stringify([
+      { tool: "Read", server: "", model: "opus", provider: "anthropic", calls: 4, errors: 0, tokens: 50, cost: 1.2, pricedCalls: 3 },
+    ]));
+    return base(input);
+  }));
+  const { container } = render(withQueries(testQueryClient(), <App />));
+  const details = () => [...container.querySelectorAll("details")].find((el) => el.textContent?.includes("Tool usage by model"));
+  await eventually(() => expect(details()).toBeDefined());
+  await act(async () => { details()!.open = true; });
+  await eventually(() => expect(details()?.querySelector("tbody")?.textContent).toContain("$1.20 (3/4)"));
+});

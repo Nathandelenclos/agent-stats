@@ -29,6 +29,7 @@ import { Catalog, useCatalog } from "./features/catalog/Catalog";
 import { Improvements } from "./features/improvements/Improvements";
 import { Quotas, useQuotas } from "./features/quotas/Quotas";
 import { Overview } from "./features/overview/Overview";
+import { ToolModels } from "./features/report/ToolModels";
 import { CostBreakdown } from "./features/report/CostBreakdown";
 import { SessionRequests } from "./features/sessions/SessionRequests";
 import { RelatedSessions } from "./features/overview/RelatedSessions";
@@ -102,7 +103,9 @@ function CostByChart({ title, tableName, groups, peers, select }: { title: strin
   return <CostBy title={title} tableName={tableName} model={model} domainMax={domainMax} onSelect={select} />;
 }
 
-function Report({ report, explore }: {
+function Report({ report, explore, filters, project }: {
+  filters: Filters;
+  project: string;
   report: UseQueryResult<ReportData, unknown>;
   explore: (relation: Relation) => void;
 }) {
@@ -158,6 +161,7 @@ function Report({ report, explore }: {
       {r.tools.length > 0 && (
         <Section id="tools" title="Tools">
           {zone("The tools table", <ToolsTable tools={r.tools} onSelect={report.isPlaceholderData ? undefined : (tool) => explore({ kind: "tool", value: tool.name, server: tool.server })} />)}
+          <ToolModels filters={filters} project={project} />
         </Section>
       )}
     </div>
@@ -303,7 +307,7 @@ export function App() {
                 metric={metric} setMetric={(next) => update({ metric: next === "cost" ? undefined : next }, true)}
                 explore={explore} selectView={selectView} openSession={openSession} inspector={inspector}
                 selectedDay={selection?.kind === "day" ? selection.value : undefined} />}
-              {view === "Usage" && <>{inspector}<Report report={report} explore={explore} /></>}
+              {view === "Usage" && <>{inspector}<Report report={report} explore={explore} filters={filters} project={project} /></>}
               {view === "Sessions" && <Sessions filters={filters} project={project} list={sessions} selected={sessionID} prompt={selectedPrompt}
                 revision={revision} section={section} onSelect={openSession} onPrompt={openPrompt}
                 onSection={(next) => update({ section: next }, true)}

@@ -391,3 +391,29 @@ func TestModelSignalsSeparatePromptsWithoutAPrecedingModel(t *testing.T) {
 		t.Fatalf("model signals = %+v", got)
 	}
 }
+
+func TestToolModelAttributionSplitsOnlyUnambiguousRequests(t *testing.T) {
+	path := sessionsIndexed(t)
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE session_overview SET harness = 'omp' WHERE id = 'claude:main';
+		INSERT INTO session_tool_calls VALUES ('claude:main', 'claude:main', ?, 'Read', '', 0, 0, 1, NULL)`, t0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO session_requests (root_id, session_id, ts, model, input, output, cache_read, cache_write, cost, priced)
+		SELECT root_id, session_id, ts, 'ambiguous', 999, 0, 0, 0, 9, 1
+			FROM session_requests WHERE session_id = 'claude:main' AND ts = ?`, t1); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := readTestSessions(t, path).ToolsByModel(t.Context(), report.Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].Tool != "Bash" || rows[1].Tool != "Read" || rows[1].Errors != 1 ||
+		rows[0].Tokens != 55 || rows[1].Tokens != 55 || rows[0].Cost+rows[1].Cost != 1 {
+		t.Fatalf("tool attribution = %+v", rows)
+	}
+}

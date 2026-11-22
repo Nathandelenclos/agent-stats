@@ -279,3 +279,39 @@ func (s *Server) modelActivity(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, s.log, groups(rows))
 }
+
+type attributedToolJSON struct {
+	Tool        string  `json:"tool"`
+	Server      string  `json:"server"`
+	Model       string  `json:"model"`
+	Provider    string  `json:"provider"`
+	Calls       int64   `json:"calls"`
+	Errors      int64   `json:"errors"`
+	Tokens      float64 `json:"tokens"`
+	Cost        float64 `json:"cost"`
+	PricedCalls int64   `json:"pricedCalls"`
+}
+
+func (s *Server) toolModels(w http.ResponseWriter, r *http.Request) {
+	p, bad := s.parseParams(r, paramSince, paramHarness, paramProject)
+	if bad != nil {
+		bad.write(w)
+		return
+	}
+	if s.opts.ToolModels.Queries == nil {
+		problem{Type: problemNotFound, Title: "Tool attribution unavailable", Status: http.StatusNotFound}.write(w)
+		return
+	}
+	report, err := s.opts.ToolModels.Run(r.Context(), p.query)
+	if err != nil {
+		s.fail(w, "attributing tool usage", err)
+		return
+	}
+	out := make([]attributedToolJSON, 0, len(report))
+	for _, row := range report {
+		out = append(out, attributedToolJSON{
+			row.Tool, row.Server, row.Model, row.Provider, row.Calls, row.Errors, row.Tokens, float64(row.Cost), row.PricedCalls,
+		})
+	}
+	writeJSON(w, s.log, out)
+}
