@@ -13,6 +13,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	"github.com/Nathandelenclos/agent-stats/internal/platform/projectscope"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 	report "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 )
@@ -70,20 +71,35 @@ func (s *SQLiteUsage) Snapshot(fn func(reporting.UsageReader) error) error {
 // Close closes the database.
 func (s *SQLiteUsage) Close() error { return s.db.Close() }
 
-// where turns a filter into SQL conditions; every value is a bound parameter.
-func where(f report.Filter, tsCol string) (string, []any) {
+var _ reporting.ProjectQueries = (*SQLiteUsage)(nil)
+
+// HasSessions reports whether a session of the index worked in the project's folder or below it.
+func (s *SQLiteUsage) HasSessions(p kernel.Project) (bool, error) {
+	folders, err := projectscope.Folders(s.db, p)
+	return len(folders) > 0, err
+}
+
+// where turns a filter into SQL conditions on the rows of a view aliased alias; every value is a bound parameter.
+func where(q querier, f report.Filter, alias string) (string, []any, error) {
 	var conds []string
 	var args []any
 	if !f.Since.IsZero() {
-		conds, args = append(conds, tsCol+" >= ?"), append(args, kernel.UnixMilli(f.Since))
+		conds, args = append(conds, alias+".ts >= ?"), append(args, kernel.UnixMilli(f.Since))
 	}
 	if !f.Harness.IsZero() {
 		conds, args = append(conds, "harness = ?"), append(args, f.Harness.String())
 	}
-	if len(conds) == 0 {
-		return "", nil
+	cond, projectArgs, err := projectscope.Condition(q, f.Project, alias+".folder")
+	if err != nil {
+		return "", nil, err
 	}
-	return " WHERE " + strings.Join(conds, " AND "), args
+	if cond != "" {
+		conds, args = append(conds, cond), append(args, projectArgs...)
+	}
+	if len(conds) == 0 {
+		return "", nil, nil
+	}
+	return " WHERE " + strings.Join(conds, " AND "), args, nil
 }
 
 // groupColumns is the closed list of SQL expressions a usage query may group by.
@@ -128,7 +144,10 @@ func (r reader) UsageBy(f report.Filter, d report.Dimension) ([]report.UsageGrou
 	if !ok {
 		return nil, fmt.Errorf("unknown usage dimension %d", d)
 	}
-	cond, args := where(f, "r.ts")
+	cond, args, err := where(r.q, f, "r")
+	if err != nil {
+		return nil, err
+	}
 	rows, err := r.q.Query(`SELECT `+col+`, `+usageCols+`
 		FROM usage_requests r`+cond+`
 		GROUP BY 1 ORDER BY SUM(r.cost) DESC, COUNT(*) DESC`, args...)
@@ -150,15 +169,21 @@ func (r reader) UsageBy(f report.Filter, d report.Dimension) ([]report.UsageGrou
 
 // Total aggregates every request matching f.
 func (r reader) Total(f report.Filter) (report.Usage, error) {
-	cond, args := where(f, "r.ts")
+	cond, args, err := where(r.q, f, "r")
+	if err != nil {
+		return report.Usage{}, err
+	}
 	var row usageRow
-	err := r.q.QueryRow(`SELECT `+usageCols+` FROM usage_requests r`+cond, args...).Scan(row.args()...)
+	err = r.q.QueryRow(`SELECT `+usageCols+` FROM usage_requests r`+cond, args...).Scan(row.args()...)
 	return row.usage(), err
 }
 
 // Tools aggregates tool calls, most used first.
 func (r reader) Tools(f report.Filter) ([]report.ToolUsage, error) {
-	cond, args := where(f, "t.ts")
+	cond, args, err := where(r.q, f, "t")
+	if err != nil {
+		return nil, err
+	}
 	return toolUsage(r.q, "usage_tool_calls", cond, args)
 }
 

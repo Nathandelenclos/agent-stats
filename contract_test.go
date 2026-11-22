@@ -11,6 +11,7 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/infra/sqlite"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	"github.com/Nathandelenclos/agent-stats/internal/platform/projectscope"
 	report "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 	usagedb "github.com/Nathandelenclos/agent-stats/internal/reporting/infra/sqlite"
 )
@@ -236,5 +237,62 @@ func TestReadModelHidesPromptTexts(t *testing.T) {
 	}
 	if strings.Join(views, ",") != publishedViews {
 		t.Errorf("views = %v", views)
+	}
+}
+
+// TestAProjectNarrowsWhatTheIndexPublishes writes sessions of two folders through the indexing adapter and narrows the
+// reporting adapter's questions to one of them: the folders the two contexts speak of are the index's published ones.
+func TestAProjectNarrowsWhatTheIndexPublishes(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, sibling := filepath.Join(dir, "app"), filepath.Join(dir, "app-2")
+	path := filepath.Join(dir, "index.db")
+	w, err := sqlite.Open(sqlite.Options{Path: path, User: "me@host"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.UnixMilli(1767261600000)
+	cost, _ := kernel.NewCost(1)
+	tokens, _ := kernel.NewTokens(kernel.TokenCounts{Input: 10, Output: 1})
+	for native, folder := range map[string]string{"in-app": filepath.Join(app, "web"), "in-sibling": sibling} {
+		id, _ := domain.NewSessionID(kernel.Claude, native)
+		err := w.Save([]indexing.IndexedLog{{File: indexing.LogFile{Path: "/logs/" + native, Harness: kernel.Claude}, Transcript: indexing.IndexedTranscript{
+			Transcript: domain.Transcript{
+				Session:  domain.Session{ID: id, Harness: kernel.Claude, AgentType: domain.MainAgent, Folder: folder, Start: at, End: at},
+				Requests: []domain.Request{{Key: "m", At: at, Model: "m", Tokens: tokens}},
+				Tools:    []domain.ToolCall{{Key: "t", At: at, Name: native}},
+			},
+			Costs: []indexing.PricedCost{{Cost: cost, Priced: true}},
+		}}})[0]
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.Close()
+	usage, err := usagedb.OpenReadOnly(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer usage.Close()
+	project, err := projectscope.Of(app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := report.Filter{Project: project}
+
+	// When usage, tools and sessions are asked for the app, and whether sessions worked in it
+	total, errTotal := usage.Total(f)
+	tools, errTools := usage.Tools(f)
+	sessions, errSessions := usage.Sessions().Sessions(f)
+	found, errFound := usage.HasSessions(project)
+
+	// Then only the session that worked below it is counted, and it is found
+	if errTotal != nil || errTools != nil || errSessions != nil || errFound != nil {
+		t.Fatal(errTotal, errTools, errSessions, errFound)
+	}
+	if total.Requests != 1 || len(tools) != 1 || tools[0].Name != "in-app" || len(sessions) != 1 || sessions[0].ID.String() != "claude:in-app" || !found {
+		t.Errorf("total = %+v, tools = %+v, sessions = %+v, found = %v", total, tools, sessions, found)
 	}
 }

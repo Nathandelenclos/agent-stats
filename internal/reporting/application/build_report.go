@@ -16,10 +16,12 @@ type (
 	USD        = domain.USD
 )
 
-// Query asks for the report of activity since a time (zero: all) and optionally one harness (empty: all).
+// Query asks for the report of activity since a time (zero: all), optionally one harness (empty: all) and optionally
+// the sessions of one project (zero: every project).
 type Query struct {
 	Since   time.Time
 	Harness kernel.Harness
+	Project kernel.Project
 }
 
 // UsageReader answers usage questions over one state of the indexed sessions.
@@ -52,7 +54,7 @@ type BuildReport struct {
 func (uc BuildReport) Run(q Query) (Report, error) {
 	var r Report
 	err := uc.Queries.Snapshot(func(u UsageReader) (err error) {
-		r, err = build(u, domain.Filter{Since: q.Since, Harness: q.Harness})
+		r, err = build(u, domain.Filter{Since: q.Since, Harness: q.Harness, Project: q.Project})
 		return err
 	})
 	return r, err

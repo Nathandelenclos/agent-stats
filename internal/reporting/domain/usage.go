@@ -8,10 +8,12 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 )
 
-// Filter restricts a report to activity since a time (zero: all) and optionally one harness (empty: all).
+// Filter restricts a report to activity since a time (zero: all), optionally one harness (empty: all) and optionally
+// one project (zero: all).
 type Filter struct {
 	Since   time.Time
 	Harness kernel.Harness
+	Project kernel.Project
 }
 
 // Dimension is a way to group usage.

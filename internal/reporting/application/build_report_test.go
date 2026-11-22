@@ -12,6 +12,7 @@ type shiftingIndex struct {
 	requests int64
 	frozen   bool
 	asked    []domain.Dimension
+	filter   domain.Filter // the latest one asked about
 }
 
 func (x *shiftingIndex) Snapshot(fn func(UsageReader) error) error {
@@ -29,7 +30,8 @@ func (x *shiftingIndex) answer() int64 {
 	return n
 }
 
-func (x *shiftingIndex) Total(domain.Filter) (domain.Usage, error) {
+func (x *shiftingIndex) Total(f domain.Filter) (domain.Usage, error) {
+	x.filter = f
 	return domain.Usage{Requests: x.answer()}, nil
 }
 

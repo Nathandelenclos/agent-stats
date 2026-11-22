@@ -33,9 +33,9 @@ type ListSessions struct {
 	Queries SessionQueries
 }
 
-// Run lists the sessions q asks for: those whose last activity is since q.Since (zero: all) and, when q.Harness is set, that harness's.
+// Run lists the sessions q asks for: those whose last activity is since q.Since (zero: all) and, when set, that harness's and that project's.
 func (uc ListSessions) Run(q Query) (SessionList, error) {
-	sessions, err := uc.Queries.Sessions(domain.Filter{Since: q.Since, Harness: q.Harness})
+	sessions, err := uc.Queries.Sessions(domain.Filter{Since: q.Since, Harness: q.Harness, Project: q.Project})
 	return domain.NewSessionList(sessions), err
 }
 

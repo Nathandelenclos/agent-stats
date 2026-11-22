@@ -23,7 +23,8 @@ CREATE TABLE usage_requests (ts INTEGER NOT NULL, model TEXT NOT NULL,
 	cost REAL NOT NULL, priced INTEGER NOT NULL, duration_ms REAL, ttft_ms REAL, error TEXT,
 	harness TEXT NOT NULL, agent_type TEXT NOT NULL, folder TEXT);
 CREATE TABLE usage_tool_calls (ts INTEGER NOT NULL, name TEXT NOT NULL, server TEXT NOT NULL,
-	args_chars INTEGER NOT NULL, result_chars INTEGER NOT NULL, is_error INTEGER NOT NULL, duration_ms REAL, harness TEXT NOT NULL);
+	args_chars INTEGER NOT NULL, result_chars INTEGER NOT NULL, is_error INTEGER NOT NULL, duration_ms REAL, harness TEXT NOT NULL, folder TEXT);
+CREATE TABLE usage_folders (folder TEXT NOT NULL);
 `
 
 // indexed writes one session into a fresh read model and returns the database path.
@@ -42,7 +43,7 @@ func indexed(t *testing.T, at time.Time) string {
 	}{
 		{readModel, nil},
 		{`INSERT INTO usage_requests VALUES (?, ?, 1000, 100, 0, 0, 2, 1, 1500, NULL, NULL, 'claude', 'main', ?)`, []any{ms, hostile, hostile}},
-		{`INSERT INTO usage_tool_calls VALUES (?, ?, 'grace', 0, 0, 1, NULL, 'claude')`, []any{ms, hostile}},
+		{`INSERT INTO usage_tool_calls VALUES (?, ?, 'grace', 0, 0, 1, NULL, 'claude', NULL)`, []any{ms, hostile}},
 	} {
 		if _, err := db.Exec(stmt.sql, stmt.args...); err != nil {
 			t.Fatal(err)

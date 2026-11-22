@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	"github.com/Nathandelenclos/agent-stats/internal/platform/projectscope"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 	report "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 )
@@ -41,16 +42,11 @@ const sessionCols = `SELECT s.id, s.harness, s.agent_type, COALESCE(s.title, '')
 
 // Sessions lists the sessions whose last activity is in the filter's range, most recent first.
 func (s *SQLiteSessions) Sessions(f report.Filter) (out []report.SessionSummary, err error) {
-	var cond string // narrows the roots (aliased s); every value is a bound parameter
-	var args []any
-	if !f.Since.IsZero() {
-		cond, args = cond+" AND s.run_ended_at >= ?", append(args, kernel.UnixMilli(f.Since))
-	}
-	if !f.Harness.IsZero() {
-		cond, args = cond+" AND s.harness = ?", append(args, f.Harness.String())
-	}
 	err = s.snapshot(func(q querier) error {
-		var err error
+		cond, args, err := rootsCondition(q, f)
+		if err != nil {
+			return err
+		}
 		if out, err = sessionRows(q, cond, args); err != nil {
 			return err
 		}
@@ -58,6 +54,25 @@ func (s *SQLiteSessions) Sessions(f report.Filter) (out []report.SessionSummary,
 		return addUsage(q, out, `r.root_id IN (SELECT s.id FROM session_overview s WHERE s.id = s.root_id`+cond+`)`, args)
 	})
 	return out, err
+}
+
+// rootsCondition narrows the roots (aliased s) to the filter, as " AND ..." conditions; every value is a bound parameter.
+// A run belongs to the project of its root session.
+func rootsCondition(q querier, f report.Filter) (cond string, args []any, err error) {
+	if !f.Since.IsZero() {
+		cond, args = cond+" AND s.run_ended_at >= ?", append(args, kernel.UnixMilli(f.Since))
+	}
+	if !f.Harness.IsZero() {
+		cond, args = cond+" AND s.harness = ?", append(args, f.Harness.String())
+	}
+	inProject, projectArgs, err := projectscope.Condition(q, f.Project, "s.folder")
+	if err != nil {
+		return "", nil, err
+	}
+	if inProject != "" {
+		cond, args = cond+" AND "+inProject, append(args, projectArgs...)
+	}
+	return cond, args, nil
 }
 
 // Session describes one session of the listing.
