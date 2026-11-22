@@ -178,13 +178,7 @@ func (d *OpenCodeDatabase) connect(path string) (*sql.DB, error) {
 		old.Close()
 		delete(d.handles, path)
 	}
-	f, err := openRegular(path)
-	if err != nil {
-		return nil, err
-	}
-	f.Close()
-	uri := (&url.URL{Scheme: "file", Path: path}).String() + "?mode=ro&_pragma=query_only(true)&_pragma=busy_timeout(3000)"
-	db, err := sql.Open("sqlite", uri)
+	db, err := openSessionDatabase(path)
 	if err != nil {
 		return nil, err
 	}
@@ -194,6 +188,16 @@ func (d *OpenCodeDatabase) connect(path string) (*sql.DB, error) {
 	}
 	d.handles[path] = db
 	return db, nil
+}
+
+func openSessionDatabase(path string) (*sql.DB, error) {
+	f, err := openRegular(path)
+	if err != nil {
+		return nil, err
+	}
+	f.Close()
+	uri := (&url.URL{Scheme: "file", Path: filepath.ToSlash(path)}).String() + "?mode=ro&_pragma=query_only(true)&_pragma=busy_timeout(3000)"
+	return sql.Open("sqlite", uri)
 }
 
 // handle returns the pool a listing opened.
