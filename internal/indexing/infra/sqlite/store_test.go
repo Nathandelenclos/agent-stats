@@ -1,6 +1,8 @@
 package sqlite
 
 import (
+	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,6 +21,16 @@ func open(t *testing.T) *SQLiteIndex {
 	}
 	t.Cleanup(func() { s.Close() })
 	return s
+}
+
+// pathOf is the file the index lives in.
+func pathOf(t *testing.T, s *SQLiteIndex) string {
+	t.Helper()
+	var path string
+	if err := s.db.QueryRow(`SELECT file FROM pragma_database_list WHERE name = 'main'`).Scan(&path); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 // hostile carries SQL metacharacters in every text value that reaches the database.
@@ -118,5 +130,402 @@ func TestIndexIsPrivate(t *testing.T) {
 	defer s2.Close()
 	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
 		t.Errorf("reopened index is %v", info.Mode().Perm())
+	}
+}
+
+// subagentOf returns the transcript of a subagent of parent (an indexed session or not).
+func subagentOf(t *testing.T, parent, name string, at time.Time) application.IndexedTranscript {
+	t.Helper()
+	p, err := domain.NewSessionID(kernel.Claude, parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := p.Subagent(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := transcript(t, "unused", at)
+	tr.Session.ID, tr.Session.ParentID, tr.Session.AgentType = id, p, domain.Subagent
+	return tr
+}
+
+// listedUnder reads how the index groups sessions for a listing: each session, with the session it is listed under.
+func listedUnder(t *testing.T, s *SQLiteIndex) map[string]string {
+	t.Helper()
+	listed := map[string]string{}
+	rows, err := s.db.Query(`SELECT id, root_id FROM session_overview`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, root string
+		if err := rows.Scan(&id, &root); err != nil {
+			t.Fatal(err)
+		}
+		listed[id] = root
+	}
+	return listed
+}
+
+// requestsListedUnder counts the requests a listing adds up for a session: its own and its subagents'.
+func requestsListedUnder(t *testing.T, s *SQLiteIndex, session string) int {
+	t.Helper()
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM session_requests WHERE root_id = ?`, session).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func TestASubagentIsListedUnderItsSession(t *testing.T) {
+	// Given a session with a subagent
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	for _, f := range []struct {
+		path string
+		tr   application.IndexedTranscript
+	}{
+		{"/logs/main.jsonl", transcript(t, "main", at)},
+		{"/logs/child.jsonl", subagentOf(t, "main", "child", at)},
+	} {
+		if err := s.Save(application.LogFile{Path: f.path, Harness: kernel.Claude}, f.tr); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// When the sessions are listed
+	listed := listedUnder(t, s)
+
+	// Then the subagent belongs to its session, and its requests count for it
+	if listed["claude:main/child"] != "claude:main" || listed["claude:main"] != "claude:main" {
+		t.Errorf("listed under = %v", listed)
+	}
+	if n := requestsListedUnder(t, s, "claude:main"); n != 2 {
+		t.Errorf("requests of the session = %d, want its own and its subagent's", n)
+	}
+}
+
+func TestASubagentWhoseSessionWasNeverIndexedIsListedOnItsOwn(t *testing.T) {
+	// Given a subagent whose session log was never indexed
+	s := open(t)
+	if err := s.Save(application.LogFile{Path: "/logs/orphan.jsonl", Harness: kernel.Claude}, subagentOf(t, "gone", "orphan", time.UnixMilli(1767261600000))); err != nil {
+		t.Fatal(err)
+	}
+
+	// When the sessions are listed, then it stands for itself
+	if listed := listedUnder(t, s); listed["claude:gone/orphan"] != "claude:gone/orphan" {
+		t.Errorf("listed under = %v", listed)
+	}
+}
+
+func saveAll(t *testing.T, s *SQLiteIndex, logs map[string]application.IndexedTranscript) {
+	t.Helper()
+	for path, tr := range logs {
+		if err := s.Save(application.LogFile{Path: path, Harness: kernel.Claude}, tr); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestNestedSubagentsAreListedUnderTheTopSession(t *testing.T) {
+	// Given a session whose subagent started a subagent of its own
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	saveAll(t, s, map[string]application.IndexedTranscript{
+		"/logs/a.jsonl": transcript(t, "a", at),
+		"/logs/b.jsonl": subagentOf(t, "a", "b", at),
+		"/logs/c.jsonl": subagentOf(t, "a/b", "c", at),
+	})
+
+	// When the sessions are listed
+	listed := listedUnder(t, s)
+
+	// Then both subagents belong to the top session, and the requests of the three count for it
+	if listed["claude:a"] != "claude:a" || listed["claude:a/b"] != "claude:a" || listed["claude:a/b/c"] != "claude:a" {
+		t.Errorf("listed under = %v", listed)
+	}
+	if n := requestsListedUnder(t, s, "claude:a"); n != 3 {
+		t.Errorf("requests of the session = %d, want its own and both subagents'", n)
+	}
+}
+
+func TestAForkedConversationIsListedOnItsOwn(t *testing.T) {
+	// Given a main conversation forked from another one (not a subagent of it)
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	fork := transcript(t, "fork", at)
+	fork.Session.ParentID, _ = domain.NewSessionID(kernel.Claude, "origin")
+	saveAll(t, s, map[string]application.IndexedTranscript{"/logs/origin.jsonl": transcript(t, "origin", at), "/logs/fork.jsonl": fork})
+
+	// When the sessions are listed, then each stands for itself
+	listed := listedUnder(t, s)
+	if listed["claude:fork"] != "claude:fork" || listed["claude:origin"] != "claude:origin" {
+		t.Errorf("listed under = %v", listed)
+	}
+}
+
+func TestARunLastsUntilItsLastSubagentActivity(t *testing.T) {
+	// Given a session that ended at 10 minutes and a subagent that ended at 20
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	parent := transcript(t, "a", at)
+	parent.Session.End = at.Add(10 * time.Minute)
+	child := subagentOf(t, "a", "b", at.Add(time.Minute))
+	child.Session.End = at.Add(20 * time.Minute)
+	saveAll(t, s, map[string]application.IndexedTranscript{"/logs/a.jsonl": parent, "/logs/b.jsonl": child})
+
+	// When the run of the session is read
+	var start, end int64
+	if err := s.db.QueryRow(`SELECT run_started_at, run_ended_at FROM session_overview WHERE id = 'claude:a'`).Scan(&start, &end); err != nil {
+		t.Fatal(err)
+	}
+
+	// Then it spans from the session's start to the subagent's last activity
+	if start != at.UnixMilli() || end != at.Add(20*time.Minute).UnixMilli() {
+		t.Errorf("run = %d → %d", start, end)
+	}
+}
+
+func TestPromptsKeepTheOrderTheyWereTypedInAndTheirSignals(t *testing.T) {
+	// Given a session whose prompts were typed in a different order than their keys sort
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	tr := transcript(t, "s1", at)
+	tr.Prompts = []domain.Prompt{{Key: "z", At: at, Text: "first"}, {Key: "a", At: at, Text: hostile}}
+	tr.Signals = []domain.Signals{{Chars: 5, Words: 1}, {Chars: 9, Words: 2, Yelling: 3, Profanity: 1, Anguish: 2, Negation: 4, Blame: 5, Repeated: true}}
+	if err := s.Save(application.LogFile{Path: "/logs/s1.jsonl", Harness: kernel.Claude}, tr); err != nil {
+		t.Fatal(err)
+	}
+
+	// When the prompts of the session are read
+	rows, err := s.db.Query(`SELECT text, chars, yelling, profanity, anguish, negation, repetition, blame
+		FROM session_prompts WHERE session_id = 'claude:s1' ORDER BY position`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var texts []string
+	var last [7]int
+	for rows.Next() {
+		var text string
+		if err := rows.Scan(&text, &last[0], &last[1], &last[2], &last[3], &last[4], &last[5], &last[6]); err != nil {
+			t.Fatal(err)
+		}
+		texts = append(texts, text)
+	}
+
+	// Then they come back in the order they were typed in, each with its signals
+	if len(texts) != 2 || texts[0] != "first" || texts[1] != hostile {
+		t.Errorf("prompts = %q", texts)
+	}
+	if last != [7]int{9, 3, 1, 2, 4, 1, 5} {
+		t.Errorf("signals of the second prompt = %v", last)
+	}
+}
+
+func TestAReaderStillListsTheSessionsWhenTheirListingFailsToUpdate(t *testing.T) {
+	// Given a session listed for a reader on another connection, by an index that is due an update of its listing
+	s := open(t)
+	if err := s.Save(application.LogFile{Path: "/logs/main.jsonl", Harness: kernel.Claude}, transcript(t, "main", time.UnixMilli(1767261600000))); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := sql.Open("sqlite", pathOf(t, s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { reader.Close() })
+	if _, err := s.db.Exec(`PRAGMA user_version = 0`); err != nil {
+		t.Fatal(err)
+	}
+
+	// When updating the listing fails half way
+	if err := migrate(s.db, schemaVersion, sessionViews, `NOT SQL`); err == nil {
+		t.Fatal("the failing step was not reported")
+	}
+
+	// Then the reader still lists the session
+	var listed int
+	if err := reader.QueryRow(`SELECT COUNT(*) FROM session_overview`).Scan(&listed); err != nil || listed != 1 {
+		t.Errorf("the reader lists %d sessions, %v", listed, err)
+	}
+}
+
+func TestASessionListingFromANewerBuildIsLeftAsItIs(t *testing.T) {
+	// Given an index whose listing of sessions a newer build changed
+	s := open(t)
+	if _, err := s.db.Exec(`PRAGMA user_version = 99; DROP VIEW session_requests; DROP VIEW session_tool_calls; DROP VIEW session_overview;
+		CREATE VIEW session_overview AS SELECT 'listed by a newer build' AS root_id`); err != nil {
+		t.Fatal(err)
+	}
+	path := pathOf(t, s)
+	s.Close()
+
+	// When this build opens it
+	again := reopen(t, path)
+
+	// Then the sessions are still listed the way the newer build lists them
+	var root string
+	if err := again.db.QueryRow(`SELECT root_id FROM session_overview`).Scan(&root); err != nil || root != "listed by a newer build" {
+		t.Errorf("listing = %q, %v", root, err)
+	}
+}
+
+// indexBuiltBeforeTheCodexEndTimeFix saves a Codex log and a Claude log, then closes an index that is
+// left as one built before the Codex end times were fixed.
+func indexBuiltBeforeTheCodexEndTimeFix(t *testing.T) (path string, codex, claude application.LogFile) {
+	t.Helper()
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	codex = application.LogFile{Path: "/logs/codex.jsonl", Harness: kernel.Codex, Size: 5, ModTime: time.Unix(0, 1)}
+	claude = application.LogFile{Path: "/logs/claude.jsonl", Harness: kernel.Claude, Size: 7, ModTime: time.Unix(0, 2)}
+	for _, f := range []application.LogFile{codex, claude} {
+		if err := s.Save(f, transcript(t, filepath.Base(f.Path), at)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.db.Exec(`PRAGMA user_version = 0`); err != nil {
+		t.Fatal(err)
+	}
+	path = pathOf(t, s)
+	s.Close()
+	return path, codex, claude
+}
+
+func TestCodexLogsIndexedBeforeTheEndTimeFixAreReadAgain(t *testing.T) {
+	// Given an index built before the Codex end times were fixed, holding a Codex log and a Claude log
+	path, _, claude := indexBuiltBeforeTheCodexEndTimeFix(t)
+
+	// When the index is opened by a build with the fix
+	s := reopen(t, path)
+
+	// Then the next sync reads the Codex log again and leaves the Claude log alone, and the sessions indexed so far stay listed
+	known, err := s.IndexedFiles()
+	if err != nil || len(known) != 1 || known[claude.Path].Size != 7 {
+		t.Fatalf("indexed files = %+v, %v", known, err)
+	}
+	if listed := len(listedUnder(t, s)); listed != 2 {
+		t.Errorf("%d sessions listed, want the two indexed so far", listed)
+	}
+}
+
+func TestCodexLogsReadAgainAreNotForgottenASecondTime(t *testing.T) {
+	// Given a Codex log read again after the index was opened by a build with the fix
+	path, codex, _ := indexBuiltBeforeTheCodexEndTimeFix(t)
+	s := reopen(t, path)
+	if err := s.Save(codex, transcript(t, "codex.jsonl", time.UnixMilli(1767261600000))); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	// When the index is opened again
+	again := reopen(t, path)
+
+	// Then the Codex log is still known, so it is not read a second time
+	if known, err := again.IndexedFiles(); err != nil || len(known) != 2 {
+		t.Errorf("indexed files = %+v, %v", known, err)
+	}
+}
+
+func reopen(t *testing.T, path string) *SQLiteIndex {
+	t.Helper()
+	s, err := Open(Options{Path: path, User: "me@host"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return s
+}
+
+// subagentNamed returns the transcript of a subagent with the given session id, whatever its id says about its parent.
+func subagentNamed(t *testing.T, id, parent string, at time.Time) application.IndexedTranscript {
+	t.Helper()
+	tr := transcript(t, id, at)
+	tr.Session.ParentID, _ = domain.NewSessionID(kernel.Claude, parent)
+	tr.Session.AgentType = domain.Subagent
+	return tr
+}
+
+// assertEverySessionAndRequestIsListedOnce checks that the sessions views drop and double nothing.
+func assertEverySessionAndRequestIsListedOnce(t *testing.T, s *SQLiteIndex, sessions int) map[string]string {
+	t.Helper()
+	listed := listedUnder(t, s)
+	var rows, requests int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM session_overview`).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM session_requests`).Scan(&requests); err != nil {
+		t.Fatal(err)
+	}
+	if rows != sessions || len(listed) != sessions || requests != sessions { // every transcript holds one request
+		t.Errorf("%d sessions listed as %d rows with %d requests, want %d of each", len(listed), rows, requests, sessions)
+	}
+	return listed
+}
+
+func TestAVeryDeepChainOfSubagentsIsListedUnderItsTopSession(t *testing.T) {
+	// Given a session and a chain of 40 subagents, each started by the previous one
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	logs := map[string]application.IndexedTranscript{"/logs/top.jsonl": transcript(t, "top", at)}
+	parent := "top"
+	for i := 1; i <= 40; i++ {
+		name := fmt.Sprintf("s%d", i)
+		logs["/logs/"+name+".jsonl"] = subagentOf(t, parent, name, at)
+		parent += "/" + name
+	}
+	saveAll(t, s, logs)
+
+	// When the sessions are listed
+	listed := assertEverySessionAndRequestIsListedOnce(t, s, 41)
+
+	// Then the whole chain belongs to the top session, however deep
+	for id, root := range listed {
+		if root != "claude:top" {
+			t.Errorf("%s is listed under %s", id, root)
+		}
+	}
+}
+
+func TestSubagentsThatNameEachOtherAsParentAreEachListedOnce(t *testing.T) {
+	// Given two subagents that name each other as parent, a third one started by the first, and a subagent that names itself
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	saveAll(t, s, map[string]application.IndexedTranscript{
+		"/logs/a.jsonl":    subagentNamed(t, "a", "b", at),
+		"/logs/b.jsonl":    subagentNamed(t, "b", "a", at),
+		"/logs/c.jsonl":    subagentNamed(t, "c", "a", at),
+		"/logs/self.jsonl": subagentNamed(t, "self", "self", at),
+		"/logs/main.jsonl": transcript(t, "main", at),
+	})
+
+	// When the sessions are listed
+	first := assertEverySessionAndRequestIsListedOnce(t, s, 5)
+
+	// Then each session is listed under a session of the list, and the same way every time
+	for id, root := range first {
+		if _, ok := first[root]; !ok {
+			t.Errorf("%s is listed under %s, which is not listed", id, root)
+		}
+	}
+	if again := listedUnder(t, s); fmt.Sprint(again) != fmt.Sprint(first) {
+		t.Errorf("listed %v, then %v", first, again)
+	}
+}
+
+func TestASubagentIndexedAsAMainConversationIsStillListedUnderItsSession(t *testing.T) {
+	// Given a subagent an earlier build indexed as a main conversation (its meta file said "main")
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	child := subagentOf(t, "main", "child", at)
+	child.Session.AgentType = domain.MainAgent
+	saveAll(t, s, map[string]application.IndexedTranscript{"/logs/main.jsonl": transcript(t, "main", at), "/logs/child.jsonl": child})
+
+	// When the sessions are listed
+	listed := listedUnder(t, s)
+
+	// Then it belongs to its session like any subagent, and its requests count for it
+	if listed["claude:main/child"] != "claude:main" || requestsListedUnder(t, s, "claude:main") != 2 {
+		t.Errorf("listed under = %v", listed)
 	}
 }

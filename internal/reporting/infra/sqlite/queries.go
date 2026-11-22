@@ -1,5 +1,5 @@
-// Package sqlite answers the reporting context's usage queries from the SQLite index that the indexing
-// context writes. It opens the index read-only and reads only the usage_* views, the index's published read model.
+// Package sqlite answers the reporting context's usage and session queries from the SQLite index that the indexing
+// context writes. It opens the index read-only and reads only the usage_* and session_* views, the index's published read model.
 package sqlite
 
 import (
@@ -159,9 +159,14 @@ func (r reader) Total(f report.Filter) (report.Usage, error) {
 // Tools aggregates tool calls, most used first.
 func (r reader) Tools(f report.Filter) ([]report.ToolUsage, error) {
 	cond, args := where(f, "t.ts")
-	rows, err := r.q.Query(`SELECT t.name, t.server, COUNT(*), SUM(t.is_error), SUM(t.args_chars), SUM(t.result_chars),
+	return toolUsage(r.q, "usage_tool_calls", cond, args)
+}
+
+// toolUsage aggregates the calls of view (aliased t) that cond selects, most used first.
+func toolUsage(q querier, view, cond string, args []any) ([]report.ToolUsage, error) {
+	rows, err := q.Query(`SELECT t.name, t.server, COUNT(*), SUM(t.is_error), SUM(t.args_chars), SUM(t.result_chars),
 		COALESCE(AVG(t.duration_ms), 0), MAX(t.ts)
-		FROM usage_tool_calls t`+cond+`
+		FROM `+view+` t`+cond+`
 		GROUP BY 1, 2 ORDER BY 3 DESC`, args...)
 	if err != nil {
 		return nil, err

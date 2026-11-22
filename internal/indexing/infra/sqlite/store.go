@@ -3,7 +3,9 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -15,8 +17,9 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 )
 
-// The prompts table keeps each prompt's frustration signals (usage.Signals). No query reads them yet:
-// they are indexed now for the sessions TUI (delivery step 2), so a re-index is not needed then (2026-11-21).
+// The prompts table keeps each prompt's frustration signals (domain.Signals). The sessions view reads them
+// through the session_prompts view below, which closes the debt of indexing them before anything read them
+// (2026-11-21, closed 2026-11-22): no re-index was needed.
 const schema = `
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
@@ -45,10 +48,12 @@ CREATE INDEX IF NOT EXISTS requests_file ON requests (file);
 CREATE INDEX IF NOT EXISTS tool_calls_file ON tool_calls (file);
 CREATE INDEX IF NOT EXISTS prompts_file ON prompts (file);
 CREATE INDEX IF NOT EXISTS sessions_file ON sessions (file);
+CREATE INDEX IF NOT EXISTS sessions_parent ON sessions (parent_id);
 CREATE INDEX IF NOT EXISTS tool_calls_ts ON tool_calls (ts);
 CREATE INDEX IF NOT EXISTS prompts_ts ON prompts (ts);
 CREATE INDEX IF NOT EXISTS sessions_started ON sessions (started_at);
--- Published read model: the only part of the index other contexts may read. Prompt texts stay private.
+-- Published read model: the only part of the index other contexts may read. Prompt texts stay private,
+-- except in session_prompts, which exists to show a session's own prompts.
 CREATE VIEW IF NOT EXISTS usage_requests AS
 	SELECT r.ts, r.model, r.input, r.output, r.cache_read, r.cache_write, r.cost, r.priced, r.duration_ms, r.ttft_ms, r.error,
 		s.harness, s.agent_type, s.folder
@@ -56,7 +61,108 @@ CREATE VIEW IF NOT EXISTS usage_requests AS
 CREATE VIEW IF NOT EXISTS usage_tool_calls AS
 	SELECT t.ts, t.name, t.server, t.args_chars, t.result_chars, t.is_error, t.duration_ms, s.harness
 	FROM tool_calls t JOIN sessions s ON s.id = t.session_id;
+-- position is the prompt's place in its session: rows are inserted in log order.
+CREATE VIEW IF NOT EXISTS session_prompts AS
+	SELECT p.session_id, p.rowid AS position, p.ts, p.text, p.chars, p.words, p.yelling, p.profanity, p.anguish, p.negation,
+		p.repetition, p.blame
+	FROM prompts p;
 `
+
+// schemaVersion is the index's user_version once migrate has brought it up to date. 0 is an index from before
+// migrations: it is migrated when opened, never twice.
+const schemaVersion = 1
+
+// forgetCodexLogs makes the next sync read every Codex log again: a Codex session indexed before its end was
+// taken from its last tool call or prompt ended too late, and an unchanged log is not read twice.
+// Only the bookkeeping goes; rows stay until their log is read again, so a log Codex since deleted keeps its history.
+const forgetCodexLogs = `DELETE FROM files WHERE harness = 'codex'`
+
+// sessionViews is the sessions read model. It holds no data, so migrate replaces it whenever its definition changes.
+const sessionViews = `
+DROP VIEW IF EXISTS session_requests;
+DROP VIEW IF EXISTS session_tool_calls;
+DROP VIEW IF EXISTS session_overview;
+-- Session views. root_id is the session a listing shows: the session itself, or the top session whose chain of
+-- subagents it belongs to. A subagent whose parent log was never indexed (or was deleted) is its own root, and so
+-- is a main conversation forked from another one: only subagents roll up into their parent. A session named
+-- "<parent id>/<name>" is a subagent whatever type its log declared.
+-- A session whose chain of parents never reaches a root (subagents naming each other, or themselves, as parent, and
+-- whatever hangs below them) is its own root: every session is listed once, and so are its requests.
+-- run_started_at and run_ended_at span the whole run (the root and its subagents): a session is active until its
+-- last subagent stops. 0 stands for unknown.
+CREATE VIEW session_overview AS
+	WITH RECURSIVE tree(id, root_id) AS (
+		SELECT s.id, s.id FROM sessions s
+		WHERE NOT EXISTS (SELECT 1 FROM sessions p WHERE p.id = s.parent_id
+			AND (s.agent_type <> 'main' OR substr(s.id, 1, length(p.id) + 1) = p.id || '/'))
+		UNION ALL
+		SELECT c.id, t.root_id FROM tree t JOIN sessions c ON c.parent_id = t.id
+			AND (c.agent_type <> 'main' OR substr(c.id, 1, length(t.id) + 1) = t.id || '/')
+	),
+	placed(id, root_id) AS (
+		SELECT id, root_id FROM tree
+		UNION ALL
+		SELECT s.id, s.id FROM sessions s WHERE s.id NOT IN (SELECT id FROM tree)
+	)
+	SELECT s.id, t.root_id, s.harness, s.agent_type, s.title, s.folder, s.started_at, s.ended_at,
+		COALESCE(MIN(NULLIF(s.started_at, 0)) OVER (PARTITION BY t.root_id), 0) AS run_started_at,
+		MAX(s.ended_at) OVER (PARTITION BY t.root_id) AS run_ended_at
+	FROM placed t JOIN sessions s ON s.id = t.id;
+CREATE VIEW session_requests AS
+	SELECT o.root_id, r.session_id, r.ts, r.model, r.input, r.output, r.cache_read, r.cache_write, r.cost, r.priced,
+		r.duration_ms, r.ttft_ms, r.error
+	FROM requests r JOIN session_overview o ON o.id = r.session_id;
+CREATE VIEW session_tool_calls AS
+	SELECT o.root_id, t.session_id, t.ts, t.name, t.server, t.args_chars, t.result_chars, t.is_error, t.duration_ms
+	FROM tool_calls t JOIN session_overview o ON o.id = t.session_id;
+`
+
+// migrate runs steps in one transaction if the index is older than version, then records version: another
+// connection keeps reading the previous state until it commits, and a failure leaves it untouched.
+// An index that is up to date is not locked for writing.
+func migrate(db *sql.DB, version int, steps ...string) (err error) {
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	userVersion := func() (v int, err error) {
+		err = conn.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&v)
+		return v, err
+	}
+	if v, err := userVersion(); err != nil || v >= version {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, `PRAGMA busy_timeout = 5000`); err != nil {
+		return err
+	}
+	// IMMEDIATE: two processes opening the same old index queue up instead of failing on the upgrade.
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			conn.ExecContext(ctx, `ROLLBACK`)
+		}
+	}()
+	if v, err := userVersion(); err != nil || v >= version { // migrated by the other process meanwhile
+		if err == nil {
+			_, err = conn.ExecContext(ctx, `COMMIT`)
+		}
+		return err
+	}
+	for _, step := range steps {
+		if _, err := conn.ExecContext(ctx, step); err != nil {
+			return err
+		}
+	}
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, version)); err != nil {
+		return err
+	}
+	_, err = conn.ExecContext(ctx, `COMMIT`)
+	return err
+}
 
 // SQLiteIndex is the usage index kept in a local SQLite file.
 type SQLiteIndex struct {
@@ -87,6 +193,10 @@ func Open(o Options) (*SQLiteIndex, error) {
 	}
 	db.SetMaxOpenConns(1) // ponytail: one connection, SQLite serialises writes anyway
 	if _, err := db.Exec(schema); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := migrate(db, schemaVersion, sessionViews, forgetCodexLogs); err != nil {
 		db.Close()
 		return nil, err
 	}

@@ -1,6 +1,9 @@
 package textfmt
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestNumber(t *testing.T) {
 	for in, want := range map[int64]string{0: "0", 999: "999", 1000: "1 000", 1234567: "1 234 567", -1234: "-1 234"} {
@@ -22,5 +25,28 @@ func TestShorten(t *testing.T) {
 func TestPrintableNeutralisesControlCharacters(t *testing.T) {
 	if got := Printable("mcp\x1b[31mred\ttab\nline é"); got != "mcp�[31mred�tab�line é" {
 		t.Errorf("Printable = %q", got)
+	}
+}
+
+func TestHead(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		n    int
+		want string
+	}{{"abcdef", 4, "abc…"}, {"abc", 3, "abc"}, {"éèàùç", 3, "éè…"}, {"abc", 0, "…"}} {
+		if got := Head(c.in, c.n); got != c.want {
+			t.Errorf("Head(%q, %d) = %q, want %q", c.in, c.n, got, c.want)
+		}
+	}
+}
+
+func TestDuration(t *testing.T) {
+	for in, want := range map[time.Duration]string{
+		0: "0s", 999 * time.Millisecond: "0s", 45 * time.Second: "45s", 90 * time.Second: "1m", 12 * time.Minute: "12m",
+		65 * time.Minute: "1h05m", 26 * time.Hour: "1d02h", 3*24*time.Hour + 30*time.Minute: "3d00h",
+	} {
+		if got := Duration(in); got != want {
+			t.Errorf("Duration(%v) = %q, want %q", in, got, want)
+		}
 	}
 }

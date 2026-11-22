@@ -159,6 +159,7 @@ func ParseCodex(path string, r io.Reader) (domain.Transcript, error) {
 					return // repeated event for the same response
 				}
 				lastTotal = *pl.Info.Total
+				p.Session.Span(ts)
 				if req, err := codexRequest("tc:"+strconv.Itoa(ordinal), ts, model, *pl.Info.Last); err == nil {
 					fallback = append(fallback, req)
 				} else {
@@ -166,6 +167,7 @@ func ParseCodex(path string, r io.Reader) (domain.Transcript, error) {
 				}
 			case "item_completed":
 				if pl.Item != nil {
+					p.Session.Span(ts) // tool calls and prompts are logged here, after the response items they follow
 					codexItem(p, ts, pl)
 				}
 			}
