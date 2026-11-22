@@ -75,6 +75,9 @@ func Run() error {
 		return runServe(os.Args[2:])
 	}
 	termquiet.Restore()
+	if len(os.Args) > 1 && os.Args[1] == "prices" {
+		return runPrices(os.Args[2:])
+	}
 	if len(os.Args) == 3 && os.Args[1] == "quota" && os.Args[2] == "record-claude" {
 		path := quotaFile()
 		if path == "" {

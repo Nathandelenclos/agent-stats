@@ -1,15 +1,18 @@
 // Command gen refreshes prices.json from LiteLLM's public price table (MIT).
-// Run with `go generate ./internal/pricing`. To take newer prices, set commit to a reviewed
-// BerriAI/litellm commit first: the table is read at that commit, never from a moving branch.
+// Run with `go generate ./internal/pricing/infra/pricetable` to use the pinned snapshot.
+// The weekly workflow resolves a newer BerriAI/litellm commit and passes its SHA explicitly.
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"sort"
 	"time"
 
@@ -18,7 +21,6 @@ import (
 
 const (
 	commit   = "39c0f0cc164af0f7b3514b0dd2b2935dc70c4c42" // BerriAI/litellm main on 2026-11-21
-	source   = "https://raw.githubusercontent.com/BerriAI/litellm/" + commit + "/model_prices_and_context_window.json"
 	maxBytes = 64 << 20
 )
 
@@ -31,10 +33,27 @@ type entry struct {
 }
 
 func main() {
-	raw, err := fetch()
+	revision := flag.String("commit", commit, "LiteLLM commit SHA")
+	output := flag.String("output", "prices.json", "output JSON path")
+	flag.Parse()
+	if !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(*revision) {
+		log.Fatal("LiteLLM commit must be a full SHA")
+	}
+	source := "https://raw.githubusercontent.com/BerriAI/litellm/" + *revision + "/model_prices_and_context_window.json"
+	raw, err := fetch(source)
 	if err != nil {
 		log.Fatal(err)
 	}
+	data, err := priceJSON(raw)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := os.WriteFile(*output, data, 0o644); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func priceJSON(raw map[string]json.RawMessage) ([]byte, error) {
 	out := map[string][4]float64{}
 	for name, msg := range raw {
 		var e entry
@@ -53,11 +72,10 @@ func main() {
 		names = append(names, n)
 	}
 	sort.Strings(names)
-	f, err := os.Create("prices.json")
-	if err != nil {
-		log.Fatal(err)
+	if len(names) == 0 {
+		return nil, fmt.Errorf("no usable LiteLLM prices")
 	}
-	defer f.Close()
+	var f bytes.Buffer
 	// One model per line keeps diffs readable when prices change.
 	f.WriteString("{\n")
 	for i, n := range names {
@@ -70,10 +88,10 @@ func main() {
 		f.WriteString(" " + string(k) + ":" + string(v) + sep)
 	}
 	f.WriteString("}\n")
-	log.Printf("%d models written", len(names))
+	return f.Bytes(), nil
 }
 
-func fetch() (map[string]json.RawMessage, error) {
+func fetch(source string) (map[string]json.RawMessage, error) {
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Get(source)
 	if err != nil {
@@ -83,8 +101,15 @@ func fetch() (map[string]json.RawMessage, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s: %s", source, resp.Status)
 	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxBytes {
+		return nil, fmt.Errorf("%s: price source exceeds %d bytes", source, maxBytes)
+	}
 	var raw map[string]json.RawMessage
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxBytes)).Decode(&raw); err != nil {
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("%s: %w", source, err)
 	}
 	return raw, nil

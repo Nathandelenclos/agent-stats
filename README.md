@@ -90,7 +90,7 @@ See [log locations and metrics by agent](docs/reference.md#supported-harnesses).
 
 ## Pricing
 
-agent-stats uses a cost recorded in the log when available. Otherwise, it estimates cost from token counts and its embedded price table. It flags requests whose cost is unknown. See [how to override model prices](docs/reference.md#pricing).
+agent-stats uses a cost recorded in the log when available. Otherwise, it estimates cost from token counts and its price table. Run `agent-stats prices pull` to download the weekly price snapshot. The embedded table is available offline. It flags requests whose cost is unknown. See [how to override model prices](docs/reference.md#pricing).
 
 ## Privacy
 

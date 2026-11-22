@@ -426,7 +426,12 @@ other log.
 Costs come from an embedded copy of the [LiteLLM](https://github.com/BerriAI/litellm) price table
 (`internal/pricing/infra/pricetable/prices.json`), unless the harness logged a positive cost itself (for example, Continue CLI can save an estimate rounded to cents). Requests on a model with no known price are counted as *unpriced* and flagged in the report.
 
-Override or add models with `--prices file.json`, a JSON object of USD **per token**:
+Run `agent-stats prices pull` to download the latest price snapshot published by the weekly GitHub Actions workflow.
+The download is validated before it replaces the local cache. Reports and new indexing runs work offline with cached
+rates overlaid on the embedded table. An already running dashboard picks up the cache after restart. The update applies
+as logs are indexed. Costs previously stored in the index stay as calculated until their logs are indexed again.
+
+Override or add models with `--prices file.json`, a JSON object of USD **per token** with priority over cached rates:
 
 ```json
 { "my-model": [0.000003, 0.000015, 0.0000003, 0.00000375] }
