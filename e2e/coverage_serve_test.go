@@ -1,13 +1,14 @@
 //go:build unix
 
-package main
+package e2e
 
 import (
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
-	"syscall"
+	"os"
+	"os/exec"
 	"testing"
 	"time"
 )
@@ -25,7 +26,8 @@ func freeAddr(t *testing.T) string {
 
 // getJSON reads an API answer of the server at addr into v.
 func getJSON(addr, path string, v any) error {
-	res, err := http.Get("http://" + addr + path)
+	client := http.Client{Timeout: time.Second}
+	res, err := client.Get("http://" + addr + path)
 	if err != nil {
 		return err
 	}
@@ -39,10 +41,18 @@ func getJSON(addr, path string, v any) error {
 func TestTheServerStartedFromAProjectOnAnEmptyIndexOpensOnItOnceTheLogsAreRead(t *testing.T) {
 	// Given sessions logged in the app and in a sibling project, an index that holds none yet, and a server started from the app
 	w := newScopedWorkplace(t)
-	t.Chdir(w.app)
 	addr := freeAddr(t)
-	done := make(chan error, 1)
-	go func() { done <- runServe([]string{"--db", w.db, "--addr", addr}) }()
+	cmd := exec.CommandContext(t.Context(), binary, "serve", "--db", w.db, "--addr", addr)
+	cmd.Dir = w.app
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if cmd.ProcessState == nil {
+			cmd.Process.Kill()
+			cmd.Wait()
+		}
+	})
 
 	// When the indexing of the logs ends
 	var meta struct {
@@ -63,10 +73,10 @@ func TestTheServerStartedFromAProjectOnAnEmptyIndexOpensOnItOnceTheLogsAreRead(t
 	if err := getJSON(addr, "/api/report?project=current", &report); err != nil || report.Total.Requests != 3 {
 		t.Errorf("the project's report counts %d requests, %v", report.Total.Requests, err)
 	}
-	if err := syscall.Kill(syscall.Getpid(), syscall.SIGINT); err != nil { // what Ctrl-C does
+	if err := cmd.Process.Signal(os.Interrupt); err != nil { // what Ctrl-C does
 		t.Fatal(err)
 	}
-	if err := <-done; err != nil {
+	if err := cmd.Wait(); err != nil {
 		t.Errorf("serve: %v", err)
 	}
 }
