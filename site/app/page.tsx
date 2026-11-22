@@ -1,14 +1,31 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { BarChart3, List, MessageSquare, ShieldCheck, Terminal } from "lucide-react";
 import { CodeBlock, Pre } from "fumadocs-ui/components/codeblock";
 import { HomeLayout } from "fumadocs-ui/layouts/home";
 import { ReportPreview } from "../components/report-preview";
 import { navigation } from "../lib/navigation";
-import { installCommand, releases, repository } from "../lib/project";
+import { installCommand, releases, repository, siteUrl } from "../lib/project";
+import { JsonLd, pageMetadata } from "../lib/seo";
 
-export const metadata: Metadata = {
-  alternates: { canonical: "/" },
+export const metadata = pageMetadata(
+  "/",
+  "Claude Code and Codex usage analytics",
+  "Track tokens, cache usage, and estimated costs for Claude Code and Codex. agent-stats reads session logs on your machine and keeps its SQLite index local.",
+);
+
+const software = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareSourceCode",
+  name: "agent-stats",
+  description: metadata.description,
+  url: `${siteUrl}/`,
+  codeRepository: repository,
+  license: `${repository}/blob/main/LICENSE`,
+  author: {
+    "@type": "Person",
+    name: "Nathan Delenclos",
+    url: "https://github.com/Nathandelenclos",
+  },
 };
 
 const views = [
@@ -35,14 +52,15 @@ const views = [
 export default function HomePage() {
   return (
     <HomeLayout {...navigation}>
+      <JsonLd data={software} />
       <div className="landing">
         <section className="hero" aria-labelledby="home-title">
           <div className="landing-wrap hero-layout">
             <div>
-              <h1 id="home-title">See what your coding agents use.</h1>
+              <h1 id="home-title">Track Claude Code and Codex usage</h1>
               <p className="hero-intro">
-                Track tokens, estimated cost, and sessions across Claude Code, Codex, and other agents.
-                agent-stats reads the logs already on your machine.
+                agent-stats is an open-source CLI and local dashboard. See how many tokens your coding agents used,
+                how much input came from cache, and what the requests are estimated to cost.
               </p>
               <div className="hero-actions">
                 <Link className="primary-action" href="/docs/install/">Get started</Link>
@@ -80,6 +98,11 @@ export default function HomePage() {
               </article>
             ))}
           </div>
+          <p className="mt-6 max-w-prose leading-relaxed text-fd-muted-foreground">
+            Run <code>agent-stats --all --since 7d --plain</code> after a session to see seven days of activity.
+            The report flags requests with unknown prices. Cache and other metrics depend on the data each reader can extract.
+            <Link className="ml-1 underline" href="/docs/first-report/#read-the-totals">How to read the totals</Link>
+          </p>
         </section>
 
         <section className="landing-wrap privacy-wrap" aria-labelledby="privacy-title">
@@ -101,6 +124,7 @@ export default function HomePage() {
             <Link href="/docs/">Documentation</Link>
             <a href={releases}>Releases</a>
             <a href={repository}>GitHub</a>
+            <a href={`${repository}/blob/main/LICENSE`}>MIT license</a>
           </nav>
         </div>
       </footer>

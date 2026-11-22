@@ -2,7 +2,7 @@
 
 See which AI coding agents, models, and projects account for your token usage and estimated costs. agent-stats reads the session logs you already have, keeps its index on your machine, and gives you a terminal report, a browser dashboard, and JSON for scripts.
 
-[Download a release](https://github.com/Nathandelenclos/agent-stats/releases/latest) · [Reference](docs/reference.md) · [Contributing](CONTRIBUTING.md)
+[Download a release](https://github.com/Nathandelenclos/agent-stats/releases/latest) · [Documentation](https://agent-stats.delenclosnathan.fr/docs/) · [Reference](docs/reference.md) · [Contributing](CONTRIBUTING.md)
 
 ## Install
 

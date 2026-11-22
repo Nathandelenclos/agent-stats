@@ -3,7 +3,7 @@ title: Supported coding agents
 description: Find which coding agents are indexed and where agent-stats reads their local logs.
 ---
 
-Agents that do not have local logs are skipped. The report only shows metrics recorded by the agent or derived from the available usage data.
+agent-stats skips agents without local logs. Available metrics depend on each reader and the fields the agent records. For example, a reader can count requests even when the logs omit token usage or timings. See [how to investigate missing requests](/docs/troubleshooting/#the-report-has-no-requests).
 
 | Coding agent | Logs read |
 |---------|-----------|
@@ -26,6 +26,7 @@ Agents that do not have local logs are skipped. The report only shows metrics re
 ## Check one agent
 
 ```sh
+agent-stats --all --harness claude --since 7d --plain
 agent-stats --all --harness codex --since 7d --plain
 ```
 

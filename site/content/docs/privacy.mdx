@@ -3,7 +3,7 @@ title: Privacy and local data
 description: Understand what the local index stores and what the dashboard exposes.
 ---
 
-agent-stats opens session logs read-only and stores its index under `agent-stats/index.db` in your user cache directory by default. Reports use local logs and an embedded price table.
+agent-stats opens session logs read-only and stores its index under `agent-stats/index.db` in your user cache directory by default. Reports run locally using the index and the available model prices. The CLI and dashboard read your data on this machine. The public documentation site shows sample data.
 
 ## What the index stores
 

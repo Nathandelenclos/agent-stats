@@ -1,6 +1,6 @@
 import type { BaseLayoutProps } from "fumadocs-ui/layouts/shared";
 import { Activity } from "lucide-react";
-import { releases, repository } from "./project";
+import { docsPath, releases, repository } from "./project";
 
 export const navigation: BaseLayoutProps = {
   nav: {
@@ -12,7 +12,7 @@ export const navigation: BaseLayoutProps = {
     ),
   },
   links: [
-    { text: "Documentation", url: "/docs/", active: "url" },
+    { text: "Documentation", url: docsPath, active: "url" },
     { text: "Releases", url: releases },
   ],
   githubUrl: repository,

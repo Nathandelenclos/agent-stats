@@ -14,8 +14,8 @@ The first run indexes local logs. Later runs read only files that changed. Start
 ## Read the totals
 
 - **Requests and tokens** show how much work the logs recorded. The input, output, and cache counts are tracked separately.
-- **Estimated cost** uses reported cost when available, otherwise the embedded price table. It can differ from your bill. The report flags requests that have no known price.
-- **Cache hit rate** shows how much input came from the cache where the logs expose those counts.
+- **Estimated cost** uses a positive cost from the log when available, then uses known model rates when the usage data is complete. The report flags requests with no known cost, so the total can be incomplete. Your bill can also reflect subscriptions or provider adjustments. See [model prices and overrides](/docs/cli/#update-model-prices).
+- **Cache hit rate** divides input tokens read from cache by all input tokens, including cache writes. A reader that lacks cache counts can show zero even when the provider used its cache.
 
 ## Narrow the scope
 

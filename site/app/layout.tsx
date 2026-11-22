@@ -8,9 +8,6 @@ import "./styles.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  title: { default: "agent-stats | Local usage analytics for AI coding agents", template: "%s | agent-stats" },
-  description: "Track usage, estimated cost, and sessions for AI coding agents using the logs on your machine.",
-  openGraph: { siteName: "agent-stats", type: "website" },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
