@@ -60,6 +60,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # workflow_run records github.sha (the tip of main when CI finished) in the OIDC identity, hence in the
+          # provenance. Release only if it is the commit CI validated, so the attestation names the commit that is
+          # tagged and built. If main moved on, the run of the newer commit releases it.
+          if [ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]; then
+            echo "::notice::main moved on since this CI run: the release of the newer commit will cover it."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           latest=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || true)
           existing=$(git tag --points-at HEAD --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | sed -n 1p)
 
@@ -67,7 +75,15 @@ jobs:
             # This commit is already tagged: never re-tag. Only a published release ends the job early;
             # a missing or draft release (a previous run stopped before publishing) is rebuilt.
             version=$existing
-            state=$(gh release view "$version" --json isDraft --jq '.isDraft' 2>/dev/null || echo missing)
+            # Only "release not found" means there is nothing published yet; any other error stops the run.
+            if state=$(gh release view "$version" --json isDraft --jq '.isDraft' 2>&1); then
+              :
+            elif grep -qi 'release not found' <<<"$state"; then
+              state=missing
+            else
+              echo "::error::Could not read the release $version: $state"
+              exit 1
+            fi
             if [ "$state" = false ]; then
               echo "::notice::$version is already released: nothing to do."
               echo "release=false" >> "$GITHUB_OUTPUT"
