@@ -258,7 +258,8 @@ file, a name with control characters) is left out and noted on stderr (`skipped`
 
 A harness that is not installed is simply skipped. The index lives in the user cache directory
 (`agent-stats/index.db`). Only changed log files are re-read, and indexed rows survive when a harness deletes its
-old logs.
+old logs. When two logs name the same session (a copy of a conversation, or one saved in two formats), the session is
+that of the log that goes on last, the later path when both stop together, whichever was indexed first.
 
 What each of the three newer readers counts, and what it does not:
 

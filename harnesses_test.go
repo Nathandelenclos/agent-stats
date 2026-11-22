@@ -5,8 +5,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	indexing "github.com/Nathandelenclos/agent-stats/internal/indexing/application"
@@ -221,5 +223,50 @@ func TestAConversationCutShortDoesNotReplaceTheSessionIndexedWhole(t *testing.T)
 	// Then the conversation is reported as unreadable and the session keeps what was indexed of it
 	if rep.Indexed != 0 || len(rep.Errors) != 1 || whole != 2 || requests() != whole {
 		t.Errorf("report %+v, requests %d then %d", rep, whole, requests())
+	}
+}
+
+func TestTwoGeminiFilesOfOneSessionGiveTheSameSessionWhateverTheOrderTheyAppearIn(t *testing.T) {
+	// Given a Gemini CLI conversation, and a second file of the same session that stops earlier and names it otherwise
+	earlier := `{"sessionId":"11111111-aaaa-bbbb-cccc-000000000001","projectHash":"h","startTime":"2026-02-01T10:00:00.000Z","messages":[
+{"id":"m1","timestamp":"2026-02-01T10:00:01.000Z","type":"user","content":"An earlier way to say it"}]}`
+	sessionOf := func(dbPath string) string {
+		db, err := sql.Open("sqlite", dbPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		var title string
+		var end int64
+		if err := db.QueryRow(`SELECT title, ended_at FROM sessions WHERE id = 'gemini:11111111-aaaa-bbbb-cccc-000000000001'`).Scan(&title, &end); err != nil {
+			t.Fatal(err)
+		}
+		var prompts string
+		if err := db.QueryRow(`SELECT group_concat(text, '|') FROM prompts WHERE session_id = 'gemini:11111111-aaaa-bbbb-cccc-000000000001'`).Scan(&prompts); err != nil {
+			t.Fatal(err)
+		}
+		return title + "@" + fmt.Sprint(end) + " " + prompts
+	}
+	chats := ".gemini/tmp/demo-app/chats/"
+	extra := chats + "session-2026-01-31T09-00-11111111.json"
+
+	// When both files are indexed together, and when the second appears after the first was indexed
+	fresh := moreHome(t)
+	if err := os.WriteFile(filepath.Join(fresh, extra), []byte(earlier), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	freshDB := filepath.Join(t.TempDir(), "index.db")
+	moreIndex(t, fresh, freshDB)
+	updated := moreHome(t)
+	updatedDB := filepath.Join(t.TempDir(), "index.db")
+	moreIndex(t, updated, updatedDB)
+	if err := os.WriteFile(filepath.Join(updated, extra), []byte(earlier), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	moreIndex(t, updated, updatedDB)
+
+	// Then the session and its prompts are those of the file that goes on, in both indexes
+	if a, b := sessionOf(freshDB), sessionOf(updatedDB); a != b || !strings.HasPrefix(a, "Add a cache to the loader@") {
+		t.Errorf("fresh index: %s, updated index: %s", a, b)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -326,19 +327,40 @@ func prepare(tx *sql.Tx) (st statements, err error) {
 	for i, table := range deletedTables {
 		st.deletes[i] = prep(`DELETE FROM ` + table + ` WHERE file = ?`)
 	}
-	// Columns are named, so that a column another build adds to a table does not break these statements.
-	st.session = prep(`INSERT OR REPLACE INTO sessions (id, file, harness, parent_id, agent_type, title, folder, user, started_at, ended_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?)`)
-	st.request = prep(`INSERT OR REPLACE INTO requests (file, key, session_id, ts, model, provider, input, output, cache_read, cache_write, reasoning,
-		cost, priced, duration_ms, ttft_ms, stop_reason, error) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-	st.tool = prep(`INSERT OR REPLACE INTO tool_calls (file, key, session_id, ts, name, server, args_chars, result_chars, is_error, duration_ms)
-		VALUES (?,?,?,?,?,?,?,?,?,?)`)
-	st.skill = prep(`INSERT OR REPLACE INTO tool_call_skills (file, session_id, key, skill) VALUES (?,?,?,?)`)
-	st.prompt = prep(`INSERT OR REPLACE INTO prompts (file, key, session_id, ts, text, chars, words, yelling, profanity, anguish, negation, repetition, blame)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+	// Two logs may name one session (a conversation copied, or saved in another format). The log that goes on last, and
+	// the later in path order when they stop together, gives the session: whichever is saved first, the index ends the same.
+	st.session = prep(`INSERT INTO sessions (id, file, harness, parent_id, agent_type, title, folder, user, started_at, ended_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT (id) DO UPDATE SET file = excluded.file, harness = excluded.harness, parent_id = excluded.parent_id,
+			agent_type = excluded.agent_type, title = excluded.title, folder = excluded.folder, user = excluded.user,
+			started_at = excluded.started_at, ended_at = excluded.ended_at
+		WHERE (COALESCE(excluded.ended_at, 0), excluded.file) >= (COALESCE(sessions.ended_at, 0), sessions.file)`)
+	st.request = prep(ownedRows("requests", "file", "key", "session_id", "ts", "model", "provider", "input", "output", "cache_read", "cache_write", "reasoning",
+		"cost", "priced", "duration_ms", "ttft_ms", "stop_reason", "error"))
+	st.tool = prep(ownedRows("tool_calls", "file", "key", "session_id", "ts", "name", "server", "args_chars", "result_chars", "is_error", "duration_ms"))
+	st.skill = prep(ownedRows("tool_call_skills", "file", "session_id", "key", "skill"))
+	st.prompt = prep(ownedRows("prompts", "file", "key", "session_id", "ts", "text", "chars", "words", "yelling", "profanity", "anguish", "negation",
+		"repetition", "blame"))
 	st.file = prep(`INSERT OR REPLACE INTO files (path, harness, size, mtime) VALUES (?,?,0,0)`) // the revision is in file_revisions
 	st.revision = prep(`INSERT OR REPLACE INTO file_revisions (path, revision) VALUES (?,?)`)
 	return st, err
+}
+
+// ownedRows is the statement that writes a row of a log, keyed by (session_id, key). A row that another log wrote
+// is replaced only by the log that gives the session (see the session statement), so that logs naming one session
+// leave the same rows whichever is saved first. Columns are named, so that a column another build adds to a table does
+// not break the statement.
+func ownedRows(table string, cols ...string) string {
+	set := make([]string, 0, len(cols))
+	for _, c := range cols {
+		if c != "session_id" && c != "key" {
+			set = append(set, c+" = excluded."+c)
+		}
+	}
+	return fmt.Sprintf(`INSERT INTO %s (%s) VALUES (?%s)
+		ON CONFLICT (session_id, key) DO UPDATE SET %s
+		WHERE excluded.file = (SELECT file FROM sessions WHERE id = excluded.session_id)`,
+		table, strings.Join(cols, ", "), strings.Repeat(",?", len(cols)-1), strings.Join(set, ", "))
 }
 
 func (st statements) close() {
