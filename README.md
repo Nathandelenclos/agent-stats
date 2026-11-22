@@ -30,6 +30,25 @@ logged a positive cost itself (oh-my-pi, pi). To refresh it, set `commit` in `in
 to a reviewed LiteLLM commit, then run `go generate ./internal/pricing/infra/pricetable`.
 Override or add models with `--prices file.json` (`{"model": [input, output, cacheRead, cacheWrite]}`, USD per token).
 
+## Speed
+
+A first run over about 2 000 logs (3.3 GB) takes 3 s on a 10-core machine, a run with nothing new 0.5 s.
+Logs are read and parsed by several workers (three quarters of `GOMAXPROCS`) and saved by one writer, 64 logs per
+transaction, in the order they were listed. A scanner reads each log line in a fraction of the time `encoding/json`
+needs; it hands back to `encoding/json` any line that is not in the shape it knows, so the results are the same.
+
+To measure on your own logs without touching your index:
+
+```sh
+AGENT_STATS_BENCH_REAL=1 go test -run '^$' -bench RealLogs -benchtime 1x -cpuprofile cpu.out .
+```
+
+To check that the scanner and `encoding/json` read your logs alike (about 30 s):
+
+```sh
+AGENT_STATS_CORPUS=$HOME go test ./internal/indexing/infra/logfiles -run RealLogs -v
+```
+
 ## Layout
 
 Vertical slices, each in clean-architecture layers (`domain` ← `application` ← `infra`):
