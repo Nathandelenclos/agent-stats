@@ -59,6 +59,11 @@ vX.Y.Z`). It rebuilds, attests and publishes that tag from its own commit, and r
 `main`. The tag must carry the workflow file with this entry, which is the case for every tag the pipeline creates.
 A tag is never moved or deleted.
 
+**1.0.0** is a deliberate decision, and goes through the same pipeline: do not create the tag or the release by hand,
+a hand-made release has no binaries and no attestation. In the pull request that declares the CLI and `--json`
+contracts stable, set `breaking_always_bump_major = true` in `cliff.toml` and title the pull request `feat!: ...`
+(or give it a `BREAKING CHANGE:` footer). The next release is then `v1.0.0`.
+
 ### Repository settings (maintainers)
 
 The workflows assume these settings, which live on GitHub and not in the repository:

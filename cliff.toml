@@ -48,9 +48,11 @@ sort_commits = "oldest"
 #    git-cliff's 0.x default, which would only bump the patch.
 #  - breaking_always_bump_major = false: while in 0.x a breaking change bumps the minor version, so an
 #    accidental `feat!:` cannot jump to 1.0.0. From 1.0.0 on, a breaking change bumps the major version.
-# 1.0.0 is a deliberate decision: push the tag v1.0.0 once the CLI and --json contracts are declared
-# stable, and publish its release by hand (gh release create v1.0.0 --generate-notes). Until it is published, the
-# release workflow stops on that tag; once it is, the workflow continues from it.
+# 1.0.0 is a deliberate decision, taken once the CLI and --json contracts are declared stable. It goes through the
+# normal pipeline, never by hand (a hand-made release has no binaries and no attestation): in the pull request that
+# declares them stable, set breaking_always_bump_major = true below and title it `feat!: ...` (or add a
+# `BREAKING CHANGE:` footer). The release job then bumps 0.x to 1.0.0, builds, attests and publishes it like any other
+# release. The setting can stay true afterwards: from 1.0.0 a breaking change bumps the major version either way.
 features_always_bump_minor = true
 breaking_always_bump_major = false
 initial_tag = "v0.1.0"
