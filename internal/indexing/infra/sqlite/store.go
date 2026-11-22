@@ -136,6 +136,7 @@ func sqlSteps(steps ...string) migration {
 var migrations = []migration{
 	sqlSteps(sessionViews, forgetCodexLogs),
 	sqlSteps(recordSkills),
+	sqlSteps(publishFolders),
 }
 
 // recordSkills makes the index record the skill each Skill call loads. It is a table of its own, not a column of
@@ -163,6 +164,20 @@ CREATE VIEW usage_tool_calls AS
 		t.args_chars, t.result_chars, t.is_error, t.duration_ms, s.harness
 	FROM tool_calls t JOIN sessions s ON s.id = t.session_id
 		LEFT JOIN tool_call_skills k ON k.session_id = t.session_id AND k.key = t.key;
+`
+
+// publishFolders lets the other contexts narrow their questions to a project: usage_tool_calls gains the working folder of
+// its session, as usage_requests already has, and usage_folders lists each folder a session worked in, so that a reader
+// need not scan every request to learn them. The view only gains a column: a build that reads it by name is unaffected.
+const publishFolders = `
+DROP VIEW usage_tool_calls;
+CREATE VIEW usage_tool_calls AS
+	SELECT t.ts, t.name, t.server, CASE WHEN t.name = 'Skill' AND t.server = '' THEN k.skill ELSE '' END AS skill,
+		t.args_chars, t.result_chars, t.is_error, t.duration_ms, s.harness, s.folder
+	FROM tool_calls t JOIN sessions s ON s.id = t.session_id
+		LEFT JOIN tool_call_skills k ON k.session_id = t.session_id AND k.key = t.key;
+CREATE VIEW usage_folders AS
+	SELECT DISTINCT folder FROM sessions WHERE folder IS NOT NULL AND folder <> '';
 `
 
 // migrate runs, in one transaction, the migrations the index has not run, then records how many it has run: another

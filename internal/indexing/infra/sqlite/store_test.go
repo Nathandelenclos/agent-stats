@@ -525,3 +525,44 @@ func TestNewIndexUsesLargePagesAndAnOlderOneKeepsItsOwn(t *testing.T) {
 		t.Errorf("older index page size = %d, want 4096", got)
 	}
 }
+
+func TestTheFolderASessionWorkedInIsPublishedWithItsToolCallsAndInTheListOfFolders(t *testing.T) {
+	// Given two sessions that worked in two folders, one of them with no folder at all
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	in := func(native, folder string) application.IndexedTranscript {
+		tr := transcript(t, native, at)
+		tr.Session.Folder = folder
+		return tr
+	}
+	for native, folder := range map[string]string{"a": "/work/app", "b": "/work/lib", "c": "", "d": "/work/app"} {
+		if err := save(s, application.LogFile{Path: "/logs/" + native, Harness: kernel.Claude}, in(native, folder)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// When the published views are read
+	folders := func(query string) (out []string) {
+		rows, err := s.db.Query(query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var f sql.NullString
+			if err := rows.Scan(&f); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, f.String)
+		}
+		return out
+	}
+
+	// Then each tool call names the folder of its session, and every folder is listed once, the empty one left out
+	if got := fmt.Sprint(folders(`SELECT folder FROM usage_tool_calls ORDER BY folder`)); got != "[ /work/app /work/app /work/lib]" {
+		t.Errorf("folders of the tool calls = %s", got)
+	}
+	if got := fmt.Sprint(folders(`SELECT folder FROM usage_folders ORDER BY folder`)); got != "[/work/app /work/lib]" {
+		t.Errorf("listed folders = %s", got)
+	}
+}

@@ -203,7 +203,7 @@ func TestASessionIsActiveUntilItsLastSubagentStops(t *testing.T) {
 }
 
 // publishedViews is the index's read model; only session_prompts may carry prompt text.
-const publishedViews = "session_overview,session_prompts,session_requests,session_tool_calls,usage_requests,usage_tool_calls"
+const publishedViews = "session_overview,session_prompts,session_requests,session_tool_calls,usage_folders,usage_requests,usage_tool_calls"
 
 // TestReadModelHidesPromptTexts checks that the published views expose no prompt text, except the one made for it.
 func TestReadModelHidesPromptTexts(t *testing.T) {
