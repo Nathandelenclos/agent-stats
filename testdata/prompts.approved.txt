@@ -1,0 +1,27 @@
+All projects
+7 flagged prompts in 4 sessions
+
+RECURRING
+  non n'utilise pas de point virgule dans ce projet !
+    Repeated 2 times in 2 sessions: consider writing this down.
+
+     FOLDER  PROMPTS  SESSIONS  SIGNALS
+  /work/api        3         2        9
+  /work/web        3         1        6
+          —        1         1        1
+
+PROMPTS
+2026-01-05 10:02  claude  yelling 4, anguish 2, blame 1  migrate the billing module · /work/api
+    WHY IS THE BUILD STILL BROKEN?? you broke the import
+2026-01-05 14:03  claude  yelling 3, negation 1  fix the header · /work/web
+    STOP SHOUTING NOW
+2026-01-05 15:00  pi  negation 1  (untitled) · —
+    �[2J wrong file, open main.go please
+2026-01-05 14:02  claude  repeated  fix the header · /work/web
+    run the linter before you answer
+2026-01-05 14:01  claude  repeated  fix the header · /work/web
+    run the linter before you answer
+2026-01-05 12:01  codex  negation 1  rename the invoice fields · /work/api
+    non n'utilise pas de point virgule dans ce projet !
+2026-01-05 10:01  claude  negation 1  migrate the billing module · /work/api
+    Non, n'utilise pas de point-virgule dans ce projet

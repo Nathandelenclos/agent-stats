@@ -58,3 +58,17 @@ func Printable(s string) string {
 		return r
 	}, s)
 }
+
+// Excerpt reduces untrusted text to one printable line of at most n runes: whitespace runs collapse to a space,
+// control characters are replaced, and a cut is marked by an ellipsis.
+func Excerpt(s string, n int) string {
+	return Head(Printable(strings.Join(strings.Fields(s), " ")), n)
+}
+
+// Plural writes n with the noun in its form: "1 session", "3 sessions".
+func Plural(n int, one, many string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, one)
+	}
+	return fmt.Sprintf("%d %s", n, many)
+}

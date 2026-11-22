@@ -94,11 +94,15 @@ func run() error {
 	all := flag.Bool("all", false, "count every project, not only the one of the current folder (it wins over --project)")
 	projectDir := flag.String("project", "", "only count the sessions that worked in this folder or below it (default: the project of the current folder, if sessions worked in it)")
 	flag.Parse()
+	sub, err := subcommand(flag.CommandLine)
+	if err != nil {
+		return err
+	}
 
 	if *dbPath == "" {
 		return fmt.Errorf("no user cache directory: pass --db")
 	}
-	from, err := parseSince(*since, time.Now())
+	from, err := sinceOf(sub, *since, time.Now())
 	if err != nil {
 		return err
 	}
@@ -124,7 +128,7 @@ func run() error {
 			return err
 		}
 	}
-	ui := interactive(*asJSON, os.Stdout)
+	ui := sub == "" && interactive(*asJSON, os.Stdout)
 	if indexLogs != nil && !ui { // the interface indexes in the background instead
 		if err := indexBeforeReport(indexLogs); err != nil {
 			return err
@@ -141,10 +145,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if sub == promptsCommand {
+		return runPrompts(os.Stdout, usage.Prompts(), reporting.Query{Since: from, Harness: only}, cov, *asJSON)
+	}
 	if ui {
 		sessions := usage.Sessions()
 		o := tui.Options{Reports: reporting.BuildReport{Queries: usage}, Harness: only, SinceLabel: *since, Since: from,
 			Sessions: reporting.ListSessions{Queries: sessions}, Session: reporting.ShowSession{Queries: sessions},
+			Prompts: reporting.ReviewPrompts{Queries: usage.Prompts()},
 			Project: cov.project, Restricted: cov.restricted, Detect: redetection(*all, *projectDir, detect)}
 		if indexLogs != nil {
 			o.Sync = tuiSync(indexLogs)

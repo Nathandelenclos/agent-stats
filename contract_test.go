@@ -13,6 +13,7 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/infra/sqlite"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	"github.com/Nathandelenclos/agent-stats/internal/platform/projectfolders"
+	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 	report "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 	usagedb "github.com/Nathandelenclos/agent-stats/internal/reporting/infra/sqlite"
 )
@@ -260,13 +261,16 @@ func projectIndexed(t *testing.T) (*usagedb.SQLiteUsage, kernel.Project) {
 	tokens, _ := kernel.NewTokens(kernel.TokenCounts{Input: 10, Output: 1})
 	for native, folder := range map[string]string{"in-app": filepath.Join(app, "web"), "in-sibling": sibling} {
 		id, _ := domain.NewSessionID(kernel.Claude, native)
+		prompts := []domain.Prompt{{Key: "p", At: at, Text: "NO NO KEEP THIS FILE"}}
 		err := w.Save([]indexing.IndexedLog{{File: indexing.LogFile{Path: "/logs/" + native, Harness: kernel.Claude}, Transcript: indexing.IndexedTranscript{
 			Transcript: domain.Transcript{
 				Session:  domain.Session{ID: id, Harness: kernel.Claude, AgentType: domain.MainAgent, Folder: folder, Start: at, End: at},
 				Requests: []domain.Request{{Key: "m", At: at, Model: "m", Tokens: tokens}},
 				Tools:    []domain.ToolCall{{Key: "t", At: at, Name: native}},
+				Prompts:  prompts,
 			},
-			Costs: []indexing.PricedCost{{Cost: cost, Priced: true}},
+			Costs:   []indexing.PricedCost{{Cost: cost, Priced: true}},
+			Signals: domain.AnalyzeSession(prompts),
 		}}})[0]
 		if err != nil {
 			t.Fatal(err)
@@ -325,5 +329,61 @@ func TestSessionsAreFoundInAProjectTheyWorkedBelow(t *testing.T) {
 
 	if err != nil || !found {
 		t.Errorf("found = %v, %v", found, err)
+	}
+}
+
+// TestFlaggedPromptsReadModelContract writes flagged prompts through the indexing adapter, in a session and in the subagent
+// it started, and reads them through the reporting adapter: the review lists the user's own prompts, with their session.
+func TestFlaggedPromptsReadModelContract(t *testing.T) {
+	const hostile = `o'brian"; DROP TABLE prompts; --`
+	path := filepath.Join(t.TempDir(), "index.db")
+	w, err := sqlite.Open(sqlite.Options{Path: path, User: "me@host"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.UnixMilli(1767261600000)
+	main, _ := domain.NewSessionID(kernel.Claude, "s1")
+	kid, _ := main.Subagent("kid")
+	save := func(file string, s domain.Session, prompts []domain.Prompt) error {
+		return w.Save([]indexing.IndexedLog{{File: indexing.LogFile{Path: file, Harness: kernel.Claude}, Transcript: indexing.IndexedTranscript{
+			Transcript: domain.Transcript{Session: s, Prompts: prompts}, Signals: domain.AnalyzeSession(prompts)}}})[0]
+	}
+	err = save("/logs/s1.jsonl", domain.Session{ID: main, Harness: kernel.Claude, AgentType: domain.MainAgent, Title: hostile, Folder: hostile, Start: at, End: at},
+		[]domain.Prompt{
+			{Key: "p1", At: at, Text: "add a test"},
+			{Key: "p2", At: at.Add(time.Minute), Text: hostile + " NO, STOP SHOUTING NOW"},
+		})
+	if err == nil {
+		err = save("/logs/s1/kid.jsonl", domain.Session{ID: kid, Harness: kernel.Claude, ParentID: main, AgentType: domain.Subagent, Title: "kid", Start: at, End: at},
+			[]domain.Prompt{{Key: "brief", At: at, Text: "NO NO NO brief"}})
+	}
+	w.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	usage, err := usagedb.OpenReadOnly(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer usage.Close()
+	got, err := reporting.ReviewPrompts{Queries: usage.Prompts()}.Run(reporting.Query{Since: at, Harness: kernel.Claude})
+	if err != nil || len(got.Prompts) != 1 {
+		t.Fatalf("review = %+v %v", got, err)
+	}
+	p := got.Prompts[0]
+	if p.Session.String() != main.String() || p.Title != hostile || p.Folder != hostile || !strings.HasPrefix(p.Text, hostile) || p.Signals.Negation == 0 || p.Signals.Yelling == 0 {
+		t.Errorf("prompt = %+v", p)
+	}
+	if len(got.Folders) != 1 || got.Folders[0].Folder != hostile || got.Folders[0].Prompts != 1 {
+		t.Errorf("folders = %+v", got.Folders)
+	}
+}
+
+func TestThePromptsReviewOnlyIncludesSessionsInTheProject(t *testing.T) {
+	usage, app := projectIndexed(t)
+	got, err := (reporting.ReviewPrompts{Queries: usage.Prompts()}).Run(reporting.Query{Project: app})
+	if err != nil || len(got.Prompts) != 1 || got.Prompts[0].Session.String() != "claude:in-app" {
+		t.Fatalf("project prompts = %+v, %v", got.Prompts, err)
 	}
 }

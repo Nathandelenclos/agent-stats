@@ -1,0 +1,146 @@
+{
+  "prompts": [
+    {
+      "ts": 1767607320000,
+      "harness": "claude",
+      "session": "claude:api",
+      "title": "migrate the billing module",
+      "folder": "/work/api",
+      "signals": {
+        "yelling": 4,
+        "profanity": 0,
+        "anguish": 2,
+        "negation": 0,
+        "blame": 1,
+        "repeated": false
+      },
+      "excerpt": "WHY IS THE BUILD STILL BROKEN?? you broke the import"
+    },
+    {
+      "ts": 1767621780000,
+      "harness": "claude",
+      "session": "claude:web",
+      "title": "fix the header",
+      "folder": "/work/web",
+      "signals": {
+        "yelling": 3,
+        "profanity": 0,
+        "anguish": 0,
+        "negation": 1,
+        "blame": 0,
+        "repeated": false
+      },
+      "excerpt": "STOP SHOUTING NOW"
+    },
+    {
+      "ts": 1767625200000,
+      "harness": "pi",
+      "session": "pi:odd",
+      "title": "",
+      "folder": "",
+      "signals": {
+        "yelling": 0,
+        "profanity": 0,
+        "anguish": 0,
+        "negation": 1,
+        "blame": 0,
+        "repeated": false
+      },
+      "excerpt": "�[2J wrong file, open main.go please"
+    },
+    {
+      "ts": 1767621720000,
+      "harness": "claude",
+      "session": "claude:web",
+      "title": "fix the header",
+      "folder": "/work/web",
+      "signals": {
+        "yelling": 0,
+        "profanity": 0,
+        "anguish": 0,
+        "negation": 0,
+        "blame": 0,
+        "repeated": true
+      },
+      "excerpt": "run the linter before you answer"
+    },
+    {
+      "ts": 1767621660000,
+      "harness": "claude",
+      "session": "claude:web",
+      "title": "fix the header",
+      "folder": "/work/web",
+      "signals": {
+        "yelling": 0,
+        "profanity": 0,
+        "anguish": 0,
+        "negation": 0,
+        "blame": 0,
+        "repeated": true
+      },
+      "excerpt": "run the linter before you answer"
+    },
+    {
+      "ts": 1767614460000,
+      "harness": "codex",
+      "session": "codex:api",
+      "title": "rename the invoice fields",
+      "folder": "/work/api",
+      "signals": {
+        "yelling": 0,
+        "profanity": 0,
+        "anguish": 0,
+        "negation": 1,
+        "blame": 0,
+        "repeated": false
+      },
+      "excerpt": "non n'utilise pas de point virgule dans ce projet !"
+    },
+    {
+      "ts": 1767607260000,
+      "harness": "claude",
+      "session": "claude:api",
+      "title": "migrate the billing module",
+      "folder": "/work/api",
+      "signals": {
+        "yelling": 0,
+        "profanity": 0,
+        "anguish": 0,
+        "negation": 1,
+        "blame": 0,
+        "repeated": false
+      },
+      "excerpt": "Non, n'utilise pas de point-virgule dans ce projet"
+    }
+  ],
+  "sessions": 4,
+  "recurring": [
+    {
+      "excerpt": "non n'utilise pas de point virgule dans ce projet !",
+      "count": 2,
+      "sessions": 2,
+      "firstTs": 1767607260000,
+      "lastTs": 1767614460000
+    }
+  ],
+  "byFolder": [
+    {
+      "folder": "/work/api",
+      "prompts": 3,
+      "sessions": 2,
+      "signals": 9
+    },
+    {
+      "folder": "/work/web",
+      "prompts": 3,
+      "sessions": 1,
+      "signals": 6
+    },
+    {
+      "folder": "",
+      "prompts": 1,
+      "sessions": 1,
+      "signals": 1
+    }
+  ]
+}
