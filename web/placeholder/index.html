@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>agent-stats: the web interface is not built</title>
+  </head>
+  <body>
+    <main>
+      <h1>The web interface is not built into this binary</h1>
+      <p>This agent-stats binary was compiled without its front, so only the JSON API answers.</p>
+      <p>To get the page, build the front, then compile with the <code>web</code> tag (Node 22.12 or later):</p>
+      <pre>go generate ./web
+go build -tags web .</pre>
+      <p>Released binaries include the front. The API is at <a href="/api/report"><code>/api/report</code></a>.</p>
+    </main>
+  </body>
+</html>

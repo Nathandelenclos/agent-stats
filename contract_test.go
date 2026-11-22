@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"strings"
@@ -110,7 +111,7 @@ func TestSessionReadModelContract(t *testing.T) {
 	}
 	defer usage.Close()
 	r := usage.Sessions()
-	list, err := r.Sessions(report.Filter{Harness: kernel.Claude})
+	list, err := r.Sessions(context.Background(), report.Filter{Harness: kernel.Claude})
 	if err != nil || len(list) != 1 {
 		t.Fatalf("sessions = %+v %v", list, err)
 	}
@@ -121,7 +122,7 @@ func TestSessionReadModelContract(t *testing.T) {
 	if d, ok := s.Duration(); !ok || d != time.Hour {
 		t.Errorf("duration = %v %v", d, ok)
 	}
-	d, err := r.Session(s.ID)
+	d, err := r.Session(context.Background(), s.ID)
 	if err != nil || len(d.Tools) != 1 || d.Tools[0].Name != hostile || len(d.Subagents) != 1 || d.Subagents[0].Title != "kid" || d.Subagents[0].Cost != 2 {
 		t.Fatalf("detail = %+v %v", d, err)
 	}
@@ -174,7 +175,7 @@ func TestNestedSubagentsCountForTheTopSession(t *testing.T) {
 	}
 	defer usage.Close()
 
-	list, err := usage.Sessions().Sessions(report.Filter{})
+	list, err := usage.Sessions().Sessions(context.Background(), report.Filter{})
 	if err != nil || len(list) != 1 {
 		t.Fatalf("sessions = %+v %v", list, err)
 	}
@@ -193,7 +194,7 @@ func TestASessionIsActiveUntilItsLastSubagentStops(t *testing.T) {
 	}
 	defer usage.Close()
 
-	list, err := usage.Sessions().Sessions(report.Filter{Since: at.Add(15 * time.Minute)})
+	list, err := usage.Sessions().Sessions(context.Background(), report.Filter{Since: at.Add(15 * time.Minute)})
 	if err != nil || len(list) != 1 {
 		t.Fatalf("sessions = %+v %v", list, err)
 	}
@@ -310,7 +311,7 @@ func TestTheToolCallsOfAProjectAreThoseOfTheSessionsThatWorkedBelowIt(t *testing
 func TestTheSessionsOfAProjectAreThoseThatWorkedBelowIt(t *testing.T) {
 	usage, app := projectIndexed(t)
 
-	sessions, err := usage.Sessions().Sessions(report.Filter{Project: app})
+	sessions, err := usage.Sessions().Sessions(context.Background(), report.Filter{Project: app})
 
 	if err != nil || len(sessions) != 1 || sessions[0].ID.String() != "claude:in-app" {
 		t.Errorf("sessions = %+v, %v", sessions, err)

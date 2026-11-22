@@ -2,6 +2,7 @@
 package application
 
 import (
+	"context"
 	"time"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
@@ -34,8 +35,8 @@ type UsageReader interface {
 // UsageQueries gives access to the indexed sessions, which indexing may be changing meanwhile.
 type UsageQueries interface {
 	// Snapshot runs fn on one consistent state of the index: whatever indexing commits meanwhile
-	// does not show in the answers the reader gives fn.
-	Snapshot(fn func(UsageReader) error) error
+	// does not show in the answers the reader gives fn. The reader's questions stop with ctx.
+	Snapshot(ctx context.Context, fn func(UsageReader) error) error
 }
 
 // Report is the usage summary: totals, usage grouped along every dimension, and tool calls.
@@ -50,10 +51,10 @@ type BuildReport struct {
 	Queries UsageQueries
 }
 
-// Run builds the report for the activity q asks for.
-func (uc BuildReport) Run(q Query) (Report, error) {
+// Run builds the report for the activity q asks for; it gives up when ctx ends.
+func (uc BuildReport) Run(ctx context.Context, q Query) (Report, error) {
 	var r Report
-	err := uc.Queries.Snapshot(func(u UsageReader) (err error) {
+	err := uc.Queries.Snapshot(ctx, func(u UsageReader) (err error) {
 		r, err = build(u, domain.Filter{Since: q.Since, Harness: q.Harness, Project: q.Project})
 		return err
 	})

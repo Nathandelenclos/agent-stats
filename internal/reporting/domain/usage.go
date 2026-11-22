@@ -24,6 +24,8 @@ const (
 	ByModel
 	ByFolder
 	ByAgentType
+	// ByDay groups by local calendar day, as 2006-01-02, oldest first. A request with no known time has no day and is left out.
+	ByDay
 )
 
 // USD is a sum of request costs in US dollars.

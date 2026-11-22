@@ -3,6 +3,7 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/url"
@@ -33,6 +34,24 @@ type querier interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
+// scoped runs the queries of a database or a transaction under a context: each stops when ctx does, which a plain
+// Query on a transaction does not.
+type scoped struct {
+	ctx context.Context
+	db  interface {
+		QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+		QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	}
+}
+
+func (s scoped) Query(query string, args ...any) (*sql.Rows, error) {
+	return s.db.QueryContext(s.ctx, query, args...)
+}
+
+func (s scoped) QueryRow(query string, args ...any) *sql.Row {
+	return s.db.QueryRowContext(s.ctx, query, args...)
+}
+
 // reader answers the usage questions through q.
 type reader struct{ q querier }
 
@@ -53,19 +72,19 @@ func OpenReadOnly(path string) (*SQLiteUsage, error) {
 		db.Close()
 		return nil, err
 	}
-	return &SQLiteUsage{db: db, reader: reader{db}}, nil
+	return &SQLiteUsage{db: db, reader: reader{scoped{context.Background(), db}}}, nil
 }
 
 // Snapshot runs fn inside one read transaction. The index is in WAL mode, so the transaction keeps the state
 // of its first read until it ends and the indexing writer is never blocked; the reader fn gets cannot see
-// anything indexing commits meanwhile.
-func (s *SQLiteUsage) Snapshot(fn func(reporting.UsageReader) error) error {
-	tx, err := s.db.Begin()
+// anything indexing commits meanwhile. The transaction and every query of the reader stop when ctx does.
+func (s *SQLiteUsage) Snapshot(ctx context.Context, fn func(reporting.UsageReader) error) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() // nothing was written: ending the transaction is all it takes
-	return fn(reader{tx})
+	return fn(reader{scoped{ctx, tx}})
 }
 
 // Close closes the database.
@@ -108,6 +127,7 @@ var groupColumns = map[report.Dimension]string{
 	report.ByModel:     "model",
 	report.ByFolder:    "COALESCE(folder, '')",
 	report.ByAgentType: "agent_type",
+	report.ByDay:       "strftime('%Y-%m-%d', r.ts / 1000, 'unixepoch', 'localtime')",
 }
 
 // COALESCE keeps an empty selection scannable as zeros.
@@ -138,7 +158,7 @@ func fromMillis(ms int64) time.Time {
 	return time.UnixMilli(ms)
 }
 
-// UsageBy groups requests along d, most expensive first.
+// UsageBy groups requests along d, most expensive first (days: oldest first).
 func (r reader) UsageBy(f report.Filter, d report.Dimension) ([]report.UsageGroup, error) {
 	col, ok := groupColumns[d]
 	if !ok {
@@ -148,9 +168,18 @@ func (r reader) UsageBy(f report.Filter, d report.Dimension) ([]report.UsageGrou
 	if err != nil {
 		return nil, err
 	}
+	order := "SUM(r.cost) DESC, COUNT(*) DESC"
+	if d == report.ByDay {
+		order = "1"
+		if cond == "" {
+			cond = " WHERE r.ts > 0" // a request with an unknown time (0) has no day
+		} else {
+			cond += " AND r.ts > 0"
+		}
+	}
 	rows, err := r.q.Query(`SELECT `+col+`, `+usageCols+`
 		FROM usage_requests r`+cond+`
-		GROUP BY 1 ORDER BY SUM(r.cost) DESC, COUNT(*) DESC`, args...)
+		GROUP BY 1 ORDER BY `+order, args...)
 	if err != nil {
 		return nil, err
 	}

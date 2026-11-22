@@ -42,7 +42,8 @@ git merge-base --is-ancestor "$(git rev-parse '<tag>^{commit}')" origin/main && 
 To build from a checkout:
 
 ```sh
-go build .
+go build .                          # without the web page: `serve` answers with a notice and the JSON API
+go generate ./web && go build -tags web .   # with the web page (needs Node 22.12 or later)
 ```
 
 ## Usage
@@ -55,6 +56,7 @@ agent-stats --harness claude --json  # machine-readable report
 agent-stats --no-sync                # report from the existing index, skip re-reading the logs
 agent-stats --all                    # every project, even from inside one
 agent-stats --project ~/work/app     # one project, from anywhere
+agent-stats serve                    # the same report in a browser, at http://127.0.0.1:7373 (see Web interface)
 ```
 
 ### Per-project view
@@ -134,7 +136,84 @@ absent or `null` list as empty.
 
 - **Plain-text report and JSON**: available today.
 - **Interactive terminal UI**: in development, not part of the current release.
-- **Web UI**: planned.
+- **Web UI**: `agent-stats serve`, see [Web interface](#web-interface).
+
+## Web interface
+
+```sh
+agent-stats serve                     # http://127.0.0.1:7373, indexing the logs in the background
+agent-stats serve --since 7d --harness claude
+agent-stats serve --no-sync --addr 127.0.0.1:8080
+```
+
+`serve` opens the usage report in a browser, from this machine: totals, period and harness filters, cost per day and by
+harness and model, and sortable tables per harness, model, folder, agent type and tool. The page follows the system
+light or dark theme (or a choice made on the page), works on a narrow screen and with the keyboard, and keeps the filters
+in its address. Each chart has its values behind it (a table, or the table of the same name below).
+Like the terminal view, it indexes the logs in the background and shows the progress; the figures refresh when it ends.
+Press Ctrl-C to stop it.
+
+| Flag | Meaning |
+|------|---------|
+| `--addr` | Address to listen on (default `127.0.0.1:7373`). Only loopback addresses are accepted, see below. |
+| `--allow-remote` | Accept a non-loopback `--addr` and any `Host` header. Read the security notes first. |
+| `--since`, `--harness` | The period and harness the page opens on, as for the report. |
+| `--no-sync` | Skip re-reading the logs. |
+| `--db`, `--prices` | As for the report. |
+
+### API
+
+The page reads a small JSON API, which is also usable with `curl`. Every route is a `GET`; errors are
+[RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem documents (`application/problem+json`) with a stable `type`.
+`since` and `harness` take what the command line takes (`7d`, `24h`, `2006-01-02`; `claude`, `codex`, `omp`, `pi`) and
+may be omitted. Unknown or repeated parameters are refused with `400`.
+
+| Route | Answer |
+|-------|--------|
+| `/api/report?since=&harness=` | The `--json` report (same fields), plus `daily`: one entry per local day with activity, oldest first, `key` being `2006-01-02`. Lists are `[]` when empty, never `null`. |
+| `/api/sessions?since=&harness=&limit=` | The most recent sessions (`limit` 1 to 1000, default 100) with their usage, models and subagent count, without the prompts. `count` and `total` cover every matching session. `title` is the session title, which for an untitled session is the start of its first prompt. |
+| `/api/meta` | The harness names, and the period and harness the page opens on. |
+| `/api/sync` | The background indexing: `state` (`running`, `done`, `failed`, or `disabled` with `--no-sync`), files `indexed`, and what was skipped. |
+
+### Security
+
+The index holds the full text of your prompts (see [Privacy](#privacy)), and a local web server is reachable by every
+page open in your browser, so `serve` is restrictive by default:
+
+- It listens on `127.0.0.1` only. `--addr` refuses anything that is not a loopback address (`127.0.0.1`, `::1`,
+  `localhost`), including `0.0.0.0` and an empty host, unless you pass `--allow-remote`. With `--allow-remote`, every
+  machine that can reach the port can read your prompts and nothing authenticates them: use it only on a network you
+  trust, or behind something that does the authentication. The server has no login, no TLS and no rate limit.
+- A request is answered only if its `Host` header is `localhost`, `127.0.0.1` or `[::1]` with the listening port. A web
+  page that makes your browser reach the server under another name (DNS rebinding) gets `403`. `--allow-remote` lifts
+  this check, since the server is then meant to be reached by other names.
+- Only `GET` and `HEAD` are answered; nothing the API does changes the index. Requests that a browser marks
+  `Sec-Fetch-Site` other than `same-origin` or `none` (so `cross-site` and `same-site`, which includes another local
+  application on another port) are refused on `/api`. Clients that send no such header, like curl, are answered.
+- No CORS header is ever sent, so other origins cannot read the API from a browser.
+- Every response carries `Content-Security-Policy` (own scripts and styles only, no inline script, no framing,
+  `base-uri` and `form-action` none), `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and
+  `X-Frame-Options: DENY`. API responses are `Cache-Control: no-store`.
+- Query strings are bounded on every API route (256 bytes, 32 characters for a period, `limit` at most 1000); a malformed
+  one, a parameter the route does not take (`/api/meta?typo=1`) or a repeated one is a `400`, never ignored. The server has read and
+  write timeouts. A failure answers `500` without its cause, which goes to the server's log on stderr.
+- The page never shows the prompts. Session titles and folder paths do appear, so treat a screenshot like a report
+  (see [Privacy](#privacy)).
+
+### Building the web page
+
+The front (`web/`: React, Vite, Tailwind, Recharts, TanStack Table and Query) is not versioned in its built form:
+`web/dist` is ignored by Git and built on demand.
+
+```sh
+go generate ./web        # npm ci, then npm run build (type-checks with tsc, bundles with Vite)
+go build -tags web .     # embeds web/dist in the binary
+```
+
+Without the `web` tag, `go build` and `go install` still work: the binary embeds a one-page notice that says how to build
+the front, and the API answers. That is what `go install github.com/Nathandelenclos/agent-stats@latest` gives you; the
+binaries of a release include the page, and each archive carries `web/package-lock.json` so that its SBOM lists the npm packages bundled in the binary. Install scripts are off for npm (`web/.npmrc`) and the lockfile is committed.
+To work on the page, run `agent-stats serve` and, in `web/`, `npm run dev` (Vite proxies `/api` to `127.0.0.1:7373`).
 
 ## Catalog
 
@@ -244,7 +323,8 @@ AGENT_STATS_CORPUS=$HOME go test ./internal/indexing/infra/logfiles -run RealLog
 
 ## Privacy
 
-- Everything runs locally. The program makes **no network request**; the price table is embedded in the binary. (Only the
+- Everything runs locally. The program makes **no network request**; the price table is embedded in the binary.
+  `agent-stats serve` only listens, on a loopback address unless you pass `--allow-remote` (see [Security](#security)). (Only the
   maintainers' `go generate` step downloads it, at development time.)
 - Logs are opened read-only and are never modified.
 - The index (`index.db`) is more than counters: it stores the **full text of every prompt** you sent, so it can hold
@@ -268,7 +348,7 @@ The code is split in vertical slices, each in clean-architecture layers where de
 | Slice | Role |
 |-------|------|
 | `internal/indexing` | Reads session logs (`infra/logfiles`: Claude, Codex, pi/oh-my-pi parsers) and keeps them in the SQLite index (`infra/sqlite`). |
-| `internal/reporting` | Builds the usage report and describes sessions (`ListSessions`, `ShowSession`). Its `UsageQueries` and `SessionQueries` ports read only the views `indexing` publishes (`usage_*`, `session_*`; only `session_prompts` carries prompt text). Both are implemented by a read-only adapter over the index (`infra/sqlite`); `infra/tui` is the interactive view (Bubble Tea), an input adapter over these use cases. |
+| `internal/reporting` | Builds the usage report, with its per-day usage for charts (`BuildReport`, `BuildTimelineReport`), and describes sessions (`ListSessions`, `ShowSession`). Its `UsageQueries` and `SessionQueries` ports read only the views `indexing` publishes (`usage_*`, `session_*`; only `session_prompts` carries prompt text). Both are implemented by a read-only adapter over the index (`infra/sqlite`); `infra/tui` (Bubble Tea) and `infra/web` (local HTTP server and JSON API) are input adapters over these use cases. |
 | `internal/catalog` | What harnesses have installed (`infra/configfiles`) linked to the usage read from the index's published `usage_*` views (`infra/sqlite`); `agent-stats catalog`. |
 | `internal/pricing` | Rates and price list; `infra/pricetable` loads the embedded LiteLLM table and the `--prices` override. |
 | `internal/kernel` | What every slice shares: harnesses, token counts, request cost. No I/O. |
@@ -285,7 +365,7 @@ holds `''`. The skills are kept in `tool_call_skills`, a table of their own: a b
 with positional statements that a column more would refuse, so it keeps writing an index this build has migrated. Its
 `Skill` calls then stay `NULL` until their log is read again (delete the index to read all logs again).
 
-`main.go` wires the slices together and opens the interactive view on a terminal; `present.go` renders the plain report as text or JSON.
+`web/` holds the front of the web interface and embeds its build. `main.go` wires the slices together and opens the interactive view on a terminal; `serve.go` wires `agent-stats serve`; `present.go` renders the plain report as text or JSON.
 
 ## Development
 
@@ -294,6 +374,8 @@ go vet ./...
 go test ./...            # add -race for the race detector
 go build .
 ```
+
+The web front has its own checks: `cd web && npm ci && npm run typecheck` (`npm run build` type-checks too).
 
 The report is locked by an approved snapshot: `testdata/report.approved.json` is produced from the fixtures in
 `testdata/home`, which hold short hand-written logs, not real sessions.

@@ -3,6 +3,7 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -173,7 +174,7 @@ func TestTheSessionsOfAProjectAreTheOnesThatWorkedInIt(t *testing.T) {
 	w := newWorkplace(t)
 
 	// When the sessions of the app are listed
-	inApp, err := w.index.Sessions().Sessions(report.Filter{Project: projectAt(t, w.app)})
+	inApp, err := w.index.Sessions().Sessions(context.Background(), report.Filter{Project: projectAt(t, w.app)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +194,7 @@ func TestEverySessionIsListedWhenNoProjectIsAsked(t *testing.T) {
 	w := newWorkplace(t)
 
 	// When the sessions are listed without a project
-	everyone, err := w.index.Sessions().Sessions(report.Filter{})
+	everyone, err := w.index.Sessions().Sessions(context.Background(), report.Filter{})
 
 	// Then every session is listed, those of folders that are not paths too
 	if err != nil || len(everyone) != 6 {
@@ -208,7 +209,7 @@ func TestAProjectKeepsTheOtherFiltersOfTheQuery(t *testing.T) {
 
 	// When usage and sessions are asked for
 	total, err := w.index.Total(f)
-	list, errList := w.index.Sessions().Sessions(f)
+	list, errList := w.index.Sessions().Sessions(context.Background(), f)
 
 	// Then nothing matches both
 	if err != nil || errList != nil || total.Requests != 0 || len(list) != 0 {

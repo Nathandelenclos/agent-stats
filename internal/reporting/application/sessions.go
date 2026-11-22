@@ -1,6 +1,10 @@
 package application
 
-import "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
+import (
+	"context"
+
+	"github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
+)
 
 // The sessions' read models, as callers of ListSessions and ShowSession see them.
 type (
@@ -20,12 +24,12 @@ var (
 )
 
 // SessionQueries answers questions about indexed sessions. Each answer describes one state of the index, which
-// indexing may be changing meanwhile.
+// indexing may be changing meanwhile. Each stops when its ctx does.
 type SessionQueries interface {
 	// Sessions lists the sessions active in the filter's range, most recent first.
-	Sessions(domain.Filter) ([]domain.SessionSummary, error)
+	Sessions(context.Context, domain.Filter) ([]domain.SessionSummary, error)
 	// Session describes one listed session; ErrSessionNotFound when the index lists none with that identity.
-	Session(domain.SessionID) (domain.SessionDetail, error)
+	Session(context.Context, domain.SessionID) (domain.SessionDetail, error)
 }
 
 // ListSessions lists the sessions active in a range, with what each used.
@@ -34,8 +38,8 @@ type ListSessions struct {
 }
 
 // Run lists the sessions q asks for: those whose last activity is since q.Since (zero: all) and, when set, that harness's and that project's.
-func (uc ListSessions) Run(q Query) (SessionList, error) {
-	sessions, err := uc.Queries.Sessions(domain.Filter{Since: q.Since, Harness: q.Harness, Project: q.Project})
+func (uc ListSessions) Run(ctx context.Context, q Query) (SessionList, error) {
+	sessions, err := uc.Queries.Sessions(ctx, domain.Filter{Since: q.Since, Harness: q.Harness, Project: q.Project})
 	return domain.NewSessionList(sessions), err
 }
 
@@ -45,6 +49,6 @@ type ShowSession struct {
 }
 
 // Run describes the session id names.
-func (uc ShowSession) Run(id SessionID) (SessionDetail, error) {
-	return uc.Queries.Session(id)
+func (uc ShowSession) Run(ctx context.Context, id SessionID) (SessionDetail, error) {
+	return uc.Queries.Session(ctx, id)
 }

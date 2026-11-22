@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+/* Colour tokens. Text pairs reach 4.5:1 and borders, focus rings and chart marks 3:1 against their background, in both themes.
+   The theme follows the system unless the page sets data-theme (see shared/theme.ts and public/theme-init.js). */
+:root {
+  color-scheme: light;
+  --bg: #ffffff;
+  --surface: #f4f6f9;
+  --ink: #12151c;
+  --muted: #4a5363;
+  --border: #707a8a;
+  --rule: #d5dae2;
+  --accent: #1d4ed8;
+  --accent-ink: #ffffff;
+  --mark: #2563eb;
+  --mark-2: #b45309;
+  --focus: #1d4ed8;
+  --danger: #b42318;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0e1116;
+    --surface: #171b22;
+    --ink: #e8ebf1;
+    --muted: #a9b2c0;
+    --border: #8590a2;
+    --rule: #2c333f;
+    --accent: #8db0ff;
+    --accent-ink: #0e1116;
+    --mark: #6f9cff;
+    --mark-2: #f0a24b;
+    --focus: #8db0ff;
+    --danger: #ff8a7a;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e1116;
+  --surface: #171b22;
+  --ink: #e8ebf1;
+  --muted: #a9b2c0;
+  --border: #8590a2;
+  --rule: #2c333f;
+  --accent: #8db0ff;
+  --accent-ink: #0e1116;
+  --mark: #6f9cff;
+  --mark-2: #f0a24b;
+  --focus: #8db0ff;
+  --danger: #ff8a7a;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-rule: var(--rule);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-danger: var(--danger);
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
