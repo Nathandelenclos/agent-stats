@@ -317,8 +317,9 @@ func (m *Model) layout() {
 		rows[i] = row
 	}
 	if len(m.table.Columns()) != len(cols) {
-		// bubbles/table indexes the old rows by the new columns: never let their counts differ. Only a tab
-		// change gets here, and it starts at the top anyway; clearing on every resize would lose the scroll.
+		// bubbles/table indexes the old rows by the new columns: never let their counts differ. Only a switch
+		// to a tab with another column count gets here (selectTab puts the cursor back at the top anyway);
+		// clearing on every resize would lose the scroll.
 		m.table.SetRows(nil)
 	}
 	m.table.SetColumns(cols)
