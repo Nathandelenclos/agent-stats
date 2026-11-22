@@ -65,16 +65,19 @@ jobs:
           set -euo pipefail
           glob='v[0-9]*.[0-9]*.[0-9]*'
           # HEAD is the pushed commit, the one CI validated and the provenance will name. Every release is looked up
-          # in one call; a failed lookup stops the run instead of being read as "nothing published".
-          published="$RUNNER_TEMP/published.txt"
-          if ! gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-            --jq '.[] | select(.draft | not) | .tag_name' > "$published"; then
+          # in one call. Every lookup below fails closed: a failed command stops the run (set -e), and none is
+          # followed by "|| true", so an error is never read as "nothing published" or "no tag".
+          if ! published=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.draft | not) | .tag_name'); then
             echo "::error::Could not list the releases of $GITHUB_REPOSITORY."
             exit 1
           fi
-          latest=$(git describe --tags --abbrev=0 --match "$glob" 2>/dev/null || true)
+          is_published() { case $'\n'"$published"$'\n' in *$'\n'"$1"$'\n'*) return 0 ;; esac; return 1; }
+          head_sha=$(git rev-parse HEAD)
+          latest=$(git tag --merged HEAD --list "$glob" --sort=-v:refname | sed -n 1p)
           existing=$(git tag --points-at HEAD --list "$glob" --sort=-v:refname | sed -n 1p)
           covering=$(git tag --contains HEAD --list "$glob" --sort=v:refname | sed -n 1p)
+          merged=$(git tag --merged HEAD --list "$glob" --sort=v:refname)
 
           # An earlier tag without a published release (a run pushed it, then failed) comes before anything new.
           # It cannot be rebuilt from this commit: the attestation would name this commit, not the tagged one.
@@ -82,11 +85,15 @@ jobs:
           # Only the tag on HEAD is finished by this run, below.
           stuck=false
           while read -r tag; do
+            [ -n "$tag" ] || continue
+            if is_published "$tag"; then
+              continue
+            fi
             commit=$(git rev-list -n 1 "$tag")
-            [ "$commit" = "$(git rev-parse HEAD)" ] && continue
-            echo "::error::$tag (commit $commit) has no published release. Re-run the failed ci run of that commit to finish it; this run publishes nothing until then."
+            [ "$commit" = "$head_sha" ] && continue
+            echo "::error::$tag (commit $commit) has no published release. Re-run the failed ci run of that commit to finish it (or publish the release by hand if the tag was pushed by hand); this run publishes nothing until then."
             stuck=true
-          done < <(git tag --merged HEAD --list "$glob" --sort=v:refname | grep -vxFf "$published" || true)
+          done <<<"$merged"
           if $stuck; then
             exit 1
           fi
@@ -95,7 +102,7 @@ jobs:
             # This commit is already tagged: never re-tag. Only a published release ends the job early;
             # a draft or missing release (a previous run stopped before publishing) is rebuilt.
             version=$existing
-            if grep -qxF "$version" "$published"; then
+            if is_published "$version"; then
               echo "::notice::$version is already released: nothing to do."
               echo "release=false" >> "$GITHUB_OUTPUT"
               exit 0
