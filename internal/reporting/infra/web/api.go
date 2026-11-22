@@ -259,3 +259,23 @@ func (s *Server) fail(w http.ResponseWriter, doing string, err error) {
 	s.log("%s: %v", doing, err)
 	problem{Type: problemInternal, Title: "Internal error", Status: http.StatusInternalServerError}.write(w)
 }
+
+func (s *Server) modelActivity(w http.ResponseWriter, r *http.Request) {
+	const modelParam = "model"
+	p, bad := s.parseParamsBounded(r, 1024, paramSince, paramHarness, paramProject, modelParam)
+	if bad != nil {
+		bad.write(w)
+		return
+	}
+	model := r.URL.Query().Get(modelParam)
+	if model == "" || len(model) > 256 {
+		invalidParameter(modelParam, "use the model name shown in the report, up to 256 bytes").write(w)
+		return
+	}
+	rows, err := s.opts.Reports.ModelActivity(r.Context(), p.query, model)
+	if err != nil {
+		s.fail(w, "reading the model's activity", err)
+		return
+	}
+	writeJSON(w, s.log, groups(rows))
+}

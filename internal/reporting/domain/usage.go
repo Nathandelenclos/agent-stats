@@ -14,6 +14,7 @@ type Filter struct {
 	Since   time.Time
 	Harness kernel.Harness
 	Project kernel.Project
+	Model   string // optional exact model for a breakdown
 }
 
 // Dimension is a way to group usage.

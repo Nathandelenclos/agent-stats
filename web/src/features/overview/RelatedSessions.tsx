@@ -5,6 +5,7 @@ import { describe, Failure } from "../../shared/Failure";
 import { formatInteger, formatUSD } from "../../shared/format";
 import type { Filters, Tool } from "../report";
 import type { Session, SessionList } from "../sessions/api";
+import { ModelActivity } from "./ModelActivity";
 import { relationLabel, type Relation } from "./navigation";
 
 type RelatedSession = Session & { relatedTool?: Tool };
@@ -74,6 +75,7 @@ export function RelatedSessions({
         <h2 id="related-title" ref={heading} tabIndex={-1}>{label}</h2>
         <button type="button" className="dashboard-link" onClick={close}>Clear selection</button>
       </div>
+      {selection.kind === "model" && selection.value && <ModelActivity key={selection.value} model={selection.value} filters={filters} project={project} />}
       {query.isPending && <p role="status">Loading contributing sessions…</p>}
       {query.isError && <Failure title="Contributing sessions could not be loaded." message={describe(query.error)} retry={() => void query.refetch()} />}
       {data && (

@@ -524,3 +524,23 @@ it("compares local prompt signals by the preceding model", async () => {
   await act(async () => { details()!.open = true; });
   await eventually(() => expect(details()?.querySelector("tbody")?.textContent).toContain("opusanthropic4125%"));
 });
+
+it("opens the performance timeline for a selected model", async () => {
+  window.history.replaceState(null, "", "?view=usage&kind=model&value=opus");
+  const base = serveReports(() => report()).getMockImplementation()!;
+  const fetch = vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input).startsWith("/api/model-activity?")) {
+      return new Response(JSON.stringify([group("2026-11-21", {
+        avgDurationMs: 300, durationSamples: 1, avgTtftMs: 150, ttftSamples: 1,
+      })]));
+    }
+    return base(input);
+  });
+  vi.stubGlobal("fetch", fetch);
+  const { container } = render(withQueries(testQueryClient(), <App />));
+  const details = () => [...container.querySelectorAll("details")].find((el) => el.textContent?.includes("Model performance over time"));
+  await eventually(() => expect(details()).toBeDefined());
+  await act(async () => { details()!.open = true; });
+  await eventually(() => expect(details()?.querySelector("tbody")?.textContent).toContain("300 ms150 msn/a"));
+  expect(fetch).toHaveBeenCalledWith("/api/model-activity?model=opus&since=7d&project=all", expect.any(Object));
+});

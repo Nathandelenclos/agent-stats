@@ -43,3 +43,12 @@ func (uc BuildTimelineReport) Run(ctx context.Context, q Query) (TimelineReport,
 	})
 	return r, err
 }
+
+// ModelActivity reads the daily health metrics for one model within a report.
+func (uc BuildTimelineReport) ModelActivity(ctx context.Context, q Query, model string) (days []UsageGroup, err error) {
+	err = uc.Queries.Snapshot(ctx, func(reader UsageReader) error {
+		days, err = reader.UsageBy(domain.Filter{Since: q.Since, Harness: q.Harness, Project: q.Project, Model: model}, domain.ByDay)
+		return err
+	})
+	return days, err
+}

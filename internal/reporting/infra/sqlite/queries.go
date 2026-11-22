@@ -209,6 +209,14 @@ func (r reader) UsageBy(f report.Filter, d report.Dimension) ([]report.UsageGrou
 	if err != nil {
 		return nil, err
 	}
+	if f.Model != "" {
+		if cond == "" {
+			cond = " WHERE r.model = ?"
+		} else {
+			cond += " AND r.model = ?"
+		}
+		args = append(args, f.Model)
+	}
 	order := "SUM(r.cost) DESC, COUNT(*) DESC"
 	if d == report.ByDay || d == report.ByHour {
 		order = "MIN(r.ts)"

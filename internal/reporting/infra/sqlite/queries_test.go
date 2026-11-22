@@ -390,3 +390,17 @@ func TestUsageByHourKeepsSeparateAbsoluteHours(t *testing.T) {
 		t.Fatalf("hourly buckets = %+v", rows)
 	}
 }
+
+func TestUsageByDayMatchesOnlyTheSelectedModel(t *testing.T) {
+	u, err := OpenReadOnly(indexed(t, time.UnixMilli(t0)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer u.Close()
+	for _, model := range []string{hostile, "missing"} {
+		days, err := u.UsageBy(report.Filter{Model: model}, report.ByDay)
+		if err != nil || (len(days) > 0) != (model == hostile) {
+			t.Fatalf("%q: days = %+v, %v", model, days, err)
+		}
+	}
+}
