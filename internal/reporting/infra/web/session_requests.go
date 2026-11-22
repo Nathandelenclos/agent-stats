@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
@@ -38,8 +39,8 @@ type sessionRequestsJSON struct {
 }
 
 func (s *Server) sessionRequests(w http.ResponseWriter, r *http.Request) {
-	const failedParam, signatureParam = "failed", "signature"
-	p, bad := s.parseParams(r, paramSince, paramHarness, paramProject, paramLimit, paramOffset, failedParam, signatureParam)
+	const failedParam, signatureParam, searchParam = "failed", "signature", "q"
+	p, bad := s.parseParamsBounded(r, 1024, paramSince, paramHarness, paramProject, paramLimit, paramOffset, failedParam, signatureParam, searchParam)
 	if bad != nil {
 		bad.write(w)
 		return
@@ -63,7 +64,13 @@ func (s *Server) sessionRequests(w http.ResponseWriter, r *http.Request) {
 		sessionMissing(w)
 		return
 	}
-	rows, err := s.opts.SessionRequests.Run(r.Context(), id, p.query, failed == "1", signature, p.limit+1, p.offset)
+	search := strings.TrimSpace(values.Get(searchParam))
+	if len(search) > 200 {
+		invalidParameter(searchParam, "use at most 200 bytes").write(w)
+		return
+	}
+	filter := reporting.RequestFilter{FailedOnly: failed == "1", Signature: signature, Search: search, SearchErrors: s.localOnly}
+	rows, err := s.opts.SessionRequests.Run(r.Context(), id, p.query, filter, p.limit+1, p.offset)
 	if errors.Is(err, reporting.ErrSessionNotFound) {
 		sessionMissing(w)
 		return

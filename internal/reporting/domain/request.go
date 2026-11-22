@@ -32,3 +32,11 @@ type ErrorSignature struct {
 	Count   int64
 	Last    time.Time
 }
+
+// RequestFilter narrows the indexed calls shown in the request journal.
+type RequestFilter struct {
+	FailedOnly   bool
+	Signature    string
+	Search       string
+	SearchErrors bool // local server only: provider error text can contain private data
+}

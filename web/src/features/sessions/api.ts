@@ -131,13 +131,14 @@ export interface SessionRequest {
 
 export const requestPageSize = 25;
 
-export function useSessionRequests(id: string | undefined, filters: Filters, project: string, failed: boolean, offset: number, signature: string) {
+export function useSessionRequests(id: string | undefined, filters: Filters, project: string, failed: boolean, offset: number, signature: string, search: string) {
   const params = {
     ...filterParams(filters),
     limit: String(requestPageSize),
     offset: String(offset),
     ...(failed ? { failed: "1" } : {}),
     ...(signature ? { signature } : {}),
+    ...(search ? { q: search } : {}),
   };
   return useQuery({
     queryKey: ["sessions", "requests", id, params, project],

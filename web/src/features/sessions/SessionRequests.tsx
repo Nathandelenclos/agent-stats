@@ -40,13 +40,23 @@ export function SessionRequests({ id, filters, project, openSession, errorsOnly 
   const [failed, setFailed] = useState(false);
   const [offset, setOffset] = useState(0);
   const [signature, setSignature] = useState("");
+  const [input, setInput] = useState("");
+  const [search, setSearch] = useState("");
   const signatures = useErrorSignatures(filters, project, errorsOnly);
-  const page = useSessionRequests(id, filters, project, errorsOnly || failed, offset, signature);
+  const page = useSessionRequests(id, filters, project, errorsOnly || failed, offset, signature, search);
   const shownColumns: Column<Row>[] = openSession ? [{
     id: "session", header: "Session", value: (r) => r.folder || r.sessionId, truncate: true,
     render: (r) => <button type="button" className="dashboard-link" onClick={() => openSession(r.sessionId)}>{r.folder || r.sessionId}</button>,
   }, ...columns] : columns;
   return <>
+    <form className="mb-3 flex flex-wrap items-end gap-2" onSubmit={(event) => { event.preventDefault(); setSearch(input.trim()); setOffset(0); }}>
+      <label className="flex flex-col gap-1 text-sm">
+        Search requests
+        <input type="search" className="min-h-9 rounded border border-rule bg-bg px-2"
+          maxLength={200} value={input} onChange={(event) => setInput(event.target.value)} placeholder="Model, provider or folder" />
+      </label>
+      <button type="submit" className="min-h-9 rounded border border-rule px-3 text-sm hover:bg-surface">Search</button>
+    </form>
     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
       {errorsOnly ? (
         signatures.data && signatures.data.length > 0 && <div className="flex max-w-full flex-col gap-1 text-sm">

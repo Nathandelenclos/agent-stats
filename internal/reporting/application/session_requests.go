@@ -7,17 +7,18 @@ import (
 )
 
 type SessionRequest = domain.SessionRequest
+type RequestFilter = domain.RequestFilter
 
 type SessionRequestQuery interface {
-	SessionRequests(context.Context, domain.SessionID, domain.Filter, bool, string, int, int) ([]domain.SessionRequest, error)
+	SessionRequests(context.Context, domain.SessionID, domain.Filter, RequestFilter, int, int) ([]domain.SessionRequest, error)
 }
 
 type ListSessionRequests struct {
 	Queries SessionRequestQuery
 }
 
-func (uc ListSessionRequests) Run(ctx context.Context, id SessionID, q Query, failedOnly bool, signature string, limit, offset int) ([]SessionRequest, error) {
-	return uc.Queries.SessionRequests(ctx, id, domain.Filter{Since: q.Since, Harness: q.Harness, Project: q.Project}, failedOnly, signature, limit, offset)
+func (uc ListSessionRequests) Run(ctx context.Context, id SessionID, q Query, filters RequestFilter, limit, offset int) ([]SessionRequest, error) {
+	return uc.Queries.SessionRequests(ctx, id, domain.Filter{Since: q.Since, Harness: q.Harness, Project: q.Project}, filters, limit, offset)
 }
 
 type ErrorSignature = domain.ErrorSignature

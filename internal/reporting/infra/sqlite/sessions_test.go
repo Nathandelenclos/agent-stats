@@ -314,7 +314,7 @@ func TestSessionRequestsPage(t *testing.T) {
 	s := openSessions(t)
 	id, _ := report.NewSessionID("claude:main")
 	ctx := context.Background()
-	page, err := s.SessionRequests(ctx, id, report.Filter{}, false, "", 2, 0)
+	page, err := s.SessionRequests(ctx, id, report.Filter{}, report.RequestFilter{}, 2, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,18 +322,18 @@ func TestSessionRequestsPage(t *testing.T) {
 		t.Fatalf("first page should contain the latest failure and the subagent call: %+v", page)
 	}
 
-	last, err := s.SessionRequests(ctx, id, report.Filter{}, false, "", 2, 2)
+	last, err := s.SessionRequests(ctx, id, report.Filter{}, report.RequestFilter{}, 2, 2)
 	if err != nil || len(last) != 1 || last[0].Duration != 1000 {
 		t.Fatalf("last page should contain the earliest main call: %+v, %v", last, err)
 	}
 
-	failures, err := s.SessionRequests(ctx, id, report.Filter{}, true, "", 5, 0)
+	failures, err := s.SessionRequests(ctx, id, report.Filter{}, report.RequestFilter{FailedOnly: true}, 5, 0)
 	if err != nil || len(failures) != 1 || failures[0].Error != "boom" {
 		t.Fatalf("failures only: %+v, %v", failures, err)
 	}
 
 	filter := report.Filter{Since: time.UnixMilli(t1 + 1)}
-	if _, err := s.SessionRequests(ctx, id, filter, false, "", 2, 0); !errors.Is(err, report.ErrSessionNotFound) {
+	if _, err := s.SessionRequests(ctx, id, filter, report.RequestFilter{}, 2, 0); !errors.Is(err, report.ErrSessionNotFound) {
 		t.Fatalf("filtered session error: %v", err)
 	}
 }
@@ -341,12 +341,18 @@ func TestSessionRequestsPage(t *testing.T) {
 func TestRequestJournalFiltersActivityRatherThanLastSessionActivity(t *testing.T) {
 	s := openSessions(t)
 	f := report.Filter{Since: time.UnixMilli(t1)}
-	rows, err := s.SessionRequests(t.Context(), report.SessionID{}, f, false, "", 25, 0)
+	rows, err := s.SessionRequests(t.Context(), report.SessionID{}, f, report.RequestFilter{}, 25, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(rows) != 2 || rows[0].SessionID != "claude:main" || rows[1].SessionID != "claude:main" || rows[1].AgentType == "main" {
 		t.Fatalf("expected only recent work, linked to the root session: %+v", rows)
+	}
+	for _, local := range []bool{true, false} {
+		found, err := s.SessionRequests(t.Context(), report.SessionID{}, f, report.RequestFilter{Search: "BOOM", SearchErrors: local}, 25, 0)
+		if err != nil || len(found) != map[bool]int{true: 1, false: 0}[local] {
+			t.Fatalf("search error text locally = %v, rows = %+v, error = %v", local, found, err)
+		}
 	}
 }
 
