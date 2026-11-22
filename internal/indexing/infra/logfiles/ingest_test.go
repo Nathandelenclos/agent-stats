@@ -122,6 +122,22 @@ func TestCodex(t *testing.T) {
 	}
 }
 
+func TestCodexSessionLastsUntilItsLastToolCallOrPrompt(t *testing.T) {
+	// Given a rollout whose last entries are a tool call and a prompt, logged after every response item
+	log := `{"timestamp":"2026-01-01T10:00:00Z","type":"session_meta","payload":{"id":"s"}}
+{"timestamp":"2026-01-01T10:00:01Z","type":"response_item","payload":{"type":"message"}}
+{"timestamp":"2026-01-01T10:05:00Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","id":"x1","command":["ls"],"aggregated_output":"ok"}}}
+{"timestamp":"2026-01-01T10:09:00Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","id":"i1","content":[{"type":"text","text":"and then?"}]}}}
+`
+	// When it is read
+	p := parse(t, ParseCodex, "/x/rollout-3.jsonl", log)
+
+	// Then the session spans its tool calls and prompts, not only its response items
+	if want := time.Date(2026, 1, 1, 10, 9, 0, 0, time.UTC); !p.Session.End.Equal(want) {
+		t.Errorf("session end = %v, want %v", p.Session.End, want)
+	}
+}
+
 func TestCodexTokenCountFallback(t *testing.T) {
 	log := `{"timestamp":"2026-01-01T10:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10},"last_token_usage":{"input_tokens":10}}}}
 {"timestamp":"2026-01-01T10:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10},"last_token_usage":{"input_tokens":10}}}}
