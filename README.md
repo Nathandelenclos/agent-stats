@@ -283,8 +283,12 @@ What each of the three newer readers counts, and what it does not:
   directory of its parent session is linked to it; a subagent file elsewhere is a subagent with no known parent.
 
 A SQLite database holds many sessions, while the index keeps one record per log: each session of a database is a log of its
-own, named `<database>#<session id>`, and it is read again when its message count or the time of its last update changes
-(one grouped query per table, not a read of the parts). The size and modification time of the database file would
+own, named `<database>#<session id>`, and it is read again when what its tables hold of it changes: for its messages and
+for its parts, the number of rows, the sum of their update times and the bytes of their data, with the time the session
+was updated (one grouped query per table, which reads the data of every row). The sum of the times, not the latest,
+because a row stamped in the future would hide every later update; the bytes, because a tool call that goes from running to
+error keeps its row. A session with no message is listed too, as an empty session: one that lost its last message is read
+again and loses its rows. The size and modification time of the database file would
 not do, as they change whenever any session is written and every session would be read again. Databases are opened
 read-only (`mode=ro`) and the database file is never written. A database in write-ahead mode (how OpenCode keeps its
 own) needs its `-shm` file, and SQLite creates it, and a `-wal` file, beside the database when they are missing: the

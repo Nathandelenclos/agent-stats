@@ -108,17 +108,84 @@ func TestEachSessionOfADatabaseIsALogOfItsOwnNamedAfterItsDatabaseAndItsId(t *te
 	// When its logs are listed
 	got := existingLogs(t, logs)
 
-	// Then the four sessions that hold messages are listed, each named after the database and its id, and the empty one is not
-	if len(got) != 4 {
+	// Then every session is listed, each named after the database and its id
+	if len(got) != 5 {
 		t.Fatalf("logs = %v", got)
 	}
-	if _, ok := got["ses_empty"]; ok {
-		t.Error("an empty session is listed")
-	}
 	for id, f := range got {
-		if f.Path != db+DBSessionSep+id || f.Harness != kernel.OpenCode || f.Revision == "" || f.WeightBytes <= 0 {
+		if f.Path != db+DBSessionSep+id || f.Harness != kernel.OpenCode || f.Revision == "" || (id != "ses_empty" && f.WeightBytes <= 0) {
 			t.Errorf("%s: %+v", id, f)
 		}
+	}
+}
+
+// writeDB runs statements against the database as a harness that is running would.
+func writeDB(t *testing.T, db string, statements ...string) {
+	t.Helper()
+	w, err := sql.Open("sqlite", db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	for _, q := range statements {
+		if _, err := w.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+}
+
+func TestASessionWhoseToolCallFailsAfterBeingListedIsListedAsChangedWithoutNewMessages(t *testing.T) {
+	for name, stamp := range map[string]string{"the harness stamps the update": ", time_updated = 1767225690000", "the harness does not": ""} {
+		t.Run(name, func(t *testing.T) {
+			// Given a session whose tool call was listed as completed
+			logs, db := newOpenCode(t, "messages.sql")
+			before := existingLogs(t, logs)
+
+			// When that call turns out to have failed, with the same messages and the same last message time
+			writeDB(t, db, `UPDATE part SET data = replace(data, '"status":"completed"', '"status":"error","error":"killed"')`+stamp+` WHERE id = 'prt_02b'`)
+			after := existingLogs(t, logs)
+
+			// Then only that session shows as changed
+			for id, f := range after {
+				if changed := f.Revision != before[id].Revision; changed != (id == "ses_main") {
+					t.Errorf("%s: changed = %v", id, changed)
+				}
+			}
+		})
+	}
+}
+
+func TestASessionIsListedAsChangedWhateverTheDateOfItsLastMessage(t *testing.T) {
+	// Given a session that holds a message dated far in the future, listed once
+	logs, db := newOpenCode(t, "messages.sql")
+	writeDB(t, db, `INSERT INTO message VALUES ('msg_future', 'ses_child', 4102444800000, 4102444800000, '{"role":"user","time":{"created":4102444800000}}')`)
+	before := existingLogs(t, logs)["ses_child"]
+
+	// When an answer of that session is completed later, with a date before the future one
+	writeDB(t, db, `UPDATE message SET data = replace(data, '"cost":0.01', '"cost":0.02'), time_updated = 1767225626000 WHERE id = 'msg_12'`)
+	after := existingLogs(t, logs)["ses_child"]
+
+	// Then the session shows as changed
+	if after.Revision == before.Revision {
+		t.Error("the session shows as unchanged")
+	}
+}
+
+func TestASessionThatLosesItsLastMessageIsStillListedAndIsReadAsEmpty(t *testing.T) {
+	// Given a session with a prompt and an answer, listed once
+	logs, db := newOpenCode(t, "messages.sql")
+	before := existingLogs(t, logs)["ses_child"]
+
+	// When all its messages are deleted
+	writeDB(t, db, `DELETE FROM part WHERE session_id = 'ses_child'`, `DELETE FROM message WHERE session_id = 'ses_child'`)
+	after, listed := existingLogs(t, logs)["ses_child"]
+
+	// Then the session is listed with another revision and read as one with no prompt and no request
+	if !listed || after.Revision == before.Revision {
+		t.Fatalf("listed = %v, revision %q then %q", listed, before.Revision, after.Revision)
+	}
+	if p, err := logs.Read(after); err != nil || len(p.Prompts) != 0 || len(p.Requests) != 0 {
+		t.Errorf("transcript = %+v, %v", p, err)
 	}
 }
 
@@ -607,7 +674,7 @@ func TestSessionsWithAnUnusableIdAreReportedAndNotListed(t *testing.T) {
 	files, problems, err := logs.List()
 
 	// Then the usable sessions are listed and each unusable one is reported
-	if err != nil || len(files) != 4 || len(problems) != 2 {
+	if err != nil || len(files) != 5 || len(problems) != 2 {
 		t.Errorf("files %d, problems %v, err %v", len(files), problems, err)
 	}
 }

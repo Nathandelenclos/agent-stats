@@ -80,7 +80,7 @@ func TestNewHarnessesReportApproved(t *testing.T) {
 	rep, _ := moreIndex(t, home, dbPath)
 
 	// Then every session was indexed and nothing was refused
-	if len(rep.Errors) > 0 || rep.Indexed != 10 {
+	if len(rep.Errors) > 0 || rep.Indexed != 11 {
 		t.Fatalf("index: %+v", rep)
 	}
 	usage, err := usagedb.OpenReadOnly(dbPath)

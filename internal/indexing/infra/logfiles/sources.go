@@ -91,7 +91,7 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 					log := path + DBSessionSep + s.id
 					dbLogs[log] = dbLog{db: src.Database, path: path, harness: src.Harness, session: s}
 					files = append(files, application.LogFile{Path: log, Harness: src.Harness, Revision: s.revision,
-						WeightBytes: min(s.size*estimatedMessageBytes, maxLogBytes)})
+						WeightBytes: min(s.weight, maxLogBytes)})
 				}
 			}
 			continue

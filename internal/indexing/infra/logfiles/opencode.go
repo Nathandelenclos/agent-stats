@@ -31,17 +31,13 @@ import (
 //
 // The database is opened read-only and never written, locked for writing or copied: the session is the unit the
 // index keeps, so List turns each session into a log of its own named "<database>#<session id>", and a log
-// changes when its session does (see sessionFingerprint).
+// changes when its session does (see kindStats.revision).
 
 // DBSessionSep separates the database path from the session id in the path of a session read from a database.
 const DBSessionSep = "#"
 
 // A row's data over this many bytes is not read: a database is as untrusted as a log file is.
 var maxDBRowBytes = maxLineBytes
-
-// estimatedMessageBytes is what a message and its parts weigh once read, for application.LogFile.Weight.
-// ponytail: a flat estimate; measure the parts of the session in List if it ever paces the readers badly.
-const estimatedMessageBytes = 16 << 10
 
 // maxDBSessionBytes bounds what one session may hold in memory, in bytes of data read.
 var maxDBSessionBytes = maxLogBytes
@@ -84,19 +80,21 @@ type OpenCodeDatabase struct {
 
 // dbSession is a session found in a database, with what tells that it changed.
 type dbSession struct {
-	id       string
-	table    string // the session table that holds it
-	events   bool   // true when its messages are in session_message, false in message
-	size     int64  // its messages
+	id     string
+	table  string // the session table that holds it
+	events bool   // true when its messages are in session_message, false in message
+	// revision says when the session changed (see kindStats.revision), and weight how many bytes of data it holds.
 	revision string
+	weight   int64
 }
 
 // dbSchema is what a database holds: the session tables and message tables that have the columns this reader needs.
 type dbSchema struct {
 	sessionTables []string
-	messages      bool // message and part
-	events        bool // session_message
-	parts         bool // session_part
+	messages      bool            // message and part
+	events        bool            // session_message
+	parts         bool            // session_part
+	stamped       map[string]bool // the tables of parts that say when a row was updated
 }
 
 var sessionTableColumns = []string{"id", "parent_id", "directory", "title", "time_created", "time_updated"}
@@ -239,6 +237,7 @@ func (d *OpenCodeDatabase) detect(ctx context.Context, db *sql.DB) (dbSchema, er
 	if err != nil {
 		return s, err
 	}
+	s.stamped = map[string]bool{"part": p["time_updated"]}
 	s.messages = hasAll(c, "id", "session_id", "time_created", "time_updated", "data") &&
 		hasAll(p, "id", "message_id", "session_id", "data")
 	e, err := columns(ctx, db, "session_message")
@@ -250,6 +249,7 @@ func (d *OpenCodeDatabase) detect(ctx context.Context, db *sql.DB) (dbSchema, er
 	if err != nil {
 		return s, err
 	}
+	s.stamped["session_part"] = sp["time_updated"]
 	s.parts = hasAll(sp, "message_id", "session_id", "ordinal", "type", "data")
 	if len(s.sessionTables) == 0 || !(s.messages || s.events) {
 		return s, ErrUnknownSchema
@@ -259,15 +259,74 @@ func (d *OpenCodeDatabase) detect(ctx context.Context, db *sql.DB) (dbSchema, er
 
 var sessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$`)
 
-// sessionFingerprint says when a session changed, without reading its parts: the number of its messages and the
-// last time any of them (or the session) was updated. OpenCode rewrites the message when a step ends, after the
-// parts of the step were written, so a session that moved on always shows a new fingerprint. The size and
-// modification time of the database file would not do: they change whenever any session is written, and every
+// stats is what a table holds of one session: how many rows, the sum of the times they were updated and how many bytes of data.
+type stats struct{ rows, updated, bytes int64 }
+
+func (s stats) String() string { return fmt.Sprintf("%d.%d.%d", s.rows, s.updated, s.bytes) }
+
+// tableStats counts, per session, the rows of a table of messages or of parts. The bytes of data catch what the
+// count misses: a part that goes from running to error keeps its row. The times are summed, not maximised: a row
+// stamped in the future would hide every later update from a maximum. Each is bounded (year 2100) so that the sum
+// cannot overflow. A table that does not state when a row was updated reports 0.
+// ponytail: this reads the data of every row at each listing; keep a fingerprint per session in the index if a
+// database ever makes that slow.
+func tableStats(ctx context.Context, db *sql.DB, table string, stamped bool) (map[string]stats, error) {
+	updated := "0"
+	if stamped {
+		updated = "SUM(MIN(MAX(time_updated, 0), 4102444800000))"
+	}
+	rows, err := db.QueryContext(ctx, `SELECT session_id, COUNT(*), `+updated+`, COALESCE(SUM(length(CAST(data AS BLOB))), 0) FROM `+table+` GROUP BY session_id`) // table is one of the names of the schema, never a value of the database
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]stats{}
+	for rows.Next() {
+		var id string
+		var s stats
+		if err := rows.Scan(&id, &s.rows, &s.updated, &s.bytes); err != nil {
+			return nil, err
+		}
+		out[id] = s
+	}
+	return out, rows.Err()
+}
+
+// kindStats is what the tables of one generation of the schema say of the sessions: messages and parts.
+type kindStats struct{ messages, parts map[string]stats }
+
+func kindStatsOf(ctx context.Context, db *sql.DB, s dbSchema, events bool) (k kindStats, err error) {
+	messages, parts := "message", "part"
+	if events {
+		messages, parts = "session_message", "session_part"
+	}
+	if k.messages, err = tableStats(ctx, db, messages, true); err != nil {
+		return k, err
+	}
+	if events && !s.parts {
+		return k, nil
+	}
+	k.parts, err = tableStats(ctx, db, parts, s.stamped[parts])
+	return k, err
+}
+
+// revision says when a session changed, from what its tables hold of it: when the session was updated, and for
+// its messages and for its parts the number of rows, the last update and the bytes of data. The size and
+// modification time of the database file would not do, as they change whenever any session is written, and every
 // session would be read again. Reading through SQLite also takes the -wal file into account.
-const listMessages = `SELECT s.id, MAX(s.time_updated, COALESCE(MAX(m.time_updated), 0)), COUNT(m.id) FROM %s s JOIN %s m ON m.session_id = s.id GROUP BY s.id`
+// weight is the bytes of data the session holds.
+func (k kindStats) revision(sessionUpdated int64, events bool, id string) (revision string, weight int64) {
+	m, p := k.messages[id], k.parts[id]
+	kind := "m"
+	if events {
+		kind = "e"
+	}
+	return fmt.Sprintf("%s:%d:%s:%s", kind, sessionUpdated, m, p), m.bytes + p.bytes
+}
 
 // list returns the sessions of a database, and the problems met on the way. A database that is busy or in a
-// schema this reader does not know is a problem, not a failure.
+// schema this reader does not know is a problem, not a failure. A session with no message is listed too: one that
+// lost its last message must be read again, to be empty.
 func (d *OpenCodeDatabase) list(path string) (sessions []dbSession, problems []error) {
 	ctx := context.Background()
 	db, err := d.connect(path)
@@ -284,41 +343,53 @@ func (d *OpenCodeDatabase) list(path string) (sessions []dbSession, problems []e
 	d.mu.Lock()
 	d.schemas[path] = schema
 	d.mu.Unlock()
-	found := map[string]dbSession{}
-	add := func(table, messages string, events bool) {
-		rows, err := db.QueryContext(ctx, fmt.Sprintf(listMessages, table, messages))
+	type generation struct {
+		events bool
+		stats  kindStats
+	}
+	var generations []generation // the newer one first: its messages win over those of the older one
+	for _, events := range []bool{true, false} {
+		if (events && !schema.events) || (!events && !schema.messages) {
+			continue
+		}
+		k, err := kindStatsOf(ctx, db, schema, events)
+		if err != nil {
+			return nil, []error{unreadable(path, err)}
+		}
+		generations = append(generations, generation{events, k})
+	}
+	found, rowsOf := map[string]dbSession{}, map[string]int64{}
+	for _, t := range schema.sessionTables {
+		rows, err := db.QueryContext(ctx, `SELECT id, time_updated FROM `+t) // t is one of the names above
 		if err != nil {
 			problems = append(problems, unreadable(path, err))
-			return
+			continue
 		}
-		defer rows.Close()
 		for rows.Next() {
 			var id string
-			var updated, count int64
-			if err := rows.Scan(&id, &updated, &count); err != nil {
+			var updated int64
+			if err := rows.Scan(&id, &updated); err != nil {
 				problems = append(problems, unreadable(path, err))
-				return
+				break
 			}
 			if !sessionIDPattern.MatchString(id) {
 				problems = append(problems, fmt.Errorf("%s: session with an unusable id", path))
 				continue
 			}
-			if prev, ok := found[id]; ok && (prev.events || !events) {
-				continue // the events of a session win over its messages, and the first table over the second
+			// Of its messages in the newer generation and in the older, a session is read from the first that has some
+			// (from the newer one when it has none), and from the first table that holds it.
+			for _, g := range generations {
+				revision, weight := g.stats.revision(updated, g.events, id)
+				n := g.stats.messages[id].rows
+				if _, ok := found[id]; !ok || (n > 0 && rowsOf[id] == 0) {
+					found[id], rowsOf[id] = dbSession{id: id, table: t, events: g.events, revision: revision, weight: weight}, n
+				}
 			}
-			found[id] = dbSession{id: id, table: table, events: events, size: count, revision: fmt.Sprintf("%d:%d", count, updated)}
 		}
 		if err := rows.Err(); err != nil {
 			problems = append(problems, unreadable(path, err))
 		}
-	}
-	for _, t := range schema.sessionTables {
-		if schema.events {
-			add(t, "session_message", true)
-		}
-		if schema.messages {
-			add(t, "message", false)
-		}
+		rows.Close()
 	}
 	for _, s := range found {
 		sessions = append(sessions, s)
