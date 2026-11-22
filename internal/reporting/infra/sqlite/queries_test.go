@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -185,8 +186,17 @@ func TestSnapshotReadsOneStateWhileTheIndexIsWritten(t *testing.T) {
 }
 
 func TestUsageByDayFollowsTheLocalCalendarOldestFirst(t *testing.T) {
-	// Given a clock in Tokyo (UTC+9), requests on both sides of its midnight, one in a later day and one with no known time
-	t.Setenv("TZ", "Asia/Tokyo")
+	// Given a clock in Tokyo (UTC+9), requests on both sides of its midnight, one in a later day and one with no known time.
+	// The time zone is read once per process (by SQLite's localtime on Linux too), so the scenario runs in a process
+	// started in Tokyo, as a user's process would be.
+	if os.Getenv("TZ") != "Asia/Tokyo" {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestUsageByDayFollowsTheLocalCalendarOldestFirst$", "-test.count=1")
+		cmd.Env = append(os.Environ(), "TZ=Asia/Tokyo")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("scenario in Tokyo failed: %v\n%s", err, out)
+		}
+		return
+	}
 	path := indexed(t, time.UnixMilli(1))
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
