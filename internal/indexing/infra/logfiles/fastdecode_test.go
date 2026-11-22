@@ -201,6 +201,9 @@ func compareHome(t *testing.T, home string) {
 	defer func(on bool) { fastDecode = on }(fastDecode)
 	files, refused := 0, int64(0)
 	for _, src := range DefaultSources(home) {
+		if src.Database != nil || src.Harness == kernel.Gemini { // the scanner reads the line logs of the other harnesses
+			continue
+		}
 		filepath.WalkDir(src.Root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !src.Match(path) {
 				return nil
