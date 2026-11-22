@@ -128,20 +128,3 @@ func TestParseSince(t *testing.T) {
 		}
 	}
 }
-
-func TestFormatting(t *testing.T) {
-	for in, want := range map[int64]string{0: "0", 999: "999", 1000: "1 000", 1234567: "1 234 567", -1234: "-1 234"} {
-		if got := num(in); got != want {
-			t.Errorf("num(%d) = %q, want %q", in, got, want)
-		}
-	}
-	if got := shorten("/very/long/path", 6); got != "…/path" {
-		t.Errorf("shorten = %q", got)
-	}
-}
-
-func TestPrintableNeutralisesControlCharacters(t *testing.T) {
-	if got := printable("mcp\x1b[31mred\ttab\nline é"); got != "mcp�[31mred�tab�line é" {
-		t.Errorf("printable = %q", got)
-	}
-}

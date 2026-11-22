@@ -3,11 +3,10 @@ package main
 import (
 	"fmt"
 	"os"
-	"strings"
 	"text/tabwriter"
-	"unicode"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	"github.com/Nathandelenclos/agent-stats/internal/platform/textfmt"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 )
 
@@ -82,10 +81,10 @@ func printReport(r reporting.Report) {
 		return
 	}
 	fmt.Printf("%s requests (%s failed) · %s · %s in / %s out · cache %.0f%% · %s → %s\n",
-		num(t.Requests), num(t.Failed), usd(t.Cost), num(t.InputWithCache()), num(t.Output), t.CacheRate()*100,
+		textfmt.Number(t.Requests), textfmt.Number(t.Failed), usd(t.Cost), textfmt.Number(t.InputWithCache()), textfmt.Number(t.Output), t.CacheRate()*100,
 		day(t.First), day(t.Last))
 	if t.Unpriced > 0 {
-		fmt.Printf("%s requests have no known price (pass --prices to add them)\n", num(t.Unpriced))
+		fmt.Printf("%s requests have no known price (pass --prices to add them)\n", textfmt.Number(t.Unpriced))
 	}
 	usageTable("HARNESS", r.ByHarness, 0)
 	usageTable("MODEL", r.ByModel, 15)
@@ -99,7 +98,7 @@ func printReport(r reporting.Report) {
 		if i == 20 {
 			break
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t\n", printable(x.Name), printable(x.Server), num(x.Calls), num(x.Errors), num(x.ResultChars))
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t\n", textfmt.Printable(x.Name), textfmt.Printable(x.Server), textfmt.Number(x.Calls), textfmt.Number(x.Errors), textfmt.Number(x.ResultChars))
 	}
 	w.Flush()
 }
@@ -113,19 +112,8 @@ func usageTable(title string, rows []reporting.UsageGroup, limit int) {
 			fmt.Fprintf(w, "… %d more\t\t\t\t\t\t\t\n", len(rows)-limit)
 			break
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%.0f%%\t%s\t\n", shorten(printable(x.Group), 50), num(x.Requests), num(x.Failed),
-			num(x.InputWithCache()), num(x.Output), x.CacheRate()*100, usd(x.Cost))
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%.0f%%\t%s\t\n", textfmt.Shorten(textfmt.Printable(x.Group), 50), textfmt.Number(x.Requests), textfmt.Number(x.Failed),
+			textfmt.Number(x.InputWithCache()), textfmt.Number(x.Output), x.CacheRate()*100, usd(x.Cost))
 	}
 	w.Flush()
-}
-
-// printable replaces control characters (escape sequences, tabs, newlines) in text read from session logs,
-// so a log cannot drive the terminal or break the table.
-func printable(s string) string {
-	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
-			return '\uFFFD'
-		}
-		return r
-	}, s)
 }

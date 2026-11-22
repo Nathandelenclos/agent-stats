@@ -134,14 +134,6 @@ func currentUser() string {
 	return name + "@" + host
 }
 
-func num(n int64) string {
-	s := strconv.FormatInt(n, 10)
-	for i := len(s) - 3; i > 0 && s[i-1] != '-'; i -= 3 {
-		s = s[:i] + " " + s[i:]
-	}
-	return s
-}
-
 func usd(c reporting.USD) string { return fmt.Sprintf("$%.2f", float64(c)) }
 
 // day formats t as a date, an unknown time reading as the Unix epoch.
@@ -150,11 +142,4 @@ func day(t time.Time) string {
 		t = time.UnixMilli(0)
 	}
 	return t.Format("2006-01-02")
-}
-
-func shorten(s string, n int) string {
-	if r := []rune(s); len(r) > n {
-		return "…" + string(r[len(r)-n+1:])
-	}
-	return s
 }
