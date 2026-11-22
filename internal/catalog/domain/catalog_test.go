@@ -303,6 +303,23 @@ func TestBareSkillNameCreditsNoPluginWhenSeveralCarryIt(t *testing.T) {
 	}
 }
 
+func TestBareAgentNameCreditsNoPluginWhenSeveralCarryIt(t *testing.T) {
+	// Given two plugins that each carry an agent "checker", and subagent requests logged as "checker"
+	alpha := item(t, kernel.Claude, Agent, "alpha:checker", ScopePlugin)
+	alpha.Origin = name(t, "alpha@market")
+	beta := item(t, kernel.Claude, Agent, "beta:checker", ScopePlugin)
+	beta.Origin = name(t, "beta@market")
+	act := Activity{Agents: []AgentActivity{{Harness: kernel.Claude, AgentType: "checker", Requests: 3}}}
+
+	// When linked, then neither plugin agent is credited with them
+	entries := Link([]Item{alpha, beta}, act)
+	for _, n := range []string{"alpha:checker", "beta:checker"} {
+		if e := find(t, entries, kernel.Claude, Agent, n); e.Uses != 0 {
+			t.Errorf("%s credited with ambiguous requests: %+v", n, e)
+		}
+	}
+}
+
 func TestBareSkillNameStillCreditsTheSkillOfThatNameAlone(t *testing.T) {
 	// Given a user skill "review" and a plugin skill "alpha:review", and a load logged as "review"
 	user := item(t, kernel.Claude, Skill, "review", ScopeUser)

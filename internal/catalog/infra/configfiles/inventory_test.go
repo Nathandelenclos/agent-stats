@@ -234,6 +234,25 @@ func TestFilesOfAPluginThatLinkOutOfItAreNotRead(t *testing.T) {
 	}
 }
 
+func TestPluginManifestLinkedOutOfThePluginIsNotRead(t *testing.T) {
+	// Given a plugin whose .claude-plugin/plugin.json is a link to a file outside it, declaring a server
+	r := fixtureRoots(t)
+	root := filepath.Join(r.ClaudeDir, "plugins", "cache", "manifest")
+	outside := filepath.Join(t.TempDir(), "plugin.json")
+	mustWrite(t, outside, `{"mcpServers": {"stolen-inline": {}}}`)
+	mustMkdir(t, filepath.Join(root, ".claude-plugin"))
+	if err := os.Symlink(outside, filepath.Join(root, ".claude-plugin", "plugin.json")); err != nil {
+		t.Fatal(err)
+	}
+	withInstalledPlugins(t, r, map[string]string{"manifest@market": root})
+
+	// When the inventory is read, then the plugin is listed and the server its manifest declares is not
+	in := installed(t, r, kernel.Claude)
+	if !slices.Contains(describe(in), "plugin:manifest@market@user") || hasItemNamed(in, "stolen-inline") {
+		t.Errorf("items: %q", describe(in))
+	}
+}
+
 func TestPluginLinkedWithinItsDirectoryIsStillRead(t *testing.T) {
 	// Given a plugin whose skills directory is a link to another directory of the same plugin
 	r := fixtureRoots(t)

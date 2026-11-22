@@ -159,7 +159,8 @@ type Entry struct {
 	Item
 	Uses int64
 	Last time.Time
-	// Tracked is false when the logs of the harness do not tell this kind of item apart: Uses is then unknown, not zero.
+	// Tracked is false when the logs do not tell this kind of item apart, or do not yet for now (a Skill call without
+	// its skill name awaits re-reading, see Activity.UnnamedSkillLoads): Uses is then unknown, not zero.
 	Tracked bool
 }
 
