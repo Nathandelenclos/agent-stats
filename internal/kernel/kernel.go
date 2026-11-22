@@ -32,6 +32,7 @@ var (
 	Goose      = Harness{"goose"}
 	VSCodeChat = Harness{"vscode-chat"}
 	Cline      = Harness{"cline"}
+	Continue   = Harness{"continue"}
 )
 
 // String returns the harness name.
@@ -41,7 +42,7 @@ func (h Harness) String() string { return h.name }
 func (h Harness) IsZero() bool { return h.name == "" }
 
 // Harnesses lists every supported harness.
-var Harnesses = []Harness{Claude, Codex, OMP, Pi, OpenCode, Kilo, Gemini, Copilot, Zed, Grok, Cursor, Goose, VSCodeChat, Cline}
+var Harnesses = []Harness{Claude, Codex, OMP, Pi, OpenCode, Kilo, Gemini, Copilot, Zed, Grok, Cursor, Goose, VSCodeChat, Cline, Continue}
 
 // HarnessNames lists the accepted names in their presentation order.
 func HarnessNames() []string {

@@ -301,7 +301,7 @@ what the usage covers.
 | oh-my-pi    | `~/.omp/agent/mcp.json`, skills (`~/.omp/agent/skills`, `~/.agents/skills`), agents (`~/.omp/agent/agents`), plugins (`~/.omp/plugins`) |
 | pi          | skills (`~/.pi/agent/skills`, `~/.agents/skills`), packages of `~/.pi/agent/settings.json`                           |
 
-OpenCode, Kilo Code, Gemini CLI, GitHub Copilot CLI, Zed Agent, Grok Build CLI, Cursor IDE and Goose have no configuration reader yet: their tools show up with the `logs` scope, from the
+OpenCode, Kilo Code, Gemini CLI, GitHub Copilot CLI, Zed Agent, Grok Build CLI, Cursor IDE, Goose and Continue CLI have no configuration reader yet: their tools show up with the `logs` scope, from the
 usage their sessions record, and nothing of them is listed as installed (so none is reported unused).
 
 The per-project MCP servers of `~/.claude.json` are listed for every project it names, not only for `--project`.
@@ -350,6 +350,7 @@ file, a name with control characters) is left out and noted on stderr (`skipped`
 | Grok Build CLI | `~/.grok/sessions/<encoded-cwd>/<id>/updates.jsonl` (under `$GROK_HOME` when set), with session metadata and usage from neighbouring files |
 | Cursor IDE | `~/.cursor/projects/<project>/agent-transcripts/<id>/<id>.jsonl` and `User/globalStorage/state.vscdb` under Cursor's application data directory |
 | Goose | `~/.local/share/goose/sessions/sessions.db` |
+| Continue CLI (`cn`) | `~/.continue/sessions/<id>.json` |
 
 A harness that is not installed is simply skipped. The index lives in the user cache directory
 (`agent-stats/index.db`). Only changed log files are re-read, and indexed rows survive when a harness deletes its
@@ -399,6 +400,11 @@ What the newer readers count:
   Tool durations, request durations and time to first token are unknown. Copied fork history, chat history, the search
   index and checkpoints are excluded. The ACP log records historical activity, including activity later rewound.
   The on-disk schema was checked against [Grok Build's storage and usage source](https://github.com/xai-org/grok-build/tree/2bdd1d6a63/crates/codegen/xai-grok-shell/src/session).
+- **Continue CLI** reads prompts and tool calls from the saved history. Each assistant message with usage contributes one
+  request. The reader uses the model, token counts and cent-rounded cost estimate saved on that message, and skips the
+  session-wide usage total and the extension's separate token log. Sessions without response usage still contribute their
+  prompts and tools. The CLI and extension share a history directory, and snapshots do not identify the writer. The CLI
+  saves no message timestamps. Its requests and tools appear in totals without a date filter and are omitted by `--since` and daily reports.
 
 A SQLite database holds many sessions, while the index keeps one record per log: each session of a database is a log of its
 own, named `<database>#<session id>`. Zed revisions hash each thread's stored payload and metadata. OpenCode and Kilo
@@ -439,7 +445,7 @@ other log.
 ## Pricing
 
 Costs come from an embedded copy of the [LiteLLM](https://github.com/BerriAI/litellm) price table
-(`internal/pricing/infra/pricetable/prices.json`), unless the harness logged a positive cost itself (oh-my-pi, pi, OpenCode and Kilo Code do; Gemini CLI does not). Requests whose cost cannot be determined are counted as *unpriced* and flagged in the report. This includes requests with incomplete token counts in Copilot CLI journals.
+(`internal/pricing/infra/pricetable/prices.json`), unless the harness logged a positive cost itself (for example, Continue CLI can save an estimate rounded to cents). Requests on a model with no known price are counted as *unpriced* and flagged in the report.
 
 Override or add models with `--prices file.json`, a JSON object of USD **per token**:
 
