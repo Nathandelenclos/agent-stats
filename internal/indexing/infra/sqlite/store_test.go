@@ -846,37 +846,41 @@ func TestAnIndexAlreadyRecordingSkillLoadsReadsNoLogForThem(t *testing.T) {
 	}
 }
 
-func TestAnIndexUpgradedByANewerBuildWhileOpeningIsNotDowngraded(t *testing.T) {
-	// Given an index whose upgrade another process is making when this one wants to open it
+func TestANewerBuildsUpgradeIsNotRunAgainBecauseThisBuildWasOpeningTheSameIndex(t *testing.T) {
+	// Given an index that a newer build, with one migration more than this one, upgrades while this build is opening it
 	s := open(t)
 	if _, err := s.db.Exec(`PRAGMA user_version = 0`); err != nil {
 		t.Fatal(err)
 	}
-	other, err := sql.Open("sqlite", pathOf(t, s))
+	newerBuild, err := sql.Open("sqlite", pathOf(t, s))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer other.Close()
-	other.SetMaxOpenConns(1)
-	if _, err := other.Exec(`BEGIN IMMEDIATE`); err != nil {
+	defer newerBuild.Close()
+	newerBuild.SetMaxOpenConns(1)
+	if _, err := newerBuild.Exec(`BEGIN IMMEDIATE`); err != nil {
 		t.Fatal(err)
 	}
 	opened := make(chan error, 1)
 	go func() { opened <- migrate(s.db, migrations) }()
 	time.Sleep(100 * time.Millisecond)
 
-	// When the other process finishes with a version this build does not know
-	if _, err := other.Exec(`PRAGMA user_version = 99; COMMIT`); err != nil {
+	// When the newer build finishes its upgrade, then opens the index again
+	if _, err := newerBuild.Exec(`CREATE TABLE newer_runs (n INTEGER); INSERT INTO newer_runs VALUES (1); PRAGMA user_version = 3; COMMIT`); err != nil {
 		t.Fatal(err)
 	}
-
-	// Then this build leaves its listing of sessions and its version as they are
 	if err := <-opened; err != nil {
 		t.Fatal(err)
 	}
-	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 99 {
-		t.Errorf("version after opening = %d, %v", v, err)
+	newer := append(append([]migration(nil), migrations...), sqlSteps(`INSERT INTO newer_runs VALUES (2)`))
+	if err := migrate(s.db, newer); err != nil {
+		t.Fatal(err)
+	}
+
+	// Then its upgrade ran once
+	var runs int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM newer_runs`).Scan(&runs); err != nil || runs != 1 {
+		t.Errorf("runs of the newer build's upgrade = %d, %v", runs, err)
 	}
 }
 
