@@ -138,7 +138,8 @@ type Activity struct {
 }
 
 // Entry is one line of the catalogue: an item, or a tool, server, agent or skill seen in the logs but defined nowhere
-// the catalogue looks. Uses counts tool calls for tools and MCP servers, loads for skills and model requests for agents.
+// the catalogue looks. Uses counts invocations: tool calls for tools and MCP servers, loads for skills. The index
+// records no count of subagent sessions, so an agent counts the model requests its sessions made instead.
 type Entry struct {
 	Item
 	Uses int64
@@ -273,15 +274,16 @@ func escaped(s string) string {
 	return b.String()
 }
 
-// withPluginUsage gives each plugin the usage of the items it carries. A plugin whose items are unknown, or none of
-// which the logs can follow, has unknown usage.
+// withPluginUsage gives each plugin the invocations of the MCP servers and skills it carries. The model requests of
+// its agents are not added: they count something else. A plugin with none of those items, or none the logs can follow,
+// has unknown usage.
 func withPluginUsage(entries []Entry) []Entry {
 	for i, p := range entries {
 		if p.Kind != Plugin {
 			continue
 		}
 		for _, c := range entries {
-			if c.Origin == p.Name && c.Harness == p.Harness && c.Tracked {
+			if c.Origin == p.Name && c.Harness == p.Harness && c.Tracked && c.Kind != Agent {
 				entries[i].Tracked = true
 				entries[i].add(c.Uses, c.Last)
 			}

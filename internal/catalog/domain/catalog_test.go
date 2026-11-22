@@ -158,8 +158,10 @@ func TestUsageOfWhatTheLogsDoNotTellApartIsUnknownNotZero(t *testing.T) {
 }
 
 func TestPluginsAddUpTheUsageOfWhatTheyCarry(t *testing.T) {
-	// Given a plugin carrying a skill and a server, and a bare plugin whose content is not read
+	// Given a plugin carrying a skill, a server and an agent, and a bare plugin whose content is not read
 	plugin := item(t, kernel.Claude, Plugin, "demo@market", ScopeUser)
+	agent := item(t, kernel.Claude, Agent, "demo:checker", ScopePlugin)
+	agent.Origin = plugin.Name
 	skill := item(t, kernel.Claude, Skill, "demo:review", ScopePlugin)
 	skill.Origin = plugin.Name
 	server := item(t, kernel.Claude, MCPServer, "helper", ScopePlugin)
@@ -168,12 +170,13 @@ func TestPluginsAddUpTheUsageOfWhatTheyCarry(t *testing.T) {
 	act := Activity{
 		Skills: []SkillActivity{{Harness: kernel.Claude, Skill: "demo:review", Calls: 2}},
 		Tools:  []ToolActivity{{Harness: kernel.Claude, Name: "ping", Server: "plugin_demo_helper", Calls: 5}},
+		Agents: []AgentActivity{{Harness: kernel.Claude, AgentType: "demo:checker", Requests: 40}},
 	}
 
 	// When linked
-	entries := Link([]Item{plugin, skill, server, bare}, act)
+	entries := Link([]Item{plugin, skill, server, agent, bare}, act)
 
-	// Then the plugin shows 7 uses, and the bare one is unknown
+	// Then the plugin shows 7 uses (calls and loads, not the agent's 40 requests, which count something else), and the bare one is unknown
 	if e := find(t, entries, kernel.Claude, Plugin, "demo@market"); e.Uses != 7 || !e.Tracked {
 		t.Errorf("plugin: %+v", e)
 	}
@@ -183,6 +186,19 @@ func TestPluginsAddUpTheUsageOfWhatTheyCarry(t *testing.T) {
 	// And a plugin skill is also found under its own name alone
 	if e := Link([]Item{skill}, Activity{Skills: []SkillActivity{{Harness: kernel.Claude, Skill: "review", Calls: 1}}}); e[0].Uses != 1 {
 		t.Errorf("bare skill name: %+v", e)
+	}
+}
+
+func TestPluginWithOnlyAgentsHasUnknownUsage(t *testing.T) {
+	// Given a plugin that carries only an agent, which the logs show at work
+	plugin := item(t, kernel.Claude, Plugin, "agents-only@market", ScopeUser)
+	agent := item(t, kernel.Claude, Agent, "agents-only:helper", ScopePlugin)
+	agent.Origin = plugin.Name
+	act := Activity{Agents: []AgentActivity{{Harness: kernel.Claude, AgentType: "agents-only:helper", Requests: 3}}}
+
+	// When linked, then the plugin does not claim an invocation count it cannot give
+	if e := find(t, Link([]Item{plugin, agent}, act), kernel.Claude, Plugin, "agents-only@market"); e.Tracked || e.Unused() {
+		t.Errorf("plugin: %+v", e)
 	}
 }
 

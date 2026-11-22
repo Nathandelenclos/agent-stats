@@ -64,7 +64,7 @@ What "uses" counts depends on the kind:
 - Agents: model requests made by sessions of that agent type, which only Claude Code logs by name.
 - Skills: loads through Claude Code's `Skill` tool, the only harness that logs the skill by name. An index written before
   that was recorded is migrated on the next run: only the log files holding a `Skill` call are read again.
-- Plugins: the sum over what they carry. Codex and pi plugin contents are not read, so their usage is unknown.
+- Plugins: the tool calls and skill loads of the MCP servers and skills they carry (their agents' requests count something else and are not added). Codex and pi plugin contents are not read, so their usage is unknown.
 
 `?` means the logs of that harness do not tell the item apart, so the usage is unknown, not zero. In `--json`, `uses` is then
 `null`. An item defined in several scopes shows the usage of its name on each line. Disabled items are marked `(off)` and not
