@@ -32,13 +32,6 @@ export function withQueries(client: QueryClient, ui: ReactElement) {
 
 export const click = (el: Element) => act(() => (el as HTMLElement).click());
 
-/** Waits for what react-query does asynchronously (a fetch resolving, a state flushing) to be on screen. */
-export async function settle() {
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-}
-
 /** The select a label names, as a person finds it. */
 export function selectLabelled(container: HTMLElement, label: string): HTMLSelectElement {
   const el = [...container.querySelectorAll("label")].find((l) => l.textContent === label);
@@ -55,4 +48,18 @@ export function choose(select: HTMLSelectElement, value: string) {
     Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(select, value);
     select.dispatchEvent(new Event("change", { bubbles: true }));
   });
+}
+
+/** Retries `assertion` while the page settles: fetches resolve and queries flush between attempts. */
+export async function eventually(assertion: () => void, attempts = 50) {
+  for (let i = 1; ; i++) {
+    try {
+      return assertion();
+    } catch (error) {
+      if (i >= attempts) throw error;
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+    }
+  }
 }

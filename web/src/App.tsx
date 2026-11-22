@@ -125,32 +125,46 @@ function Report({ filters, syncState }: { filters: Filters; syncState: SyncStatu
   const r = report.data;
   const resetKey = `${filters.since}\u0000${filters.harness}`;
   const zone = (name: string, children: ReactNode) => <Zone name={name} resetKey={resetKey}>{children}</Zone>;
-  if (r.total.requests === 0) return zone("The totals", <Totals total={r.total} />); // nothing to chart or tabulate
+  // Each zone is shown according to its own data: a period can hold tool calls and no model request (the last request was
+  // before it, a tool call after). The totals tell when there is no request; a zone with nothing to list is left out.
+  const hasCharts = r.daily.length > 0 || r.byHarness.length > 0 || r.byModel.length > 0;
   return (
     <div aria-busy={report.isFetching} className="flex flex-col gap-8">
       {zone("The totals", <Totals total={r.total} />)}
-      <Section id="charts" title="Cost">
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <div className="lg:col-span-2">{zone("The cost over time chart", <DailyCostChart daily={r.daily} />)}</div>
-          {zone("The cost by harness chart", <CostByChart title="Cost by harness" tableName="Harness" groups={r.byHarness} peers={[r.byModel]} />)}
-          {zone("The cost by model chart", <CostByChart title="Cost by model" tableName="Model" groups={r.byModel} peers={[r.byHarness]} />)}
-        </div>
-      </Section>
-      <Section id="by-harness" title="Harness">
-        {zone("The harness table", <UsageTable caption="Usage by harness" label="Harness" groups={r.byHarness} />)}
-      </Section>
-      <Section id="by-model" title="Model">
-        {zone("The model table", <UsageTable caption="Usage by model" label="Model" groups={r.byModel} />)}
-      </Section>
-      <Section id="by-folder" title="Folder">
-        {zone("The folder table", <UsageTable caption="Usage by folder" label="Folder" groups={r.byFolder} />)}
-      </Section>
-      <Section id="by-agent" title="Agent">
-        {zone("The agent table", <UsageTable caption="Usage by agent type" label="Agent type" groups={r.byAgentType} />)}
-      </Section>
-      <Section id="tools" title="Tools">
-        {zone("The tools table", <ToolsTable tools={r.tools} />)}
-      </Section>
+      {hasCharts && (
+        <Section id="charts" title="Cost">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="lg:col-span-2">{zone("The cost over time chart", <DailyCostChart daily={r.daily} />)}</div>
+            {zone("The cost by harness chart", <CostByChart title="Cost by harness" tableName="Harness" groups={r.byHarness} peers={[r.byModel]} />)}
+            {zone("The cost by model chart", <CostByChart title="Cost by model" tableName="Model" groups={r.byModel} peers={[r.byHarness]} />)}
+          </div>
+        </Section>
+      )}
+      {r.byHarness.length > 0 && (
+        <Section id="by-harness" title="Harness">
+          {zone("The harness table", <UsageTable caption="Usage by harness" label="Harness" groups={r.byHarness} />)}
+        </Section>
+      )}
+      {r.byModel.length > 0 && (
+        <Section id="by-model" title="Model">
+          {zone("The model table", <UsageTable caption="Usage by model" label="Model" groups={r.byModel} />)}
+        </Section>
+      )}
+      {r.byFolder.length > 0 && (
+        <Section id="by-folder" title="Folder">
+          {zone("The folder table", <UsageTable caption="Usage by folder" label="Folder" groups={r.byFolder} />)}
+        </Section>
+      )}
+      {r.byAgentType.length > 0 && (
+        <Section id="by-agent" title="Agent">
+          {zone("The agent table", <UsageTable caption="Usage by agent type" label="Agent type" groups={r.byAgentType} />)}
+        </Section>
+      )}
+      {r.tools.length > 0 && (
+        <Section id="tools" title="Tools">
+          {zone("The tools table", <ToolsTable tools={r.tools} />)}
+        </Section>
+      )}
     </div>
   );
 }
