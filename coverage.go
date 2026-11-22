@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/user"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	"github.com/Nathandelenclos/agent-stats/internal/platform/projectfolders"
@@ -10,10 +11,12 @@ import (
 )
 
 // coverage is what the views of one run cover: project is the project they can be restricted to (the zero Project when
-// there is none), and restricted says whether they are restricted to it now.
+// there is none), and restricted says whether they are restricted to it now. viaHome says the user named the home folder
+// as the project, which holds every project: the views then cover them all, and the label says why.
 type coverage struct {
 	project    kernel.Project
 	restricted bool
+	viaHome    bool
 }
 
 // restriction is the project a query is restricted to; the zero Project for every project.
@@ -26,6 +29,9 @@ func (c coverage) restriction() kernel.Project {
 
 // label says what the views cover, for the first line of a report.
 func (c coverage) label() string {
+	if c.viaHome {
+		return "All projects (the home folder is not a project)"
+	}
 	if !c.restricted {
 		return "All projects"
 	}
@@ -46,11 +52,16 @@ func workingProject() kernel.Project {
 	return p
 }
 
-// homeProject is the user's home folder, the zero Project when it cannot be told.
+// homeProject is the user's home folder: $HOME, or else what the user database says. It is the zero Project when
+// neither tells.
 func homeProject() kernel.Project {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return kernel.Project{}
+		u, uerr := user.Current()
+		if uerr != nil || u.HomeDir == "" {
+			return kernel.Project{}
+		}
+		home = u.HomeDir
 	}
 	p, err := projectfolders.Of(home)
 	if err != nil {
@@ -62,8 +73,12 @@ func homeProject() kernel.Project {
 // chooseCoverage decides what a run covers. A project the user gave (--project) is the one the views are restricted to.
 // Otherwise it is what detect makes of the working folder's project: that project when sessions worked in it, none
 // otherwise (the DetectProject use case of the command's context). Whichever the project, --all asks for every project,
-// and the project stays available to switch to.
-func chooseCoverage(all bool, given, working kernel.Project, detect func(kernel.Project) (kernel.Project, error)) (coverage, error) {
+// and the project stays available to switch to. The home folder is nobody's project, given or not: naming it asks for
+// every project.
+func chooseCoverage(all bool, given, working, home kernel.Project, detect func(kernel.Project) (kernel.Project, error)) (coverage, error) {
+	if !given.IsZero() && given == home {
+		return coverage{viaHome: true}, nil
+	}
 	if !given.IsZero() {
 		return coverage{project: given, restricted: !all}, nil
 	}
@@ -86,5 +101,5 @@ func coverageOf(all bool, dir string, detect func(kernel.Project) (kernel.Projec
 	if err != nil {
 		return coverage{}, err
 	}
-	return chooseCoverage(all, given, workingProject(), detect)
+	return chooseCoverage(all, given, workingProject(), homeProject(), detect)
 }

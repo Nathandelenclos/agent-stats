@@ -101,7 +101,7 @@ func runCatalog(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	defer activity.Close()
-	cov, err := chooseCoverage(*all, given, working, catalog.DetectProject{Queries: activity, Home: homeProject()}.Run)
+	cov, err := chooseCoverage(*all, given, working, homeProject(), catalog.DetectProject{Queries: activity, Home: homeProject()}.Run)
 	if err != nil {
 		return err
 	}

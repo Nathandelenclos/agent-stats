@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -17,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	"github.com/Nathandelenclos/agent-stats/internal/platform/projectfolders"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 )
 
@@ -24,8 +26,8 @@ import (
 // starts with the app's and a link to the app's sub-folder. One Claude session worked in each of the app (1 request), its
 // sub-folder (2), and the sibling (4): the number of requests a view counts tells which sessions it covers.
 type workplace struct {
-	home, app, sub, sibling, link string
-	db                            string
+	home, app, sub, sibling, link, empty string
+	db                                   string
 }
 
 func newScopedWorkplace(t *testing.T) workplace {
@@ -35,9 +37,9 @@ func newScopedWorkplace(t *testing.T) workplace {
 		t.Fatal(err)
 	}
 	w := workplace{home: filepath.Join(root, "home"), app: filepath.Join(root, "work", "app"), sibling: filepath.Join(root, "work", "app-2"),
-		link: filepath.Join(root, "shortcut"), db: filepath.Join(root, "index.db")}
+		link: filepath.Join(root, "shortcut"), empty: filepath.Join(root, "empty"), db: filepath.Join(root, "index.db")}
 	w.sub = filepath.Join(w.app, "web")
-	for _, d := range []string{w.home, filepath.Join(w.app, ".git"), w.sub, w.sibling} {
+	for _, d := range []string{w.home, filepath.Join(w.app, ".git"), w.sub, w.sibling, w.empty} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -182,7 +184,7 @@ func TestTheFlagProjectCountsTheProjectItNamesFromAnyFolder(t *testing.T) {
 	for name, c := range map[string]struct{ dir, requests, first string }{
 		"the sibling":                     {w.sibling, "4", "Project: app-2 (" + w.sibling + ")"},
 		"the sub-folder, by a link to it": {w.link, "2", "Project: web (" + w.sub + ")"},
-		"a folder no session worked in":   {w.home, "0", ""},
+		"a folder no session worked in":   {w.empty, "0", ""},
 	} {
 		// When the report is printed from the home folder for that project
 		out, _, err := w.report(t, w.home, "--project", c.dir)
@@ -192,7 +194,7 @@ func TestTheFlagProjectCountsTheProjectItNamesFromAnyFolder(t *testing.T) {
 
 		// Then it counts that project, whether sessions worked in it or not
 		if c.requests == "0" {
-			if !strings.HasPrefix(out, "Project: home ("+w.home+")\nNo requests in this range.") {
+			if !strings.HasPrefix(out, "Project: empty ("+w.empty+")\nNo requests in this range.") {
 				t.Errorf("%s: %q", name, out)
 			}
 			continue
@@ -200,6 +202,41 @@ func TestTheFlagProjectCountsTheProjectItNamesFromAnyFolder(t *testing.T) {
 		if requests, first := requestsOf(t, out); requests != c.requests || first != c.first {
 			t.Errorf("%s: %s requests, first line %q", name, requests, first)
 		}
+	}
+}
+
+func TestTheFlagProjectNamingTheHomeFolderCountsEveryProjectAndSaysSo(t *testing.T) {
+	// Given the same sessions, and the home folder that holds every one of them
+	w := newScopedWorkplace(t)
+
+	// When the report is printed for the project that is the home folder
+	out, _, err := w.report(t, w.app, "--project", w.home)
+
+	// Then every project is counted, and the first line says why
+	requests, first := requestsOf(t, out)
+	if err != nil || requests != "7" || first != "All projects (the home folder is not a project)" {
+		t.Errorf("%s requests, first line %q, %v", requests, first, err)
+	}
+}
+
+func TestTheHomeFolderIsReadFromTheUserDatabaseWhenHOMEIsNotSet(t *testing.T) {
+	// Given a user whose environment has no HOME
+	u, err := user.Current()
+	if err != nil || u.HomeDir == "" {
+		t.Skip("no home folder in the user database")
+	}
+	want, err := projectfolders.Of(u.HomeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", "")
+
+	// When the home folder is asked for
+	got := homeProject()
+
+	// Then it is the one the user database gives, not no folder at all
+	if got != want {
+		t.Errorf("home = %q, want %q", got.Root(), want.Root())
 	}
 }
 
@@ -346,16 +383,18 @@ func TestTheCoverageFollowsWhereSessionsWorkedAndWhatTheUserAskedFor(t *testing.
 		given, working kernel.Project
 		want           coverage
 	}{
-		"the working folder's project, with sessions":      {false, kernel.Project{}, app, coverage{app, true}},
+		"the working folder's project, with sessions":      {false, kernel.Project{}, app, coverage{project: app, restricted: true}},
 		"a working folder with no session":                 {false, kernel.Project{}, other, coverage{}},
 		"the home folder, though sessions worked below it": {false, kernel.Project{}, home, coverage{}},
-		"--all, which keeps the project to switch to":      {true, kernel.Project{}, app, coverage{app, false}},
+		"--all, which keeps the project to switch to":      {true, kernel.Project{}, app, coverage{project: app, restricted: false}},
 		"--all from a folder with no session":              {true, kernel.Project{}, other, coverage{}},
-		"--project, even where no session worked":          {false, other, app, coverage{other, true}},
-		"--project with --all, which wins":                 {true, other, app, coverage{other, false}},
+		"--project, even where no session worked":          {false, other, app, coverage{project: other, restricted: true}},
+		"--project with --all, which wins":                 {true, other, app, coverage{project: other, restricted: false}},
 		"no working folder":                                {false, kernel.Project{}, kernel.Project{}, coverage{}},
+		"--project naming the home folder":                 {false, home, app, coverage{viaHome: true}},
+		"--project naming the home folder with --all":      {true, home, app, coverage{viaHome: true}},
 	} {
-		got, err := chooseCoverage(c.all, c.given, c.working, detect)
+		got, err := chooseCoverage(c.all, c.given, c.working, home, detect)
 		if err != nil || got != c.want {
 			t.Errorf("%s: coverage = %+v, %v, want %+v", name, got, err, c.want)
 		}
@@ -365,7 +404,7 @@ func TestTheCoverageFollowsWhereSessionsWorkedAndWhatTheUserAskedFor(t *testing.
 func TestTheCoverageOfAnIndexThatCannotBeReadIsAnError(t *testing.T) {
 	boom := errors.New("boom")
 	app, _ := kernel.NewProject("/work/app")
-	_, err := chooseCoverage(false, kernel.Project{}, app, func(kernel.Project) (kernel.Project, error) { return kernel.Project{}, boom })
+	_, err := chooseCoverage(false, kernel.Project{}, app, kernel.Project{}, func(kernel.Project) (kernel.Project, error) { return kernel.Project{}, boom })
 	if !errors.Is(err, boom) {
 		t.Errorf("err = %v", err)
 	}
