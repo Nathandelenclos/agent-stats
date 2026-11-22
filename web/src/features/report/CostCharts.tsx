@@ -1,16 +1,13 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { formatDay, formatInteger, formatUSD } from "../../shared/format";
-
-/** Requests whose model has no known price count as $0 in the figures; the charts say so. */
-function unpricedNote(groups: UsageGroup[]): string {
-  const n = groups.reduce((sum, g) => sum + g.unpriced, 0);
-  return n > 0 ? ` ${formatInteger(n)} requests have no known price and count as $0.` : "";
-}
-
-import { continuousDays, topGroups, type DayPoint } from "./series";
-import type { UsageGroup } from "./types";
+import type { CostByModel, CostOverTimeModel, DayPoint } from "./series";
 
 const axisText = { fill: "var(--muted)", fontSize: 12 };
+
+/** Requests whose model has no known price count as $0 in the figures; the charts say so. */
+function unpricedNote(n: number): string {
+  return n > 0 ? ` ${formatInteger(n)} requests have no known price and count as $0.` : "";
+}
 
 function Figure({ title, summary, children }: { title: string; summary: string; children: React.ReactNode }) {
   return (
@@ -41,14 +38,10 @@ function Tip({ title, cost, requests }: { title: string; cost: number; requests:
 }
 
 /** Cost per local day. The values are also in a table behind the chart, for those who read numbers and not bars. */
-export function CostOverTime({ daily }: { daily: UsageGroup[] }) {
-  const days = continuousDays(daily);
-  if (days.length === 0) return null;
-  const total = days.reduce((sum, d) => sum + d.cost, 0);
-  const busiest = days.reduce((a, b) => (b.cost > a.cost ? b : a));
+export function CostOverTime({ model: { days, total, busiest, unpriced } }: { model: CostOverTimeModel }) {
   const summary =
     `${formatUSD(total)} over ${days.length} ${days.length === 1 ? "day" : "days"}, ${formatDay(days[0]!.day)} to ${formatDay(days[days.length - 1]!.day)}. ` +
-    `Busiest day: ${formatDay(busiest.day)}, ${formatUSD(busiest.cost)}. Days follow this machine's clock; the latest day may be incomplete.${unpricedNote(daily)}`;
+    `Busiest day: ${formatDay(busiest.day)}, ${formatUSD(busiest.cost)}. Days follow this machine's clock; the latest day may be incomplete.${unpricedNote(unpriced)}`;
   return (
     <Figure title="Cost per day" summary={summary}>
       <div className="h-64">
@@ -101,18 +94,17 @@ function shortDay(day: string): string {
 }
 
 /** Cost by group, biggest first; the same figures are in the table of that group below the charts. */
-export function CostBy({ title, tableName, groups, limit }: { title: string; tableName: string; groups: UsageGroup[]; limit: number }) {
-  const rows = topGroups(groups, limit);
+export function CostBy({ title, tableName, model: { rows, groupCount, unpriced, domainMax } }: { title: string; tableName: string; model: CostByModel }) {
   if (rows.length === 0) return null;
   const lead = rows[0]!;
-  const summary = `${formatUSD(lead.cost)} for ${lead.name}, the most expensive of ${groups.length}. Exact figures in the ${tableName} table below.${unpricedNote(groups)}`;
+  const summary = `${formatUSD(lead.cost)} for ${lead.name}, the most expensive of ${groupCount}. Exact figures in the ${tableName} table below. Charts side by side share one cost scale.${unpricedNote(unpriced)}`;
   return (
     <Figure title={title} summary={summary}>
       <div style={{ height: Math.max(120, rows.length * 32 + 32) }}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={rows} layout="vertical" margin={{ top: 0, right: 16, bottom: 0, left: 0 }}>
             <CartesianGrid stroke="var(--rule)" horizontal={false} />
-            <XAxis type="number" tick={axisText} tickFormatter={(v: number) => formatUSD(v)} stroke="var(--border)" />
+            <XAxis type="number" domain={[0, domainMax]} tick={axisText} tickFormatter={(v: number) => formatUSD(v)} stroke="var(--border)" />
             <YAxis type="category" dataKey="name" tick={axisText} width={132} tickFormatter={clip} interval={0} stroke="var(--border)" />
             <Tooltip
               cursor={{ fill: "var(--rule)" }}

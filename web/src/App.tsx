@@ -2,14 +2,22 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { ErrorBoundary } from "./shared/ErrorBoundary";
 import { useTheme, type ThemeChoice } from "./shared/theme";
-import { useMeta, useReport } from "./features/report/api";
-import { CostBy, CostOverTime } from "./features/report/CostCharts";
-import { FilterBar } from "./features/report/Filters";
-import { ToolsTable, UsageTable } from "./features/report/Tables";
-import { Totals } from "./features/report/Totals";
-import type { Filters, Meta } from "./features/report/types";
-import { useSyncStatus } from "./features/sync/api";
-import { SyncBanner } from "./features/sync/SyncBanner";
+import { ApiError } from "./shared/api";
+import {
+  buildCostBy,
+  buildCostOverTime,
+  CostBy,
+  CostOverTime,
+  FilterBar,
+  ToolsTable,
+  Totals,
+  UsageTable,
+  useMeta,
+  useReport,
+  type Filters,
+  type Meta,
+} from "./features/report";
+import { SyncBanner, useSyncStatus, type SyncStatus } from "./features/sync";
 
 /** Filters live in the address (?since=7d&harness=claude), so a reload or a bookmark keeps them. */
 function readFilters(meta: Meta): Filters {
@@ -30,7 +38,8 @@ function writeFilters(f: Filters) {
 
 /** What to tell the person about a failed request. */
 function describe(error: unknown): string {
-  return error instanceof Error ? error.message : "Unknown error.";
+  // The server words its own refusals for people; anything else (network, unreadable answer) gets a plain sentence.
+  return error instanceof ApiError ? error.message : "The page could not reach the agent-stats server. Check that it is still running, then try again.";
 }
 
 function Failure({ title, message, retry }: { title: string; message: string; retry: () => void }) {
@@ -73,13 +82,11 @@ function Section({ id, title, children }: { id: string; title: string; children:
   );
 }
 
-function Report({ filters }: { filters: Filters }) {
+function Report({ filters, syncState }: { filters: Filters; syncState: SyncStatus["state"] | undefined }) {
   const report = useReport(filters);
   const queryClient = useQueryClient();
-  const sync = useSyncStatus();
 
   // The figures were read from a partial index while it ran: read them again when it ends.
-  const syncState = sync.data?.state;
   useEffect(() => {
     if (syncState === "done") void queryClient.invalidateQueries({ queryKey: ["report"] });
   }, [syncState, queryClient]);
@@ -90,17 +97,21 @@ function Report({ filters }: { filters: Filters }) {
   }
   const r = report.data;
   if (r.total.requests === 0) return <Totals total={r.total} />; // nothing to chart or tabulate
+  const costOverTime = buildCostOverTime(r.daily);
+  const domainMax = Math.max(0, ...r.byHarness.map((g) => g.cost), ...r.byModel.map((g) => g.cost));
   return (
     <div aria-busy={report.isFetching} className="flex flex-col gap-8">
       <Totals total={r.total} />
       <Section id="charts" title="Cost">
         <ErrorBoundary fallback={(retry) => <Failure title="The charts could not be drawn." message="The tables below still hold the figures." retry={retry} />}>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <div className="lg:col-span-2">
-              <CostOverTime daily={r.daily} />
-            </div>
-            <CostBy title="Cost by harness" tableName="Harness" groups={r.byHarness} limit={10} />
-            <CostBy title="Cost by model" tableName="Model" groups={r.byModel} limit={10} />
+            {costOverTime && (
+              <div className="lg:col-span-2">
+                <CostOverTime model={costOverTime} />
+              </div>
+            )}
+            <CostBy title="Cost by harness" tableName="Harness" model={buildCostBy(r.byHarness, 10, domainMax)} />
+            <CostBy title="Cost by model" tableName="Model" model={buildCostBy(r.byModel, 10, domainMax)} />
           </div>
         </ErrorBoundary>
       </Section>
@@ -123,19 +134,20 @@ function Report({ filters }: { filters: Filters }) {
   );
 }
 
-function Filtered({ meta }: { meta: Meta }) {
+function Filtered({ meta, syncState }: { meta: Meta; syncState: SyncStatus["state"] | undefined }) {
   const [filters, setFilters] = useState<Filters>(() => readFilters(meta));
   useEffect(() => writeFilters(filters), [filters]);
   return (
     <>
       <FilterBar meta={meta} value={filters} onChange={setFilters} />
-      <Report filters={filters} />
+      <Report filters={filters} syncState={syncState} />
     </>
   );
 }
 
 export function App() {
   const meta = useMeta();
+  const sync = useSyncStatus();
   return (
     <>
       <a
@@ -152,11 +164,11 @@ export function App() {
           </div>
           <ThemeSelect />
         </header>
-        <SyncBanner />
-        <main id="main" tabIndex={-1} className="flex flex-col gap-6 outline-none">
+        <SyncBanner status={sync.data} unreachable={sync.isError} />
+        <main id="main" tabIndex={-1} className="flex flex-col gap-6">
           {meta.isPending && <p role="status">Loading…</p>}
           {meta.isError && <Failure title="The server did not answer." message={describe(meta.error)} retry={() => void meta.refetch()} />}
-          {meta.data && <Filtered meta={meta.data} />}
+          {meta.data && <Filtered meta={meta.data} syncState={sync.data?.state} />}
         </main>
       </div>
     </>

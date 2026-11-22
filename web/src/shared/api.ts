@@ -24,7 +24,11 @@ export async function getJSON<T>(path: string, params: Record<string, string> = 
     }
     throw new ApiError(res.status, detail);
   }
-  return (await res.json()) as T;
+  try {
+    return (await res.json()) as T;
+  } catch {
+    throw new ApiError(res.status, "The server sent an answer the page cannot read.");
+  }
 }
 
 /** Client errors (4xx) are the page's fault and retrying cannot fix them; the rest may be transient. */

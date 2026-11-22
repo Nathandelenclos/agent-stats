@@ -1,12 +1,11 @@
 import { formatInteger } from "../../shared/format";
-import { useSyncStatus } from "./api";
+import type { SyncStatus } from "./api";
 
 /** Says where the background indexing stands. A polite live region: the figures below change when it ends. */
-export function SyncBanner() {
-  const { data, error } = useSyncStatus();
+export function SyncBanner({ status: data, unreachable }: { status: SyncStatus | undefined; unreachable: boolean }) {
   let text = "";
   let tone = "text-muted";
-  if (error) {
+  if (unreachable) {
     text = "Cannot reach the agent-stats server; the figures may be out of date.";
     tone = "text-danger";
   } else if (data?.state === "running") {

@@ -44,3 +44,40 @@ export function topGroups(groups: UsageGroup[], limit: number): { name: string; 
     },
   ];
 }
+
+/** Requests whose model has no known price count as $0 in the figures; charts say so. */
+export function unpricedRequests(groups: UsageGroup[]): number {
+  return groups.reduce((sum, g) => sum + g.unpriced, 0);
+}
+
+/** What the cost-per-day chart shows: the continuous days and the figures its summary quotes. */
+export interface CostOverTimeModel {
+  days: DayPoint[];
+  total: number; // cost of the days shown, which leaves out requests with no known time
+  busiest: DayPoint;
+  unpriced: number;
+}
+
+export function buildCostOverTime(daily: UsageGroup[]): CostOverTimeModel | null {
+  const days = continuousDays(daily);
+  const first = days[0];
+  if (!first) return null;
+  return {
+    days,
+    total: days.reduce((sum, d) => sum + d.cost, 0),
+    busiest: days.reduce((a, b) => (b.cost > a.cost ? b : a), first),
+    unpriced: unpricedRequests(daily),
+  };
+}
+
+/** What a cost-by-group chart shows. domainMax is shared by charts that sit side by side, so equal bars mean equal costs. */
+export interface CostByModel {
+  rows: { name: string; cost: number; requests: number }[];
+  groupCount: number;
+  unpriced: number;
+  domainMax: number;
+}
+
+export function buildCostBy(groups: UsageGroup[], limit: number, domainMax: number): CostByModel {
+  return { rows: topGroups(groups, limit), groupCount: groups.length, unpriced: unpricedRequests(groups), domainMax };
+}
