@@ -10,7 +10,10 @@ go test -race ./...
 go build .
 ```
 
-CI runs the same three commands on every pull request.
+CI runs the same three commands on every pull request, after building the web front: `go generate ./web` (Node 22.12 or
+later; `npm ci` then `npm run build`, which type-checks the front), and it vets, tests and builds with `-tags web` as well.
+If you change `web/`, run `cd web && npm run typecheck` and look at the page with `agent-stats serve`
+(`go generate ./web && go build -tags web .`; or `npm run dev` in `web/`).
 
 - **Write tests with the code.** A new function, parser or report column comes with a test. Prefer testing
   behaviour (what the report says) over implementation details.
@@ -20,6 +23,9 @@ CI runs the same three commands on every pull request.
   `testdata/report.received.json` when the report changes. Read the diff, and copy it over the approved file only
   if the change is intended; explain it in the pull request.
 - Follow the layout described in the README: domain code does no I/O, adapters live in `infra`.
+- **Front dependencies.** `web/package.json` pins exact versions and `web/package-lock.json` is committed; install scripts are
+  off (`web/.npmrc`). Adding an npm dependency is a decision to take in the pull request, not a side effect. The built
+  `web/dist` is never committed.
 
 ## Commits and pull request titles
 
