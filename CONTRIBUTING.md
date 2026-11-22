@@ -62,9 +62,11 @@ The workflows assume these settings, which live on GitHub and not in the reposit
 - Pull requests are **squash-merged only**, with the pull request title as the commit message.
 - `main` is protected: pull request required, and the `Go checks` and `Conventional Commit title` checks must pass
   (GitHub names a required check after its job, not its workflow).
-- A tag ruleset on `v*` blocks updating and deleting tags, with an empty bypass list. A second, separate ruleset limits
-  tag creation to maintainers and to the release workflow (GitHub Actions in its bypass list, otherwise the workflow
-  cannot push its own tag). A release tag is never moved or re-created.
+- A tag ruleset on `v*` blocks updating and deleting tags, with an empty bypass list: a release tag is never moved or
+  deleted. **Do not restrict tag creation.** The release workflow pushes its own tag with the built-in `GITHUB_TOKEN`,
+  which cannot be added to a bypass list: a creation rule makes that push fail with `GH013`, even with GitHub Actions
+  in the bypass list (see [oras-go#1361](https://github.com/oras-project/oras-go/issues/1361)). A tag pushed by hand is
+  harmless: it publishes nothing, and the workflow releases it like any other (see "Releases").
 - **Immutable releases** are enabled, so a published release and its assets cannot be modified.
 - The default `GITHUB_TOKEN` permission is read-only; each workflow asks for what it needs.
 
