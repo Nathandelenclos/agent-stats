@@ -1,0 +1,2 @@
+{"type":"session","id":"p1","timestamp":"2026-01-05T13:00:00Z","cwd":"/work/app"}
+{"type":"message","id":"p2","timestamp":"2026-01-05T13:00:01Z","message":{"role":"assistant","provider":"anthropic","model":"claude-x","content":[{"type":"toolCall","id":"t1","name":"bash","arguments":{}}],"usage":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0},"stopReason":"toolUse"}}

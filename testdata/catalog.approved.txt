@@ -1,0 +1,716 @@
+=== all ===
+
+claude · 18 installed, 12 never used
+KIND    ITEM              SCOPE        USES  LAST USED
+mcp     docs              user         2     2026-01-02
+mcp     claude_ai_Notes   logs         1     2026-01-05
+mcp     helper            plugin:demo  1     2026-01-05
+mcp     inline-server     plugin:demo  0     never
+mcp     local-db          project      0     never
+mcp     project-server    project      0     never
+mcp     remote            user         0     never
+skill   demo:audit        plugin:demo  0     never
+skill   frontmatter-name  user         0     never
+skill   no-frontmatter    user         0     never
+skill   project-skill     project      0     never
+skill   review-notes      user         0     never
+agent   Explore           logs         1     2026-01-05
+agent   reviewer          user         1     2026-01-02
+agent   demo:checker      plugin:demo  0     never
+agent   plain-agent       user         0     never
+agent   project-agent     project      0     never
+plugin  demo@market       user         1     2026-01-05
+plugin  escape@market     user         ?     ?
+plugin  off@market (off)  user         ?     ?
+tool    Read              logs         1     2026-01-05
+
+codex · 9 installed, 1 never used
+KIND    ITEM                  SCOPE  USES  LAST USED
+mcp     github                user   2     2026-01-02
+mcp     paused (off)          user   0     never
+mcp     quoted.name           user   0     never
+skill   codex-skill           user   ?     ?
+skill   shared-skill          user   ?     ?
+agent   fallback-agent        user   ?     ?
+agent   planner               user   ?     ?
+plugin  helper@market         user   ?     ?
+plugin  stopped@market (off)  user   ?     ?
+tool    shell                 logs   1     2026-01-02
+
+omp · 5 installed, 1 never used
+KIND   ITEM            SCOPE    USES  LAST USED
+mcp    omp-docs        user     1     2026-01-05
+mcp    project-server  project  0     never
+skill  omp-skill       user     ?     ?
+skill  shared-skill    user     ?     ?
+agent  worker          user     ?     ?
+
+pi · 4 installed, 0 never used
+KIND    ITEM                                      SCOPE  USES  LAST USED
+skill   shared-skill                              user   ?     ?
+plugin  git+https://git.example.test/org/pkg.git  user   ?     ?
+plugin  npm:@org/pkg                              user   ?     ?
+plugin  pi-extras                                 user   ?     ?
+tool    bash                                      logs   1     2026-01-05
+--- stderr ---
+skipped /etc: points outside its directory
+=== json ===
+{
+  "entries": [
+    {
+      "harness": "claude",
+      "kind": "mcp",
+      "name": "docs",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.claude.json",
+      "installed": true,
+      "enabled": true,
+      "uses": 2,
+      "lastTs": 1767348002000
+    },
+    {
+      "harness": "claude",
+      "kind": "mcp",
+      "name": "claude_ai_Notes",
+      "scope": "logs",
+      "origin": "",
+      "source": "",
+      "installed": false,
+      "enabled": true,
+      "uses": 1,
+      "lastTs": 1767607205000
+    },
+    {
+      "harness": "claude",
+      "kind": "mcp",
+      "name": "helper",
+      "scope": "plugin",
+      "origin": "demo@market",
+      "source": "~/.claude/plugins/cache/demo/.mcp.json",
+      "installed": true,
+      "enabled": true,
+      "uses": 1,
+      "lastTs": 1767607203000
+    },
+    {
+      "harness": "claude",
+      "kind": "mcp",
+      "name": "inline-server",
+      "scope": "plugin",
+      "origin": "demo@market",
+      "source": "~/.claude/plugins/cache/demo/.claude-plugin/plugin.json",
+      "installed": true,
+      "enabled": true,
+      "uses": 0,
+      "lastTs": 0
+    },
+    {
+      "harness": "claude",
+      "kind": "mcp",
+      "name": "local-db",
+      "scope": "project",
+      "origin": "",
+      "source": "~/.claude.json",
+      "installed": true,
+      "enabled": true,
+      "uses": 0,
+      "lastTs": 0
+    },
+    {
+      "harness": "claude",
+      "kind": "mcp",
+      "name": "project-server",
+      "scope": "project",
+      "origin": "",
+      "source": "~/work/app/.mcp.json",
+      "installed": true,
+      "enabled": true,
+      "uses": 0,
+      "lastTs": 0
+    },
+    {
+      "harness": "claude",
+      "kind": "mcp",
+      "name": "remote",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.claude.json",
+      "installed": true,
+      "enabled": true,
+      "uses": 0,
+      "lastTs": 0
+    },
+    {
+      "harness": "claude",
+      "kind": "skill",
+      "name": "demo:audit",
+      "scope": "plugin",
+      "origin": "demo@market",
+      "source": "~/.claude/plugins/cache/demo/skills/audit",
+      "installed": true,
+      "enabled": true,
+      "uses": 0,
+      "lastTs": 0
+    },
+    {
+      "harness": "claude",
+      "kind": "skill",
+      "name": "frontmatter-name",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.claude/skills/dir-name",
+      "installed": true,
+      "enabled": true,
+      "uses": 0,
+      "lastTs": 0
+    },
+    {
+      "harness": "claude",
+      "kind": "skill",
+      "name": "no-frontmatter",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.claude/skills/no-frontmatter",
+      "installed": true,
+      "enabled": true,
+      "uses": 0,
+      "lastTs": 0
+    },
+    {
+      "harness": "claude",
+      "kind": "skill",
+      "name": "project-skill",
+      "scope": "project",
+      "origin": "",
+      "source": "~/work/app/.claude/skills/project-skill",
+      "installed": true,
+      "enabled": true,
+      "uses": 0,
+      "lastTs": 0
+    },
+    {
+      "harness": "claude",
+      "kind": "skill",
+      "name": "review-notes",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.claude/skills/review-notes",
+      "installed": true,
+      "enabled": true,
+      "uses": 0,
+      "lastTs": 0
+    },
+    {
+      "harness": "claude",
+      "kind": "agent",
+      "name": "Explore",
+      "scope": "logs",
+      "origin": "",
+      "source": "",
+      "installed": false,
+      "enabled": true,
+      "uses": 1,
+      "lastTs": 1767610800000
+    },
+    {
+      "harness": "claude",
+      "kind": "agent",
+      "name": "reviewer",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.claude/agents/reviewer.md",
+      "installed": true,
+      "enabled": true,
+      "uses": 1,
+      "lastTs": 1767351600000
+    },
+    {
+      "harness": "claude",
+      "kind": "agent",
+      "name": "demo:checker",
+      "scope": "plugin",
+      "origin": "demo@market",
+      "source": "~/.claude/plugins/cache/demo/agents/checker.md",
+      "installed": true,
+      "enabled": true,
+      "uses": 0,
+      "lastTs": 0
+    },
+    {
+      "harness": "claude",
+      "kind": "agent",
+      "name": "plain-agent",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.claude/agents/plain-agent.md",
+      "installed": true,
+      "enabled": true,
+      "uses": 0,
+      "lastTs": 0
+    },
+    {
+      "harness": "claude",
+      "kind": "agent",
+      "name": "project-agent",
+      "scope": "project",
+      "origin": "",
+      "source": "~/work/app/.claude/agents/project-agent.md",
+      "installed": true,
+      "enabled": true,
+      "uses": 0,
+      "lastTs": 0
+    },
+    {
+      "harness": "claude",
+      "kind": "plugin",
+      "name": "demo@market",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.claude/plugins/cache/demo",
+      "installed": true,
+      "enabled": true,
+      "uses": 1,
+      "lastTs": 1767607203000
+    },
+    {
+      "harness": "claude",
+      "kind": "plugin",
+      "name": "escape@market",
+      "scope": "user",
+      "origin": "",
+      "source": "/etc",
+      "installed": true,
+      "enabled": true,
+      "uses": null,
+      "lastTs": 0
+    },
+    {
+      "harness": "claude",
+      "kind": "plugin",
+      "name": "off@market",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.claude/plugins/cache/off",
+      "installed": true,
+      "enabled": false,
+      "uses": null,
+      "lastTs": 0
+    },
+    {
+      "harness": "claude",
+      "kind": "tool",
+      "name": "Read",
+      "scope": "logs",
+      "origin": "",
+      "source": "",
+      "installed": false,
+      "enabled": true,
+      "uses": 1,
+      "lastTs": 1767607204000
+    },
+    {
+      "harness": "codex",
+      "kind": "mcp",
+      "name": "github",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.codex/config.toml",
+      "installed": true,
+      "enabled": true,
+      "uses": 2,
+      "lastTs": 1767355202000
+    },
+    {
+      "harness": "codex",
+      "kind": "mcp",
+      "name": "paused",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.codex/config.toml",
+      "installed": true,
+      "enabled": false,
+      "uses": 0,
+      "lastTs": 0
+    },
+    {
+      "harness": "codex",
+      "kind": "mcp",
+      "name": "quoted.name",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.codex/config.toml",
+      "installed": true,
+      "enabled": true,
+      "uses": 0,
+      "lastTs": 0
+    },
+    {
+      "harness": "codex",
+      "kind": "skill",
+      "name": "codex-skill",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.codex/skills/codex-skill",
+      "installed": true,
+      "enabled": true,
+      "uses": null,
+      "lastTs": 0
+    },
+    {
+      "harness": "codex",
+      "kind": "skill",
+      "name": "shared-skill",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.agents/skills/shared-skill",
+      "installed": true,
+      "enabled": true,
+      "uses": null,
+      "lastTs": 0
+    },
+    {
+      "harness": "codex",
+      "kind": "agent",
+      "name": "fallback-agent",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.codex/agents/fallback-agent.toml",
+      "installed": true,
+      "enabled": true,
+      "uses": null,
+      "lastTs": 0
+    },
+    {
+      "harness": "codex",
+      "kind": "agent",
+      "name": "planner",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.codex/agents/planner.toml",
+      "installed": true,
+      "enabled": true,
+      "uses": null,
+      "lastTs": 0
+    },
+    {
+      "harness": "codex",
+      "kind": "plugin",
+      "name": "helper@market",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.codex/config.toml",
+      "installed": true,
+      "enabled": true,
+      "uses": null,
+      "lastTs": 0
+    },
+    {
+      "harness": "codex",
+      "kind": "plugin",
+      "name": "stopped@market",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.codex/config.toml",
+      "installed": true,
+      "enabled": false,
+      "uses": null,
+      "lastTs": 0
+    },
+    {
+      "harness": "codex",
+      "kind": "tool",
+      "name": "shell",
+      "scope": "logs",
+      "origin": "",
+      "source": "",
+      "installed": false,
+      "enabled": true,
+      "uses": 1,
+      "lastTs": 1767355203000
+    },
+    {
+      "harness": "omp",
+      "kind": "mcp",
+      "name": "omp-docs",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.omp/agent/mcp.json",
+      "installed": true,
+      "enabled": true,
+      "uses": 1,
+      "lastTs": 1767614401000
+    },
+    {
+      "harness": "omp",
+      "kind": "mcp",
+      "name": "project-server",
+      "scope": "project",
+      "origin": "",
+      "source": "~/work/app/.mcp.json",
+      "installed": true,
+      "enabled": true,
+      "uses": 0,
+      "lastTs": 0
+    },
+    {
+      "harness": "omp",
+      "kind": "skill",
+      "name": "omp-skill",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.omp/agent/skills/omp-skill",
+      "installed": true,
+      "enabled": true,
+      "uses": null,
+      "lastTs": 0
+    },
+    {
+      "harness": "omp",
+      "kind": "skill",
+      "name": "shared-skill",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.agents/skills/shared-skill",
+      "installed": true,
+      "enabled": true,
+      "uses": null,
+      "lastTs": 0
+    },
+    {
+      "harness": "omp",
+      "kind": "agent",
+      "name": "worker",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.omp/agent/agents/worker.md",
+      "installed": true,
+      "enabled": true,
+      "uses": null,
+      "lastTs": 0
+    },
+    {
+      "harness": "pi",
+      "kind": "skill",
+      "name": "shared-skill",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.agents/skills/shared-skill",
+      "installed": true,
+      "enabled": true,
+      "uses": null,
+      "lastTs": 0
+    },
+    {
+      "harness": "pi",
+      "kind": "plugin",
+      "name": "git+https://git.example.test/org/pkg.git",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.pi/agent/settings.json",
+      "installed": true,
+      "enabled": true,
+      "uses": null,
+      "lastTs": 0
+    },
+    {
+      "harness": "pi",
+      "kind": "plugin",
+      "name": "npm:@org/pkg",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.pi/agent/settings.json",
+      "installed": true,
+      "enabled": true,
+      "uses": null,
+      "lastTs": 0
+    },
+    {
+      "harness": "pi",
+      "kind": "plugin",
+      "name": "pi-extras",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.pi/agent/settings.json",
+      "installed": true,
+      "enabled": true,
+      "uses": null,
+      "lastTs": 0
+    },
+    {
+      "harness": "pi",
+      "kind": "tool",
+      "name": "bash",
+      "scope": "logs",
+      "origin": "",
+      "source": "",
+      "installed": false,
+      "enabled": true,
+      "uses": 1,
+      "lastTs": 1767618001000
+    }
+  ],
+  "skipped": [
+    "/etc: points outside its directory"
+  ]
+}
+=== claude only ===
+
+claude · 18 installed, 12 never used
+KIND    ITEM              SCOPE        USES  LAST USED
+mcp     docs              user         2     2026-01-02
+mcp     claude_ai_Notes   logs         1     2026-01-05
+mcp     helper            plugin:demo  1     2026-01-05
+mcp     inline-server     plugin:demo  0     never
+mcp     local-db          project      0     never
+mcp     project-server    project      0     never
+mcp     remote            user         0     never
+skill   demo:audit        plugin:demo  0     never
+skill   frontmatter-name  user         0     never
+skill   no-frontmatter    user         0     never
+skill   project-skill     project      0     never
+skill   review-notes      user         0     never
+agent   Explore           logs         1     2026-01-05
+agent   reviewer          user         1     2026-01-02
+agent   demo:checker      plugin:demo  0     never
+agent   plain-agent       user         0     never
+agent   project-agent     project      0     never
+plugin  demo@market       user         1     2026-01-05
+plugin  escape@market     user         ?     ?
+plugin  off@market (off)  user         ?     ?
+tool    Read              logs         1     2026-01-05
+--- stderr ---
+skipped /etc: points outside its directory
+=== since 2026-01-04 ===
+
+claude · 18 installed, 14 never used
+KIND    ITEM              SCOPE        USES  LAST USED
+mcp     claude_ai_Notes   logs         1     2026-01-05
+mcp     helper            plugin:demo  1     2026-01-05
+mcp     docs              user         0     never
+mcp     inline-server     plugin:demo  0     never
+mcp     local-db          project      0     never
+mcp     project-server    project      0     never
+mcp     remote            user         0     never
+skill   demo:audit        plugin:demo  0     never
+skill   frontmatter-name  user         0     never
+skill   no-frontmatter    user         0     never
+skill   project-skill     project      0     never
+skill   review-notes      user         0     never
+agent   Explore           logs         1     2026-01-05
+agent   demo:checker      plugin:demo  0     never
+agent   plain-agent       user         0     never
+agent   project-agent     project      0     never
+agent   reviewer          user         0     never
+plugin  demo@market       user         1     2026-01-05
+plugin  escape@market     user         ?     ?
+plugin  off@market (off)  user         ?     ?
+tool    Read              logs         1     2026-01-05
+
+codex · 9 installed, 2 never used
+KIND    ITEM                  SCOPE  USES  LAST USED
+mcp     github                user   0     never
+mcp     paused (off)          user   0     never
+mcp     quoted.name           user   0     never
+skill   codex-skill           user   ?     ?
+skill   shared-skill          user   ?     ?
+agent   fallback-agent        user   ?     ?
+agent   planner               user   ?     ?
+plugin  helper@market         user   ?     ?
+plugin  stopped@market (off)  user   ?     ?
+
+omp · 5 installed, 1 never used
+KIND   ITEM            SCOPE    USES  LAST USED
+mcp    omp-docs        user     1     2026-01-05
+mcp    project-server  project  0     never
+skill  omp-skill       user     ?     ?
+skill  shared-skill    user     ?     ?
+agent  worker          user     ?     ?
+
+pi · 4 installed, 0 never used
+KIND    ITEM                                      SCOPE  USES  LAST USED
+skill   shared-skill                              user   ?     ?
+plugin  git+https://git.example.test/org/pkg.git  user   ?     ?
+plugin  npm:@org/pkg                              user   ?     ?
+plugin  pi-extras                                 user   ?     ?
+tool    bash                                      logs   1     2026-01-05
+--- stderr ---
+skipped /etc: points outside its directory
+=== never used ===
+
+claude · 12 installed, 12 never used
+KIND   ITEM              SCOPE        USES  LAST USED
+mcp    inline-server     plugin:demo  0     never
+mcp    local-db          project      0     never
+mcp    project-server    project      0     never
+mcp    remote            user         0     never
+skill  demo:audit        plugin:demo  0     never
+skill  frontmatter-name  user         0     never
+skill  no-frontmatter    user         0     never
+skill  project-skill     project      0     never
+skill  review-notes      user         0     never
+agent  demo:checker      plugin:demo  0     never
+agent  plain-agent       user         0     never
+agent  project-agent     project      0     never
+
+codex · 1 installed, 1 never used
+KIND  ITEM         SCOPE  USES  LAST USED
+mcp   quoted.name  user   0     never
+
+omp · 1 installed, 1 never used
+KIND  ITEM            SCOPE    USES  LAST USED
+mcp   project-server  project  0     never
+--- stderr ---
+skipped /etc: points outside its directory
+=== no project ===
+
+claude · 15 installed, 9 never used
+KIND    ITEM              SCOPE        USES  LAST USED
+mcp     docs              user         2     2026-01-02
+mcp     claude_ai_Notes   logs         1     2026-01-05
+mcp     helper            plugin:demo  1     2026-01-05
+mcp     inline-server     plugin:demo  0     never
+mcp     local-db          project      0     never
+mcp     remote            user         0     never
+skill   demo:audit        plugin:demo  0     never
+skill   frontmatter-name  user         0     never
+skill   no-frontmatter    user         0     never
+skill   review-notes      user         0     never
+agent   Explore           logs         1     2026-01-05
+agent   reviewer          user         1     2026-01-02
+agent   demo:checker      plugin:demo  0     never
+agent   plain-agent       user         0     never
+plugin  demo@market       user         1     2026-01-05
+plugin  escape@market     user         ?     ?
+plugin  off@market (off)  user         ?     ?
+tool    Read              logs         1     2026-01-05
+
+codex · 9 installed, 1 never used
+KIND    ITEM                  SCOPE  USES  LAST USED
+mcp     github                user   2     2026-01-02
+mcp     paused (off)          user   0     never
+mcp     quoted.name           user   0     never
+skill   codex-skill           user   ?     ?
+skill   shared-skill          user   ?     ?
+agent   fallback-agent        user   ?     ?
+agent   planner               user   ?     ?
+plugin  helper@market         user   ?     ?
+plugin  stopped@market (off)  user   ?     ?
+tool    shell                 logs   1     2026-01-02
+
+omp · 4 installed, 0 never used
+KIND   ITEM          SCOPE  USES  LAST USED
+mcp    omp-docs      user   1     2026-01-05
+skill  omp-skill     user   ?     ?
+skill  shared-skill  user   ?     ?
+agent  worker        user   ?     ?
+
+pi · 4 installed, 0 never used
+KIND    ITEM                                      SCOPE  USES  LAST USED
+skill   shared-skill                              user   ?     ?
+plugin  git+https://git.example.test/org/pkg.git  user   ?     ?
+plugin  npm:@org/pkg                              user   ?     ?
+plugin  pi-extras                                 user   ?     ?
+tool    bash                                      logs   1     2026-01-05
+--- stderr ---
+skipped /etc: points outside its directory

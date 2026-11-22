@@ -86,6 +86,14 @@ type Item struct {
 	Disabled bool
 }
 
+// Plugin is the short name of the plugin an item comes from, empty for the others.
+func (i Item) Plugin() string {
+	if i.Origin.IsZero() {
+		return ""
+	}
+	return PluginName(i.Origin)
+}
+
 // identity is what makes two definitions the same item.
 func (i Item) identity() [5]string {
 	return [5]string{i.Harness.String(), i.Kind.name, i.Name.s, i.Scope.name, i.Origin.s}
