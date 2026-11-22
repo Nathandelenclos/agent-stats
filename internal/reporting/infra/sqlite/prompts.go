@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
+	"strings"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
@@ -17,18 +18,17 @@ var _ reporting.PromptQueries = (*SQLitePrompts)(nil)
 // Prompts gives access to the prompts of the same index.
 func (s *SQLiteUsage) Prompts() *SQLitePrompts { return &SQLitePrompts{s.db} }
 
-// FlaggedPrompts lists the prompts typed in the filter's range that show a signal, most recent first. One
-// statement reads one state of the index. The prompts are the user's own: those of a main conversation that is a root of the
-// listing, not the briefs a subagent received, even one whose parent was never indexed (it is its own root then). Each text is cut to report.PromptTextLimit characters.
+// FlaggedPrompts lists the prompts typed in the filter's range that show a signal, most recent first.
+// Only user prompts in main conversations are included. Full text is needed to group recurring asks.
 func (s *SQLitePrompts) FlaggedPrompts(f report.Filter) ([]report.FlaggedPrompt, error) {
-	cond, args := `(p.yelling + p.profanity + p.anguish + p.negation + p.blame > 0 OR p.repetition <> 0)`, []any{report.PromptTextLimit}
+	cond, args := `(p.yelling + p.profanity + p.anguish + p.negation + p.blame > 0 OR p.repetition <> 0)`, []any(nil)
 	if !f.Since.IsZero() {
 		cond, args = cond+" AND p.ts >= ?", append(args, kernel.UnixMilli(f.Since))
 	}
 	if !f.Harness.IsZero() {
 		cond, args = cond+" AND o.harness = ?", append(args, f.Harness.String())
 	}
-	rows, err := s.db.Query(`SELECT p.session_id, o.harness, COALESCE(o.title, ''), COALESCE(o.folder, ''), p.ts, substr(p.text, 1, ?),
+	rows, err := s.db.Query(`SELECT p.session_id, o.harness, COALESCE(o.title, ''), COALESCE(o.folder, ''), p.ts, p.text,
 			p.yelling, p.profanity, p.anguish, p.negation, p.repetition, p.blame
 		FROM session_prompts p JOIN session_overview o ON o.id = p.session_id AND o.id = o.root_id AND o.agent_type = 'main'
 		WHERE `+cond+` ORDER BY p.ts DESC, p.session_id, p.position`, args...)
@@ -46,6 +46,9 @@ func (s *SQLitePrompts) FlaggedPrompts(f report.Filter) ([]report.FlaggedPrompt,
 			&x.Signals.Anguish, &x.Signals.Negation, &repeated, &x.Signals.Blame); err != nil {
 			return nil, err
 		}
+		if hasAgentEnvelope(x.Text) {
+			continue
+		}
 		if x.Session, err = report.NewSessionID(id); err != nil {
 			return nil, err
 		}
@@ -56,4 +59,12 @@ func (s *SQLitePrompts) FlaggedPrompts(f report.Filter) ([]report.FlaggedPrompt,
 		out = append(out, x)
 	}
 	return out, rows.Err()
+}
+
+// hasAgentEnvelope recognises the attribution T3 places before a relayed agent message.
+func hasAgentEnvelope(text string) bool {
+	line, _, _ := strings.Cut(text, "\n")
+	thread, prefixed := strings.CutPrefix(strings.TrimSuffix(line, "\r"), `[T3 Code: the agent in T3 thread "`)
+	id, suffixed := strings.CutSuffix(thread, `" sent this message, not the user.]`)
+	return prefixed && suffixed && id != "" && !strings.ContainsRune(id, '"')
 }

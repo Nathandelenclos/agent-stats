@@ -3,6 +3,7 @@ package application
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,16 +97,16 @@ func TestPromptsWithoutAnySignalAreNotFlagged(t *testing.T) {
 	}
 }
 
-func TestThePromptsWithTheMostSignalsComeFirst(t *testing.T) {
-	// Given three flagged prompts: one repeated, one with four hits, and a newer one that is also repeated
-	repeated := flagged("claude:a", "/work", "again", 0, domain.PromptSignals{Repeated: true})
+func TestThePromptsWithTheMostSignalCategoriesComeFirst(t *testing.T) {
+	// Given three flagged prompts: one with thirty yelling hits, one with three categories, and a newer repetition
+	repeated := flagged("claude:a", "/work", "again", 0, domain.PromptSignals{Yelling: 30})
 	loud := flagged("claude:a", "/work", "loud", 1, domain.PromptSignals{Yelling: 2, Profanity: 1, Blame: 1})
 	newer := flagged("claude:b", "/work", "newer", 2, domain.PromptSignals{Repeated: true})
 
 	// When they are reviewed
 	r := review(t, repeated, newer, loud)
 
-	// Then the loudest leads, and prompts with as many signals follow most recent first
+	// Then the most varied leads, and prompts with as many categories follow most recent first
 	var order []string
 	for _, p := range r.Prompts {
 		order = append(order, p.Text)
@@ -233,5 +234,24 @@ func TestARecurringAskHintsAtWritingItDown(t *testing.T) {
 	// Then its hint says how often it came back and in how many sessions
 	if len(r.Recurring) != 1 || r.Recurring[0].Hint() != "Repeated 4 times in 2 sessions: consider writing this down." {
 		t.Errorf("recurring = %+v", r.Recurring)
+	}
+}
+
+func TestLongAsksWithDifferentEndingsAreNotRecurring(t *testing.T) {
+	prefix := strings.Repeat("same setup ", domain.PromptTextLimit)
+	signal := domain.PromptSignals{Negation: 1}
+	r := review(t, flagged("claude:a", "/work", prefix+"keep the file", 0, signal),
+		flagged("claude:b", "/work", prefix+"move the file", 1, signal))
+	if len(r.Recurring) != 0 {
+		t.Fatal("different asks were grouped")
+	}
+}
+
+func TestCanonicallyEquivalentAccentsFormOneRecurringAsk(t *testing.T) {
+	signal := domain.PromptSignals{Negation: 1}
+	r := review(t, flagged("claude:a", "/work", "garde le résumé", 0, signal),
+		flagged("claude:b", "/work", "garde le re\u0301sume\u0301", 1, signal))
+	if len(r.Recurring) != 1 {
+		t.Fatalf("recurring asks = %d, want 1", len(r.Recurring))
 	}
 }

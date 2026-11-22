@@ -80,7 +80,7 @@ subagents, whose parent session is indexed or not) that show at least one frustr
   looked at, and a rephrasing is a different ask: the grouping is an exact match on the normalised text. Nothing is ever written
   to `AGENTS.md` for you.
 - **Folders**: how many flagged prompts, sessions and signals each working folder gathered, so you see where frustration concentrates.
-- **Prompts**: the flagged prompts, the most signals first (then the most recent), each with its date, harness, session title, folder,
+- **Prompts**: the flagged prompts, the most distinct signal categories first (then the most recent), each with its date, harness, session title, folder,
   signals and a one-line excerpt with control characters replaced.
 
 In the interface, `↑↓`, `PgUp`/`PgDn`, `Home`/`End` scroll, `p` and `h` change the period and the harness, `r` indexes again.

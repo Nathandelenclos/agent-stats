@@ -256,3 +256,12 @@ func TestALongReviewScrollsAndStopsAtItsEnds(t *testing.T) {
 		t.Errorf("back at the top:\n%s", m.View())
 	}
 }
+
+func TestThePromptsViewShowsSignalsBesideLongMetadata(t *testing.T) {
+	prompt := flaggedAt("claude:a", "/"+strings.Repeat("f", 39), "keep this file", 0, domain.PromptSignals{Negation: 1})
+	prompt.Title = strings.Repeat("t", 40)
+	view := strings.Join(reviewLines(domain.NewPromptReview([]domain.FlaggedPrompt{prompt}), 80), "\n")
+	if !strings.Contains(view, "negation 1") {
+		t.Fatalf("signal lost at 80 columns:\n%s", view)
+	}
+}

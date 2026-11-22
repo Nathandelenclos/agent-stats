@@ -8,6 +8,8 @@ import (
 	"time"
 	"unicode"
 
+	"golang.org/x/text/unicode/norm"
+
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 )
 
@@ -16,6 +18,17 @@ func (s PromptSignals) Count() int {
 	n := s.Yelling + s.Profanity + s.Anguish + s.Negation + s.Blame
 	if s.Repeated {
 		n++
+	}
+	return n
+}
+
+// categories counts each kind of signal once so repeated words do not dominate the ranking.
+func (s PromptSignals) categories() int {
+	n := 0
+	for _, present := range [...]bool{s.Yelling > 0, s.Profanity > 0, s.Anguish > 0, s.Negation > 0, s.Blame > 0, s.Repeated} {
+		if present {
+			n++
+		}
 	}
 	return n
 }
@@ -49,7 +62,7 @@ type FlaggedPrompt struct {
 	Title   string // the session's
 	Folder  string // the session's
 	At      time.Time
-	Text    string // the first PromptTextLimit characters
+	Text    string // full text, for grouping recurring asks
 	Signals PromptSignals
 }
 
@@ -79,7 +92,7 @@ type FolderFrustration struct {
 // PromptReview is what the user keeps correcting or repeating: the flagged prompts most worth a look first,
 // the asks that came back, and where the frustration concentrates.
 type PromptReview struct {
-	Prompts   []FlaggedPrompt     // most signals first, then most recent first
+	Prompts   []FlaggedPrompt     // most signal categories first, then most recent first
 	Sessions  int                 // how many sessions they come from
 	Recurring []RecurringAsk      // most repeated first
 	Folders   []FolderFrustration // most flagged prompts first
@@ -101,7 +114,7 @@ func NewPromptReview(prompts []FlaggedPrompt) PromptReview {
 		}
 	}
 	slices.SortStableFunc(r.Prompts, func(a, b FlaggedPrompt) int {
-		return cmp.Or(cmp.Compare(b.Signals.Count(), a.Signals.Count()), b.At.Compare(a.At), strings.Compare(a.Session.String(), b.Session.String()))
+		return cmp.Or(cmp.Compare(b.Signals.categories(), a.Signals.categories()), b.At.Compare(a.At), strings.Compare(a.Session.String(), b.Session.String()))
 	})
 	r.Sessions = distinctSessions(r.Prompts)
 	r.Recurring = recurringAsks(r.Prompts)
@@ -122,7 +135,7 @@ func distinctSessions(prompts []FlaggedPrompt) int {
 // would also group rephrasings. The indexing context's own repetition test (case and spacing only, inside one
 // session) is private to that context, so this one is the reporting context's.
 func askKey(text string) string {
-	return strings.Join(strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+	return strings.Join(strings.FieldsFunc(norm.NFC.String(strings.ToLower(text)), func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
 	}), " ")
 }

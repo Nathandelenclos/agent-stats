@@ -77,7 +77,7 @@ func (m Model) promptsView() string {
 const noFlaggedPrompts = "No flagged prompts in this range."
 
 // reviewLines is the body of the review: how many prompts, the asks that came back with a hint, the folders they
-// concentrate in, then the prompts, most signals first. Text from the logs is made printable and cut to width.
+// concentrate in, then the prompts, most signal categories first. Text from the logs is made printable and cut to width.
 func reviewLines(r reporting.PromptReview, width int) []string {
 	if len(r.Prompts) == 0 {
 		return []string{noFlaggedPrompts}
@@ -104,7 +104,7 @@ func reviewLines(r reporting.PromptReview, width int) []string {
 	section("PROMPTS")
 	for _, p := range r.Prompts {
 		meta := fmt.Sprintf("%s · %s · %s · %s", timeText(p.At, "2006-01-02 15:04"), p.Harness, textfmt.Excerpt(sessionTitle(reporting.SessionSummary{Title: p.Title}), 40), textfmt.Excerpt(orDash(p.Folder), 40))
-		out = append(out, meta+" · "+errorStyle.Render(signalTags(p.Signals)), "    "+textfmt.Excerpt(p.Text, max(10, width-4)))
+		out = append(out, meta, "    "+errorStyle.Render(signalTags(p.Signals)), "    "+textfmt.Excerpt(p.Text, max(10, width-4)))
 	}
 
 	cut := lipgloss.NewStyle().MaxWidth(max(1, width))

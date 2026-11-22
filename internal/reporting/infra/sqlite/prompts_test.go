@@ -44,11 +44,13 @@ func promptsIndexed(t *testing.T) string {
 			('claude:main', 2, ?, ?, 20, 3, 3, 1, 2, 4, 0, 5),
 			('claude:main', 3, ?, 'add a test', 10, 3, 0, 0, 0, 0, 1, 0),
 			('claude:main', 4, ?, ?, ?, 1, 0, 0, 0, 1, 0, 0),
+			('claude:main', 5, ?, ?, 86, 15, 2, 0, 0, 1, 0, 0),
 			('claude:main/kid', 1, ?, 'NO NO brief to the subagent', 27, 5, 2, 0, 0, 0, 0, 0),
 			('codex:old', 1, ?, 'stop that', 9, 2, 0, 0, 0, 1, 0, 0),
 			('claude:gone/orphan', 1, ?, 'NO NO brief for the orphan', 26, 5, 2, 0, 0, 0, 0, 0),
 			('codex:explore', 1, ?, 'STOP STOP brief for the explorer', 32, 6, 2, 0, 0, 2, 0, 0)`,
-			[]any{t0, t0, hostile + "\x1b[2J", t1, t1, long, len([]rune(long)), t0, t0, t0, t0}},
+			[]any{t0, t0, hostile + "\x1b[2J", t1, t1, long, len([]rune(long)), t0,
+				"[T3 Code: the agent in T3 thread \"thread-id\" sent this message, not the user.]\n\nNO NO", t0, t0, t0, t0}},
 	} {
 		if _, err := db.Exec(stmt.sql, stmt.args...); err != nil {
 			t.Fatalf("%v: %s", err, stmt.sql)
@@ -180,7 +182,7 @@ func TestFlaggedPromptsKeepHostileTextsAsData(t *testing.T) {
 	}
 }
 
-func TestFlaggedPromptsAreCutToTheTextLimit(t *testing.T) {
+func TestFlaggedPromptsKeepTheFullTextForRecurrence(t *testing.T) {
 	// Given a flagged prompt longer than the text limit
 	p := openPrompts(t)
 
@@ -190,13 +192,13 @@ func TestFlaggedPromptsAreCutToTheTextLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Then its text is cut to the limit, in characters
-	var cut bool
+	// Then its full text can be used to decide recurrence
+	var full bool
 	for _, x := range list {
-		cut = cut || len([]rune(x.Text)) == report.PromptTextLimit
+		full = full || len([]rune(x.Text)) == report.PromptTextLimit+50
 	}
-	if !cut {
-		t.Errorf("long text not cut: %v", promptTexts(list))
+	if !full {
+		t.Errorf("long text was truncated: %v", promptTexts(list))
 	}
 }
 
@@ -219,6 +221,19 @@ func TestFlaggedPromptsFollowThePeriodAndHarnessFilters(t *testing.T) {
 		// Then only the prompts typed in that range and harness come back
 		if err != nil || len(list) != c.want {
 			t.Errorf("%s: %v, %v; want %d", c.name, promptTexts(list), err, c.want)
+		}
+	}
+}
+
+func TestFlaggedPromptsExcludeAgentMessagesInAMainSession(t *testing.T) {
+	p := openPrompts(t)
+	list, err := p.FlaggedPrompts(report.Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, x := range list {
+		if strings.HasPrefix(x.Text, "[T3 Code:") {
+			t.Fatal("agent message appeared in the user's prompts")
 		}
 	}
 }

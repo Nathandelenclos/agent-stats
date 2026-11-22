@@ -60,7 +60,7 @@ type jsonFolderFrustration struct {
 	Signals  int    `json:"signals"`
 }
 
-// jsonPromptReview is the --json form of a prompt review: timestamps in Unix milliseconds, 0 when unknown, and texts
+// jsonPromptReview is the --json form of a prompt review: timestamps in Unix milliseconds, 0 when unknown, and excerpts
 // neutralised as in the plain-text review. Empty lists print as [], never null.
 type jsonPromptReview struct {
 	Prompts   []jsonFlaggedPrompt     `json:"prompts"`
@@ -74,14 +74,14 @@ func promptReviewJSON(r reporting.PromptReview) jsonPromptReview {
 	for _, p := range r.Prompts {
 		s := p.Signals
 		out.Prompts = append(out.Prompts, jsonFlaggedPrompt{kernel.UnixMilli(p.At), p.Harness.String(), p.Session.String(),
-			textfmt.Excerpt(p.Title, excerptRunes), textfmt.Excerpt(p.Folder, excerptRunes),
+			textfmt.Excerpt(p.Title, excerptRunes), p.Folder,
 			jsonSignals{s.Yelling, s.Profanity, s.Anguish, s.Negation, s.Blame, s.Repeated}, textfmt.Excerpt(p.Text, excerptRunes)})
 	}
 	for _, a := range r.Recurring {
 		out.Recurring = append(out.Recurring, jsonRecurringAsk{textfmt.Excerpt(a.Text, excerptRunes), a.Count, a.Sessions, kernel.UnixMilli(a.First), kernel.UnixMilli(a.Last)})
 	}
 	for _, f := range r.Folders {
-		out.ByFolder = append(out.ByFolder, jsonFolderFrustration{textfmt.Excerpt(f.Folder, excerptRunes), f.Prompts, f.Sessions, f.Signals})
+		out.ByFolder = append(out.ByFolder, jsonFolderFrustration{f.Folder, f.Prompts, f.Sessions, f.Signals})
 	}
 	return out
 }
