@@ -95,6 +95,7 @@ type dbSchema struct {
 	events        bool            // session_message
 	parts         bool            // session_part
 	stamped       map[string]bool // the tables of parts that say when a row was updated
+	forks         map[string]bool // the session tables that say which session a session was forked from
 }
 
 var sessionTableColumns = []string{"id", "parent_id", "directory", "title", "time_created", "time_updated"}
@@ -219,7 +220,7 @@ func hasAll(cols map[string]bool, want ...string) bool {
 
 // detect reads which tables the database has. A database that has none of the known layouts is refused.
 func (d *OpenCodeDatabase) detect(ctx context.Context, db *sql.DB) (dbSchema, error) {
-	var s dbSchema
+	s := dbSchema{forks: map[string]bool{}}
 	for _, t := range []string{"session_v2", "session"} {
 		c, err := columns(ctx, db, t)
 		if err != nil {
@@ -227,6 +228,7 @@ func (d *OpenCodeDatabase) detect(ctx context.Context, db *sql.DB) (dbSchema, er
 		}
 		if hasAll(c, sessionTableColumns...) {
 			s.sessionTables = append(s.sessionTables, t)
+			s.forks[t] = c["fork_session_id"]
 		}
 	}
 	c, err := columns(ctx, db, "message")
@@ -256,6 +258,10 @@ func (d *OpenCodeDatabase) detect(ctx context.Context, db *sql.DB) (dbSchema, er
 	}
 	return s, nil
 }
+
+// forkedTitle is how OpenCode names a fork of a session of the older generation of the schema, which does not say
+// what a session was forked from: "<title> (fork #2)".
+var forkedTitle = regexp.MustCompile(`\(fork #[0-9]+\)$`)
 
 var sessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$`)
 
@@ -605,10 +611,14 @@ func (d *OpenCodeDatabase) readSession(path string, h kernel.Harness, s dbSessio
 	if p.Session.ID, err = domain.NewSessionID(h, s.id); err != nil {
 		return domain.Transcript{}, err
 	}
-	var parent, directory, title sql.NullString
+	var parent, directory, title, forkedFrom sql.NullString
 	var created int64
-	err = tx.QueryRowContext(ctx, `SELECT parent_id, directory, title, time_created FROM `+s.table+` WHERE id = ?`, s.id).
-		Scan(&parent, &directory, &title, &created)
+	forkColumn := "NULL"
+	if schema.forks[s.table] {
+		forkColumn = "fork_session_id"
+	}
+	err = tx.QueryRowContext(ctx, `SELECT parent_id, directory, title, time_created, `+forkColumn+` FROM `+s.table+` WHERE id = ?`, s.id).
+		Scan(&parent, &directory, &title, &created, &forkedFrom)
 	if err != nil {
 		return domain.Transcript{}, err
 	}
@@ -621,6 +631,7 @@ func (d *OpenCodeDatabase) readSession(path string, h kernel.Harness, s dbSessio
 	p.Session.Folder = absoluteFolder(directory.String)
 	p.Session.Title = domain.Title(title.String)
 	sessionStart := epochMilli(created)
+	forked := forkedFrom.String != "" || forkedTitle.MatchString(title.String)
 
 	budget := maxDBSessionBytes
 	query := func(q string, each func(r dbRow)) error {
@@ -663,10 +674,17 @@ func (d *OpenCodeDatabase) readSession(path string, h kernel.Harness, s dbSessio
 		if m.at.IsZero() {
 			m.at = msFloat(m.Time.Created)
 		}
-		// A session forked from another one holds a copy of the messages of the original, which keep their times:
-		// those older than the session are history, counted with the session they belong to.
-		if !sessionStart.IsZero() && !m.at.IsZero() && m.at.Before(sessionStart) {
-			return nil, false
+		// A session forked from another one holds a copy of the messages of the original, which keep the time they
+		// were made at in their data, whatever the time the copy was stamped with: those older than the session are
+		// history, counted with the session they belong to. A session that is not a fork keeps all its messages.
+		if forked && !sessionStart.IsZero() {
+			made := m.at
+			if t := msFloat(m.Time.Created); !t.IsZero() {
+				made = t
+			}
+			if !made.IsZero() && made.Before(sessionStart) {
+				return nil, false
+			}
 		}
 		if r.typ != "" {
 			m.Role = r.typ

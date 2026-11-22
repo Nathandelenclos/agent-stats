@@ -270,8 +270,9 @@ What each of the three newer readers counts, and what it does not:
   generation has neither. Prompts are the text of the user's messages, minus synthetic and ignored parts. Tool calls
   count their argument and result sizes, errors and durations; an MCP tool is listed under the name OpenCode gives it
   (`<server>_<tool>`), with no server, as that name cannot be split reliably. A child session (with a parent) is a
-  subagent. A forked session counts only what was said since the fork: the messages it copied from the original are
-  older than it and are dropped. Compactions of the events generation count as requests, those that failed too (with what they used and their error). Not read: the session totals and
+  subagent. A forked session (one that names the session it was forked from, or, in the older generation, whose title ends with
+  `(fork #N)`) counts only what was said since the fork: the messages it copied from the original were made before it,
+  by the time in their data, and are dropped. A session that is not a fork keeps all its messages. Compactions of the events generation count as requests, those that failed too (with what they used and their error). Not read: the session totals and
   `step-finish` parts (they repeat the usage of the messages), Kilo's former extension tasks, and shared or archived state.
 - **Gemini CLI** conversations are JSON documents or JSONL journals; a journal is replayed (`$patch`, `$rewindTo`,
   `$set`) before it is counted. A request is a `gemini` message that states its tokens, counted once whatever the

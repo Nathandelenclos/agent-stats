@@ -329,6 +329,62 @@ func TestAForkedSessionCountsOnlyWhatWasSaidSinceTheFork(t *testing.T) {
 	}
 }
 
+func TestASessionThatIsNotAForkKeepsItsMessagesOlderThanItself(t *testing.T) {
+	for name, c := range map[string]struct{ script, table, session, message, part string }{
+		"an older OpenCode": {"messages.sql", "session", `INSERT INTO session VALUES ('ses_late', 'prj', NULL, 'late', '/work/demo-app', 'Imported', '1.0', 1767226500000, 1767226500000)`,
+			`INSERT INTO message VALUES ('msg_old', 'ses_late', 1767225000000, 1767225000000, '{"role":"user","time":{"created":1767225000000}}')`,
+			`INSERT INTO part VALUES ('prt_old', 'msg_old', 'ses_late', 1767225000000, 1767225000000, '{"type":"text","text":"Written before the session"}')`},
+		"a newer OpenCode": {"events.sql", "session_v2", `INSERT INTO session_v2 VALUES ('ses_late', 'prj', NULL, NULL, 'late', '/work/demo-app', 'Imported', '2.0', 1767226500000, 1767226500000)`,
+			`INSERT INTO session_message VALUES ('msg_old', 'ses_late', 'user', 1, 1767225000000, 1767225000000, '{"time":{"created":1767225000000},"text":"Written before the session"}')`, ``},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Given a session that is not a fork and holds a message dated before the session was created
+			logs, db := newOpenCode(t, c.script)
+			writeDB(t, db, c.session, c.message)
+			if c.part != "" {
+				writeDB(t, db, c.part)
+			}
+
+			// When it is read
+			p := transcriptOf(t, logs, "ses_late")
+
+			// Then the message is counted
+			if len(p.Prompts) != 1 || p.Prompts[0].Text != "Written before the session" {
+				t.Errorf("prompts = %+v", p.Prompts)
+			}
+		})
+	}
+}
+
+func TestAMessageCopiedIntoAForkIsHistoryEvenWhenItWasStampedWhenTheForkWasMade(t *testing.T) {
+	for name, c := range map[string]struct{ script, session, message, part string }{
+		"an older OpenCode": {"messages.sql", "ses_fork",
+			`INSERT INTO message VALUES ('msg_24', 'ses_fork', 1767226000000, 1767226000000, '{"role":"user","time":{"created":1767225603000}}')`,
+			`INSERT INTO part VALUES ('prt_24a', 'msg_24', 'ses_fork', 1767226000000, 1767226000000, '{"type":"text","text":"Copied from the original"}')`},
+		"a newer OpenCode": {"events.sql", "ses_c",
+			`INSERT INTO session_message VALUES ('msg_c0', 'ses_c', 'user', 0, 1767226000000, 1767226000000, '{"time":{"created":1767225603000},"text":"Copied from the original"}')`, ``},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Given a fork that holds a copy of a message of the original, stamped at the millisecond of the fork
+			logs, db := newOpenCode(t, c.script)
+			writeDB(t, db, c.message)
+			if c.part != "" {
+				writeDB(t, db, c.part)
+			}
+
+			// When it is read
+			p := transcriptOf(t, logs, c.session)
+
+			// Then the copy is not one of its prompts
+			for _, pr := range p.Prompts {
+				if pr.Text == "Copied from the original" {
+					t.Errorf("prompts = %+v", p.Prompts)
+				}
+			}
+		})
+	}
+}
+
 func TestMessagesThatCannotBeReadAreSkippedAndCounted(t *testing.T) {
 	// Given a session with a message that cannot be read, usage that is negative or beyond any model's window, a negative cost,
 	// an error name with an escape sequence, and a folder that has one
@@ -407,7 +463,7 @@ func TestACompactionThatFailedIsARequestWithItsUsageAndItsError(t *testing.T) {
 		cost    float64
 		failure string
 	}{
-		"a compaction that failed after using the model": {`{"time":{"created":1767225641000},"status":"failed","model":{"id":"claude-test","providerID":"anthropic"},"cost":0.07,"tokens":{"input":300,"output":0,"reasoning":0,"cache":{"read":0,"write":0}},"error":{"type":"ProviderOverloaded","message":"busy"}}`, 300, 0.07, "ProviderOverloaded"},
+		"a compaction that failed after using the model":      {`{"time":{"created":1767225641000},"status":"failed","model":{"id":"claude-test","providerID":"anthropic"},"cost":0.07,"tokens":{"input":300,"output":0,"reasoning":0,"cache":{"read":0,"write":0}},"error":{"type":"ProviderOverloaded","message":"busy"}}`, 300, 0.07, "ProviderOverloaded"},
 		"a compaction that failed with an error and no usage": {`{"time":{"created":1767225641000},"status":"failed","model":{"id":"claude-test","providerID":"anthropic"},"error":{"type":"Aborted","message":"stopped"}}`, 0, 0, "Aborted"},
 	} {
 		t.Run(name, func(t *testing.T) {
