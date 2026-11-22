@@ -312,10 +312,11 @@ func (m *Model) layout() {
 		}
 		rows[i] = row
 	}
-	m.table.SetRows(nil) // bubbles/table indexes old rows by the new columns, so never leave them mismatched
+	cursor := m.table.Cursor() // SetRows(nil) below resets it
+	m.table.SetRows(nil)       // bubbles/table indexes old rows by the new columns, so never leave them mismatched
 	m.table.SetColumns(cols)
 	m.table.SetRows(rows)
-	m.table.SetCursor(max(0, m.table.Cursor())) // a shorter table must not leave the cursor past its end
+	m.table.SetCursor(cursor) // clamped by the table: a shorter report must not leave the cursor past its end
 	m.table.SetWidth(m.width)
 	m.table.SetHeight(max(4, m.height-chromeLines))
 	s := table.DefaultStyles()

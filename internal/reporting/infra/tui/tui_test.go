@@ -679,3 +679,20 @@ func TestEmptyMessageIsPerTab(t *testing.T) {
 		}
 	}
 }
+
+func TestResizingKeepsTheSelectedRow(t *testing.T) {
+	// Given the third row selected
+	m := start(t, &fakeReports{report: sortReport()})
+	m = press(t, m, "j", "j")
+	if c := m.table.Cursor(); c != 2 {
+		t.Fatalf("cursor = %d before resizing", c)
+	}
+
+	// When the terminal is widened by a column
+	m = send(t, m, tea.WindowSizeMsg{Width: 81, Height: 24})
+
+	// Then the same row stays selected
+	if c := m.table.Cursor(); c != 2 {
+		t.Errorf("cursor = %d after resizing, want 2", c)
+	}
+}
