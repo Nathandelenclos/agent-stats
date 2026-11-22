@@ -16,7 +16,7 @@ import (
 // contract_test.go at the module root checks the adapter against the indexing adapter's real views.
 const sessionModel = `
 CREATE TABLE session_overview (id TEXT NOT NULL, root_id TEXT NOT NULL, harness TEXT NOT NULL, agent_type TEXT NOT NULL,
-	title TEXT, folder TEXT, started_at INTEGER, ended_at INTEGER);
+	title TEXT, folder TEXT, started_at INTEGER, ended_at INTEGER, run_started_at INTEGER NOT NULL, run_ended_at INTEGER NOT NULL);
 CREATE TABLE session_requests (root_id TEXT NOT NULL, session_id TEXT NOT NULL, ts INTEGER NOT NULL, model TEXT NOT NULL,
 	input INTEGER NOT NULL, output INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL,
 	cost REAL NOT NULL, priced INTEGER NOT NULL, duration_ms REAL, ttft_ms REAL, error TEXT);
@@ -33,7 +33,7 @@ const (
 )
 
 // sessionsIndexed writes three sessions into a fresh read model and returns the database path:
-//   - claude:main (ended t1), with a subagent and prompts, on two models, one of them named hostile;
+//   - claude:main (ended t0 itself, but its subagent ended t1, so its run did), with a subagent and prompts, on two models, one of them named hostile;
 //   - codex:old (ended t0);
 //   - claude:gone/orphan, a subagent whose parent was never indexed, with no timestamps at all.
 func sessionsIndexed(t *testing.T) string {
@@ -51,11 +51,11 @@ func sessionsIndexed(t *testing.T) string {
 	}{
 		{sessionModel, nil},
 		{`INSERT INTO session_overview VALUES
-			('claude:main', 'claude:main', 'claude', 'main', ?, ?, ?, ?),
-			('claude:main/kid', 'claude:main', 'claude', ?, ?, NULL, ?, ?),
-			('codex:old', 'codex:old', 'codex', 'main', NULL, NULL, ?, ?),
-			('claude:gone/orphan', 'claude:gone/orphan', 'claude', 'subagent', 'orphan', NULL, 0, 0)`,
-			[]any{hostile, hostile, t0, t1, hostile, "kid", t0, t1, t0 - 60_000, t0}},
+			('claude:main', 'claude:main', 'claude', 'main', ?, ?, ?, ?, ?, ?),
+			('claude:main/kid', 'claude:main', 'claude', ?, ?, NULL, ?, ?, ?, ?),
+			('codex:old', 'codex:old', 'codex', 'main', NULL, NULL, ?, ?, ?, ?),
+			('claude:gone/orphan', 'claude:gone/orphan', 'claude', 'subagent', 'orphan', NULL, 0, 0, 0, 0)`,
+			[]any{hostile, hostile, t0, t0, t0, t1, hostile, "kid", t0, t1, t0, t1, t0 - 60_000, t0, t0 - 60_000, t0}},
 		{`INSERT INTO session_requests VALUES
 			('claude:main', 'claude:main', ?, 'cheap', 100, 10, 0, 0, 1, 1, 1000, NULL, NULL),
 			('claude:main', 'claude:main', ?, ?, 100, 10, 0, 0, 3, 1, 2000, NULL, 'boom'),

@@ -62,6 +62,8 @@ CREATE VIEW IF NOT EXISTS usage_tool_calls AS
 -- Session views. root_id is the session a listing shows: the session itself, or the top session whose chain of
 -- subagents it belongs to. A subagent whose parent log was never indexed (or was deleted) is its own root, and so
 -- is a main conversation forked from another one: only subagents roll up into their parent.
+-- run_started_at and run_ended_at span the whole run (the root and its subagents): a session is active until its
+-- last subagent stops. 0 stands for unknown.
 DROP VIEW IF EXISTS session_requests;
 DROP VIEW IF EXISTS session_tool_calls;
 DROP VIEW IF EXISTS session_overview;
@@ -71,7 +73,9 @@ CREATE VIEW session_overview AS
 		UNION ALL
 		SELECT c.id, t.root_id, t.depth + 1 FROM tree t JOIN sessions c ON c.parent_id = t.id AND c.agent_type <> 'main' WHERE t.depth < 32
 	)
-	SELECT s.id, t.root_id, s.harness, s.agent_type, s.title, s.folder, s.started_at, s.ended_at
+	SELECT s.id, t.root_id, s.harness, s.agent_type, s.title, s.folder, s.started_at, s.ended_at,
+		COALESCE(MIN(NULLIF(s.started_at, 0)) OVER (PARTITION BY t.root_id), 0) AS run_started_at,
+		MAX(s.ended_at) OVER (PARTITION BY t.root_id) AS run_ended_at
 	FROM tree t JOIN sessions s ON s.id = t.id;
 CREATE VIEW session_requests AS
 	SELECT o.root_id, r.session_id, r.ts, r.model, r.input, r.output, r.cache_read, r.cache_write, r.cost, r.priced,

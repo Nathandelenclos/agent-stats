@@ -253,6 +253,28 @@ func TestAForkedConversationIsListedOnItsOwn(t *testing.T) {
 	}
 }
 
+func TestARunLastsUntilItsLastSubagentActivity(t *testing.T) {
+	// Given a session that ended at 10 minutes and a subagent that ended at 20
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	parent := transcript(t, "a", at)
+	parent.Session.End = at.Add(10 * time.Minute)
+	child := subagentOf(t, "a", "b", at.Add(time.Minute))
+	child.Session.End = at.Add(20 * time.Minute)
+	saveAll(t, s, map[string]application.IndexedTranscript{"/logs/a.jsonl": parent, "/logs/b.jsonl": child})
+
+	// When the run of the session is read
+	var start, end int64
+	if err := s.db.QueryRow(`SELECT run_started_at, run_ended_at FROM session_overview WHERE id = 'claude:a'`).Scan(&start, &end); err != nil {
+		t.Fatal(err)
+	}
+
+	// Then it spans from the session's start to the subagent's last activity
+	if start != at.UnixMilli() || end != at.Add(20*time.Minute).UnixMilli() {
+		t.Errorf("run = %d → %d", start, end)
+	}
+}
+
 func TestPromptsKeepTheOrderTheyWereTypedInAndTheirSignals(t *testing.T) {
 	// Given a session whose prompts were typed in a different order than their keys sort
 	s := open(t)

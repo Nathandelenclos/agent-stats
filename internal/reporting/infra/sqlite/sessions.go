@@ -31,8 +31,9 @@ func (s *SQLiteSessions) snapshot(fn func(querier) error) error {
 }
 
 // sessionCols selects the listed sessions: a session, or a subagent whose parent was never indexed (a root).
+// Their time span is the run's: from the session's start to the last activity of any of its subagents.
 // The prompt figures count the session's own prompts, not the briefs it sent to its subagents.
-const sessionCols = `SELECT s.id, s.harness, s.agent_type, COALESCE(s.title, ''), COALESCE(s.folder, ''), s.started_at, s.ended_at,
+const sessionCols = `SELECT s.id, s.harness, s.agent_type, COALESCE(s.title, ''), COALESCE(s.folder, ''), s.run_started_at, s.run_ended_at,
 	(SELECT COUNT(*) FROM session_overview c WHERE c.root_id = s.id AND c.id <> s.id),
 	(SELECT COUNT(*) FROM session_prompts p WHERE p.session_id = s.id),
 	(SELECT COALESCE(SUM(p.chars), 0) FROM session_prompts p WHERE p.session_id = s.id)
@@ -43,7 +44,7 @@ func (s *SQLiteSessions) Sessions(f report.Filter) (out []report.SessionSummary,
 	var cond string // narrows the roots (aliased s); every value is a bound parameter
 	var args []any
 	if !f.Since.IsZero() {
-		cond, args = cond+" AND s.ended_at >= ?", append(args, kernel.UnixMilli(f.Since))
+		cond, args = cond+" AND s.run_ended_at >= ?", append(args, kernel.UnixMilli(f.Since))
 	}
 	if !f.Harness.IsZero() {
 		cond, args = cond+" AND s.harness = ?", append(args, f.Harness.String())
@@ -91,7 +92,7 @@ func (s *SQLiteSessions) Session(id report.SessionID) (d report.SessionDetail, e
 
 // sessionRows reads the listed sessions that cond narrows to, most recent first, without their usage.
 func sessionRows(q querier, cond string, args []any) ([]report.SessionSummary, error) {
-	rows, err := q.Query(sessionCols+cond+` ORDER BY s.ended_at DESC, s.started_at DESC, s.id`, args...)
+	rows, err := q.Query(sessionCols+cond+` ORDER BY s.run_ended_at DESC, s.run_started_at DESC, s.id`, args...)
 	if err != nil {
 		return nil, err
 	}

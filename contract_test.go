@@ -130,6 +130,55 @@ func TestSessionReadModelContract(t *testing.T) {
 	}
 }
 
+// TestSessionRunsFollowTheirNestedSubagents lists a run of three generations of agents through the indexing and
+// reporting adapters: the top session carries what every generation used, and is active until the last one stops.
+func TestSessionRunsFollowTheirNestedSubagents(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "index.db")
+	w, err := sqlite.Open(sqlite.Options{Path: path, User: "me@host"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.UnixMilli(1767261600000)
+	a, _ := domain.NewSessionID(kernel.Claude, "a")
+	b, _ := a.Subagent("b")
+	c, _ := b.Subagent("c")
+	cost, _ := kernel.NewCost(1)
+	tokens, _ := kernel.NewTokens(kernel.TokenCounts{Input: 10, Output: 1})
+	for i, s := range []domain.Session{
+		{ID: a, Harness: kernel.Claude, AgentType: domain.MainAgent, Start: at, End: at.Add(10 * time.Minute)},
+		{ID: b, Harness: kernel.Claude, ParentID: a, AgentType: domain.Subagent, Start: at, End: at.Add(15 * time.Minute)},
+		{ID: c, Harness: kernel.Claude, ParentID: b, AgentType: domain.Subagent, Start: at, End: at.Add(20 * time.Minute)},
+	} {
+		model := []string{"opus", "sonnet", "haiku"}[i]
+		err = w.Save(indexing.LogFile{Path: "/logs/" + s.ID.String(), Harness: kernel.Claude}, indexing.IndexedTranscript{
+			Transcript: domain.Transcript{Session: s, Requests: []domain.Request{{Key: "m", At: at, Model: model, Tokens: tokens}}},
+			Costs:      []indexing.PricedCost{{Cost: cost, Priced: true}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.Close()
+
+	usage, err := usagedb.OpenReadOnly(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer usage.Close()
+	// Since falls after the top session's own last entry and before its last subagent's.
+	list, err := usage.Sessions().Sessions(report.Filter{Since: at.Add(15 * time.Minute)})
+	if err != nil || len(list) != 1 {
+		t.Fatalf("sessions = %+v %v", list, err)
+	}
+	s := list[0]
+	if s.ID.String() != "claude:a" || s.Requests != 3 || s.Cost != 3 || s.SubagentCount != 2 || len(s.Models) != 3 {
+		t.Errorf("summary = %+v", s)
+	}
+	if d, ok := s.Duration(); !ok || d != 20*time.Minute || !s.End.Equal(at.Add(20*time.Minute)) {
+		t.Errorf("run = %v → %v (%v %v)", s.Start, s.End, d, ok)
+	}
+}
+
 // publishedViews is the index's read model; only session_prompts may carry prompt text.
 const publishedViews = "session_overview,session_prompts,session_requests,session_tool_calls,usage_requests,usage_tool_calls"
 
