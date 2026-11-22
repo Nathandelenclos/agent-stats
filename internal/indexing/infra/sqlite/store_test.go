@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -118,5 +119,75 @@ func TestIndexIsPrivate(t *testing.T) {
 	defer s2.Close()
 	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
 		t.Errorf("reopened index is %v", info.Mode().Perm())
+	}
+}
+
+// oldSchema is the index as it was before tool calls recorded the skill they load.
+const oldSchema = `
+CREATE TABLE files (path TEXT PRIMARY KEY, harness TEXT NOT NULL, size INTEGER NOT NULL, mtime INTEGER NOT NULL);
+CREATE TABLE sessions (id TEXT PRIMARY KEY, file TEXT NOT NULL, harness TEXT NOT NULL, parent_id TEXT, agent_type TEXT NOT NULL,
+	title TEXT, folder TEXT, user TEXT NOT NULL, started_at INTEGER, ended_at INTEGER);
+CREATE TABLE tool_calls (file TEXT NOT NULL, key TEXT NOT NULL, session_id TEXT NOT NULL, ts INTEGER NOT NULL,
+	name TEXT NOT NULL, server TEXT NOT NULL, args_chars INTEGER NOT NULL, result_chars INTEGER NOT NULL,
+	is_error INTEGER NOT NULL, duration_ms REAL, PRIMARY KEY (session_id, key));
+CREATE VIEW usage_tool_calls AS SELECT t.ts, t.name, t.server, t.args_chars, t.result_chars, t.is_error, t.duration_ms, s.harness
+	FROM tool_calls t JOIN sessions s ON s.id = t.session_id;
+INSERT INTO files VALUES ('/logs/with-skill.jsonl', 'claude', 1, 1), ('/logs/without.jsonl', 'claude', 1, 1);
+INSERT INTO sessions VALUES ('claude:a', '/logs/with-skill.jsonl', 'claude', NULL, 'main', '', '', 'me@host', 1, 1),
+	('claude:b', '/logs/without.jsonl', 'claude', NULL, 'main', '', '', 'me@host', 1, 1);
+INSERT INTO tool_calls VALUES ('/logs/with-skill.jsonl', 't1', 'claude:a', 1, 'Skill', '', 0, 0, 0, NULL),
+	('/logs/without.jsonl', 't2', 'claude:b', 1, 'Read', '', 0, 0, 0, NULL);
+`
+
+func TestOldIndexGainsTheSkillColumnAndReadsItsSkillFilesAgain(t *testing.T) {
+	// Given an index written before tool calls recorded their skill, holding one log with a Skill call and one without
+	path := filepath.Join(t.TempDir(), "index.db")
+	old, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := old.Exec(oldSchema); err != nil {
+		t.Fatal(err)
+	}
+	old.Close()
+
+	// When it is opened
+	s, err := Open(Options{Path: path, User: "me@host"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	// Then the published view offers the skill, and only the log with a Skill call is forgotten, to be indexed again
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM usage_tool_calls WHERE skill = ''`).Scan(&n); err != nil || n != 2 {
+		t.Errorf("view rows without a skill = %d, %v", n, err)
+	}
+	known, err := s.IndexedFiles()
+	if err != nil || len(known) != 1 || known["/logs/without.jsonl"].Path == "" {
+		t.Errorf("indexed files after migration = %+v %v", known, err)
+	}
+	// And opening it again changes nothing
+	s2, err := Open(Options{Path: path, User: "me@host"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s2.Close()
+}
+
+func TestSaveRecordsTheSkillOfASkillCall(t *testing.T) {
+	// Given a transcript whose tool call loads a skill
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	tr := transcript(t, "s1", at)
+	tr.Tools[0].Name, tr.Tools[0].Server, tr.Tools[0].Skill = "Skill", "", "review"
+
+	// When it is saved, then the published view shows the skill
+	if err := s.Save(application.LogFile{Path: "/logs/s1.jsonl", Harness: kernel.Claude}, tr); err != nil {
+		t.Fatal(err)
+	}
+	var skill string
+	if err := s.db.QueryRow(`SELECT skill FROM usage_tool_calls WHERE name = 'Skill'`).Scan(&skill); err != nil || skill != "review" {
+		t.Errorf("skill = %q, %v", skill, err)
 	}
 }

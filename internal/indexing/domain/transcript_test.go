@@ -156,3 +156,17 @@ func TestNewDurationKeepsOnlyBoundedValues(t *testing.T) {
 		}
 	}
 }
+
+func TestParseSkillName(t *testing.T) {
+	// Given the names a harness logs for skills, then plain and plugin-qualified ones pass, anything else is refused
+	for _, ok := range []string{"review", "demo:audit", "claude-api", "a.b_c d"} {
+		if _, valid := ParseSkillName(ok); !valid {
+			t.Errorf("ParseSkillName(%q) refused", ok)
+		}
+	}
+	for _, bad := range []string{"", "-lead", "bad\x1b[2J", "new\nline", strings.Repeat("x", 129)} {
+		if _, valid := ParseSkillName(bad); valid {
+			t.Errorf("ParseSkillName(%q) accepted", bad)
+		}
+	}
+}

@@ -150,7 +150,11 @@ func ParseClaude(path string, r io.Reader) (domain.Transcript, error) {
 				}
 				server, name := domain.SplitMCPToolName(b.Name)
 				toolIndex[b.ID] = len(p.Tools)
-				p.Tools = append(p.Tools, domain.ToolCall{Key: b.ID, At: ts, Name: name, Server: server, ArgsChars: len(b.Input)})
+				call := domain.ToolCall{Key: b.ID, At: ts, Name: name, Server: server, ArgsChars: len(b.Input)}
+				if server == "" && name == "Skill" {
+					call.Skill = claudeSkill(b.Input)
+				}
+				p.Tools = append(p.Tools, call)
 			}
 		case "user":
 			if l.Message == nil || l.IsMeta {
@@ -213,6 +217,20 @@ func firstText(blocks []claudeBlock) string {
 		}
 	}
 	return domain.UnspecifiedFailure
+}
+
+// claudeSkill reads the skill a Skill call loads from its input, empty when the input names none usable.
+func claudeSkill(input json.RawMessage) string {
+	var in struct {
+		Skill string `json:"skill"`
+	}
+	if json.Unmarshal(input, &in) != nil {
+		return ""
+	}
+	if name, ok := domain.ParseSkillName(in.Skill); ok {
+		return name
+	}
+	return ""
 }
 
 // maxMetaBytes bounds the subagent .meta.json read next to a transcript (real ones are a few hundred bytes).

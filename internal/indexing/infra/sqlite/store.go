@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS requests (
 CREATE TABLE IF NOT EXISTS tool_calls (
 	file TEXT NOT NULL, key TEXT NOT NULL, session_id TEXT NOT NULL, ts INTEGER NOT NULL,
 	name TEXT NOT NULL, server TEXT NOT NULL, args_chars INTEGER NOT NULL, result_chars INTEGER NOT NULL,
-	is_error INTEGER NOT NULL, duration_ms REAL,
+	is_error INTEGER NOT NULL, duration_ms REAL, skill TEXT NOT NULL DEFAULT '',
 	PRIMARY KEY (session_id, key));
 CREATE TABLE IF NOT EXISTS prompts (
 	file TEXT NOT NULL, key TEXT NOT NULL, session_id TEXT NOT NULL, ts INTEGER NOT NULL, text TEXT NOT NULL,
@@ -48,13 +48,17 @@ CREATE INDEX IF NOT EXISTS sessions_file ON sessions (file);
 CREATE INDEX IF NOT EXISTS tool_calls_ts ON tool_calls (ts);
 CREATE INDEX IF NOT EXISTS prompts_ts ON prompts (ts);
 CREATE INDEX IF NOT EXISTS sessions_started ON sessions (started_at);
--- Published read model: the only part of the index other contexts may read. Prompt texts stay private.
+-- Published read model (here and toolCallsView): the only part of the index other contexts may read. Prompt texts stay private.
 CREATE VIEW IF NOT EXISTS usage_requests AS
 	SELECT r.ts, r.model, r.input, r.output, r.cache_read, r.cache_write, r.cost, r.priced, r.duration_ms, r.ttft_ms, r.error,
 		s.harness, s.agent_type, s.folder
 	FROM requests r JOIN sessions s ON s.id = r.session_id;
+`
+
+// toolCallsView is created after the tool_calls table is migrated (see addSkillColumn).
+const toolCallsView = `
 CREATE VIEW IF NOT EXISTS usage_tool_calls AS
-	SELECT t.ts, t.name, t.server, t.args_chars, t.result_chars, t.is_error, t.duration_ms, s.harness
+	SELECT t.ts, t.name, t.server, t.skill, t.args_chars, t.result_chars, t.is_error, t.duration_ms, s.harness
 	FROM tool_calls t JOIN sessions s ON s.id = t.session_id;
 `
 
@@ -86,11 +90,45 @@ func Open(o Options) (*SQLiteIndex, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1) // ponytail: one connection, SQLite serialises writes anyway
-	if _, err := db.Exec(schema); err != nil {
-		db.Close()
-		return nil, err
+	for _, step := range []func(*sql.DB) error{execSQL(schema), addSkillColumn, execSQL(toolCallsView)} {
+		if err := step(db); err != nil {
+			db.Close()
+			return nil, err
+		}
 	}
 	return &SQLiteIndex{db: db, user: o.User}, nil
+}
+
+func execSQL(q string) func(*sql.DB) error {
+	return func(db *sql.DB) error {
+		_, err := db.Exec(q)
+		return err
+	}
+}
+
+// addSkillColumn migrates an index written before tool calls recorded the skill they load. The files holding a Skill
+// call are forgotten, so that the next indexing reads them again and fills the column; the old view is dropped so
+// that toolCallsView can define it with the column.
+func addSkillColumn(db *sql.DB) error {
+	var present int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('tool_calls') WHERE name = 'skill'`).Scan(&present); err != nil || present > 0 {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, q := range []string{
+		`ALTER TABLE tool_calls ADD COLUMN skill TEXT NOT NULL DEFAULT ''`,
+		`DROP VIEW IF EXISTS usage_tool_calls`,
+		`DELETE FROM files WHERE path IN (SELECT file FROM tool_calls WHERE name = 'Skill' AND server = '')`,
+	} {
+		if _, err := tx.Exec(q); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // private creates path if needed and restricts it, and SQLite's companion files, to their owner.
@@ -169,12 +207,12 @@ func (s *SQLiteIndex) Save(file application.LogFile, t application.IndexedTransc
 		}
 	}
 
-	toolStmt, err := tx.Prepare(`INSERT OR REPLACE INTO tool_calls VALUES (?,?,?,?,?,?,?,?,?,?)`)
+	toolStmt, err := tx.Prepare(`INSERT OR REPLACE INTO tool_calls VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return err
 	}
 	for _, c := range t.Tools {
-		if _, err := toolStmt.Exec(path, c.Key, ss.ID.String(), kernel.UnixMilli(c.At), c.Name, c.Server, c.ArgsChars, c.ResultChars, c.IsError, nullMillis(c.Duration)); err != nil {
+		if _, err := toolStmt.Exec(path, c.Key, ss.ID.String(), kernel.UnixMilli(c.At), c.Name, c.Server, c.ArgsChars, c.ResultChars, c.IsError, nullMillis(c.Duration), c.Skill); err != nil {
 			return err
 		}
 	}

@@ -166,14 +166,23 @@ func (r Request) Cost(listed kernel.Cost, known bool) (cost kernel.Cost, priced 
 
 // ToolCall is one tool invocation by the model.
 type ToolCall struct {
-	Key         string
-	At          time.Time
-	Name        string
-	Server      string // MCP server name, empty for built-in tools
+	Key    string
+	At     time.Time
+	Name   string
+	Server string // MCP server name, empty for built-in tools
+	// Skill is the skill a call loads (Claude Code's Skill tool); empty for every other call.
+	Skill       string
 	ArgsChars   int
 	ResultChars int
 	IsError     bool
 	Duration    Duration
+}
+
+var declaredSkill = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 _.:-]{0,127}$`)
+
+// ParseSkillName accepts the name of a skill as a harness logs it: "review" or "plugin:review".
+func ParseSkillName(name string) (string, bool) {
+	return name, declaredSkill.MatchString(name)
 }
 
 // Prompt is one message typed by a human (or sent by a parent agent to a subagent).

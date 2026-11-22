@@ -259,3 +259,26 @@ func TestImpossibleCountsDropTheRequest(t *testing.T) {
 		t.Errorf("pi: impossible cost accepted: %+v", p.Requests)
 	}
 }
+
+func TestClaudeSkillCallsNameTheSkillTheyLoad(t *testing.T) {
+	// Given Skill calls with a plain name, a plugin name, a name that is not usable, no input, and an MCP tool called Skill
+	log := `{"type":"assistant","timestamp":"2026-01-01T10:00:02Z","message":{"id":"m1","model":"claude-x","content":[` +
+		`{"type":"tool_use","id":"a","name":"Skill","input":{"skill":"review"}},` +
+		`{"type":"tool_use","id":"b","name":"Skill","input":{"skill":"demo:audit","args":"x"}},` +
+		`{"type":"tool_use","id":"c","name":"Skill","input":{"skill":"bad\u001b[2J"}},` +
+		`{"type":"tool_use","id":"d","name":"Skill","input":{}},` +
+		`{"type":"tool_use","id":"e","name":"mcp__srv__Skill","input":{"skill":"not-a-skill-load"}},` +
+		`{"type":"tool_use","id":"f","name":"Read","input":{"skill":"not-a-skill-load"}}],` +
+		`"usage":{"input_tokens":1,"output_tokens":1}}}` + "\n"
+	// When the transcript is parsed
+	p := parse(t, ParseClaude, "/x/projects/-repo/abc.jsonl", log)
+
+	// Then only the usable skill names of Skill calls are kept
+	var got []string
+	for _, c := range p.Tools {
+		got = append(got, c.Name+"/"+c.Skill)
+	}
+	if want := "Skill/review Skill/demo:audit Skill/ Skill/ Skill/ Read/"; strings.Join(got, " ") != want {
+		t.Errorf("tools %q, want %q", got, want)
+	}
+}
