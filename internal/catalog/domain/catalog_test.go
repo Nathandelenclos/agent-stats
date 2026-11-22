@@ -320,6 +320,83 @@ func TestBareAgentNameCreditsNoPluginWhenSeveralCarryIt(t *testing.T) {
 	}
 }
 
+// carrying builds two plugin items of one kind that both answer to the short name "review".
+func carrying(t *testing.T, k Kind) (alpha, beta, alphaPlugin, betaPlugin Item) {
+	t.Helper()
+	alpha = item(t, kernel.Claude, k, "alpha:review", ScopePlugin)
+	alpha.Origin = name(t, "alpha@market")
+	beta = item(t, kernel.Claude, k, "beta:review", ScopePlugin)
+	beta.Origin = name(t, "beta@market")
+	alphaPlugin = item(t, kernel.Claude, Plugin, "alpha@market", ScopeUser)
+	betaPlugin = item(t, kernel.Claude, Plugin, "beta@market", ScopeUser)
+	return
+}
+
+func TestWhatAnAmbiguousBareCallCouldDesignateHasUnknownUsage(t *testing.T) {
+	// Given two plugins carrying "review" (a skill, then an agent), one call under the full name "alpha:review" and one
+	// under the bare name "review" that either plugin could own
+	for _, k := range []Kind{Skill, Agent} {
+		t.Run(k.String(), func(t *testing.T) {
+			alpha, beta, alphaPlugin, betaPlugin := carrying(t, k)
+			act := Activity{}
+			if k == Skill {
+				act.Skills = []SkillActivity{{Harness: kernel.Claude, Skill: "alpha:review", Calls: 1}, {Harness: kernel.Claude, Skill: "review", Calls: 1}}
+			} else {
+				act.Agents = []AgentActivity{{Harness: kernel.Claude, AgentType: "alpha:review", Requests: 1}, {Harness: kernel.Claude, AgentType: "review", Requests: 1}}
+			}
+
+			// When linked
+			entries := Link([]Item{alpha, beta, alphaPlugin, betaPlugin}, act)
+
+			// Then the plugin whose call is named keeps its count, and the other's usage is unknown, not zero:
+			// it is not reported unused, however the report is limited
+			if a := find(t, entries, kernel.Claude, k, "alpha:review"); a.Uses != 1 || !a.Tracked {
+				t.Errorf("alpha: %+v", a)
+			}
+			for _, e := range []Entry{find(t, entries, kernel.Claude, k, "beta:review")} {
+				if e.Tracked || e.Unused() {
+					t.Errorf("%s %s: tracked %v, unused %v", e.Kind, e.Name, e.Tracked, e.Unused())
+				}
+			}
+			if k == Skill {
+				if p := find(t, entries, kernel.Claude, Plugin, "beta@market"); p.Tracked || p.Unused() {
+					t.Errorf("beta plugin: %+v", p)
+				}
+			}
+		})
+	}
+}
+
+func TestAPluginCarryingAnItemOfUnknownUsageIsNotReportedUnusedWhateverElseItCarries(t *testing.T) {
+	// Given a plugin carrying an ambiguous skill and a server that was never called, and another plugin carrying "review"
+	alpha, beta, alphaPlugin, betaPlugin := carrying(t, Skill)
+	server := item(t, kernel.Claude, MCPServer, "beta-db", ScopePlugin)
+	server.Origin = beta.Origin
+	act := Activity{Skills: []SkillActivity{{Harness: kernel.Claude, Skill: "review", Calls: 1}}}
+
+	// When linked
+	entries := Link([]Item{alpha, beta, server, alphaPlugin, betaPlugin}, act)
+
+	// Then neither plugin is reported unused: the bare call may be either one's
+	for _, n := range []string{"alpha@market", "beta@market"} {
+		if p := find(t, entries, kernel.Claude, Plugin, n); p.Unused() {
+			t.Errorf("%s reported unused: %+v", n, p)
+		}
+	}
+}
+
+func TestSkillOfAPluginIsKnownUnusedWhenNoBareCallCouldBeItsOwn(t *testing.T) {
+	// Given two plugins carrying "review" and a log without any call to it
+	alpha, beta, _, _ := carrying(t, Skill)
+
+	// When linked, then both are known unused: nothing could be theirs
+	for _, e := range Link([]Item{alpha, beta}, Activity{}) {
+		if !e.Unused() {
+			t.Errorf("%s: %+v", e.Name, e)
+		}
+	}
+}
+
 func TestBareSkillNameStillCreditsTheSkillOfThatNameAlone(t *testing.T) {
 	// Given a user skill "review" and a plugin skill "alpha:review", and a load logged as "review"
 	user := item(t, kernel.Claude, Skill, "review", ScopeUser)

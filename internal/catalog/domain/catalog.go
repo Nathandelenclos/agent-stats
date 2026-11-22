@@ -160,8 +160,12 @@ type Entry struct {
 	Uses int64
 	Last time.Time
 	// Tracked is false when the logs do not tell this kind of item apart, or do not yet for now (a Skill call without
-	// its skill name awaits re-reading, see Activity.UnnamedSkillLoads): Uses is then unknown, not zero.
+	// its skill name awaits re-reading, see Activity.UnnamedSkillLoads), or when a call under a short name that
+	// several plugin items answer to could be this one's: Uses is then unknown, not zero.
 	Tracked bool
+	// pending marks an item whose Tracked is false because its usage is not settled yet, not because the logs cannot
+	// tell it apart: a plugin that carries one is not reported unused either.
+	pending bool
 }
 
 // Unit is what Uses counts for this kind of entry.
@@ -210,6 +214,7 @@ func Link(items []Item, a Activity) []Entry {
 			continue
 		}
 		seen[it.identity()] = true
+		maybe := false // a call under a short name that is not this item's alone is logged
 		e := Entry{Item: it, Tracked: tracked(it.Harness, it.Kind) && !(it.Kind == Skill && a.UnnamedSkillLoads[it.Harness])}
 		switch it.Kind {
 		case MCPServer:
@@ -221,22 +226,30 @@ func Link(items []Item, a Activity) []Entry {
 			}
 		case Skill:
 			for i, s := range a.Skills {
-				if s.Harness == it.Harness && nameMatches(it, s.Skill, bare[bareKey(it.Harness, it.Kind, s.Skill)] == 1) {
+				ok := bare[bareKey(it.Harness, it.Kind, s.Skill)] == 1
+				if s.Harness == it.Harness && nameMatches(it, s.Skill, ok) {
 					e.add(s.Calls, s.Last)
 					claimedSkill[i] = true
 				}
+				maybe = maybe || couldBe(it, s.Harness, s.Skill, ok)
 			}
 		case Agent:
 			for i, g := range a.Agents {
-				if g.Harness == it.Harness && nameMatches(it, g.AgentType, bare[bareKey(it.Harness, it.Kind, g.AgentType)] == 1) {
+				ok := bare[bareKey(it.Harness, it.Kind, g.AgentType)] == 1
+				if g.Harness == it.Harness && nameMatches(it, g.AgentType, ok) {
 					e.add(g.Requests, g.Last)
 					claimedAgent[i] = true
 				}
+				maybe = maybe || couldBe(it, g.Harness, g.AgentType, ok)
 			}
+		}
+		e.pending = it.Kind == Skill && a.UnnamedSkillLoads[it.Harness]
+		if maybe && e.Uses == 0 { // with a count of its own the item stays as counted, which is then a lower bound
+			e.Tracked, e.pending = false, true
 		}
 		entries = append(entries, e)
 	}
-	entries = withPluginUsage(entries, a.UnnamedSkillLoads)
+	entries = withPluginUsage(entries)
 
 	servers := map[[2]string]int{} // (harness, server) -> index in entries, for an MCP server the logs alone name
 	for i, t := range a.Tools {
@@ -288,6 +301,12 @@ func TallyByHarness(entries []Entry) map[kernel.Harness]Tally {
 	return out
 }
 
+// couldBe reports whether a call logged under the short name that several plugin items answer to (bareOK false) may
+// be it: the call is then credited to none of them, and the usage of each is unknown.
+func couldBe(it Item, h kernel.Harness, logged string, bareOK bool) bool {
+	return !bareOK && !it.Origin.IsZero() && h == it.Harness && logged == it.bareName() && logged != it.Name.s
+}
+
 func (e *Entry) add(calls int64, last time.Time) {
 	e.Uses += calls
 	if last.After(e.Last) {
@@ -325,8 +344,8 @@ func escaped(s string) string {
 
 // withPluginUsage gives each plugin the invocations of the MCP servers and skills it carries. The model requests of
 // its agents are not added: they count something else. A plugin with none of those items, or none the logs can follow,
-// has unknown usage; so has one that carries a skill whose loads are pending (unnamedSkillLoads) and shows no use yet.
-func withPluginUsage(entries []Entry, unnamedSkillLoads map[kernel.Harness]bool) []Entry {
+// has unknown usage; so has one that carries an item whose usage is pending and shows no use yet.
+func withPluginUsage(entries []Entry) []Entry {
 	for i, p := range entries {
 		if p.Kind != Plugin {
 			continue
@@ -337,7 +356,7 @@ func withPluginUsage(entries []Entry, unnamedSkillLoads map[kernel.Harness]bool)
 				entries[i].Tracked = true
 				entries[i].add(c.Uses, c.Last)
 			}
-			pending = pending || c.Origin == p.Name && c.Harness == p.Harness && c.Kind == Skill && unnamedSkillLoads[c.Harness]
+			pending = pending || c.Origin == p.Name && c.Harness == p.Harness && c.pending && c.Kind != Agent
 		}
 		if pending && entries[i].Uses == 0 {
 			entries[i].Tracked = false
