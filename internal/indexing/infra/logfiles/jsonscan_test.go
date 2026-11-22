@@ -31,15 +31,66 @@ func TestScannerValidatesLikeEncodingJSON(t *testing.T) {
 	}
 }
 
+// checkScanVerdict holds the scanner to what it promises: a text it accepts is valid, and a string it reads
+// is the string encoding/json decodes. A valid text it refuses is allowed (the parser then hands the line to
+// encoding/json) but only for the depth limit, which encoding/json does not share.
+func checkScanVerdict(t *testing.T, text string) {
+	t.Helper()
+	valid := json.Valid([]byte(text))
+	switch accepted := scanValid(text); {
+	case accepted && !valid:
+		t.Errorf("scanner accepts what encoding/json refuses: %q", text)
+	case !accepted && valid && nestingDepth(text) < maxScanDepth:
+		t.Errorf("scanner refuses a valid text nested only %d deep: %q", nestingDepth(text), text)
+	case accepted:
+		s := scanner{b: []byte(text)}
+		s.ws()
+		var want string
+		if s.i == len(s.b) || s.b[s.i] != '"' || json.Unmarshal([]byte(text), &want) != nil {
+			return
+		}
+		if got, ok := s.text(); !ok || got != want {
+			t.Errorf("scanner reads the string %q, encoding/json reads %q", got, want)
+		}
+	}
+}
+
+// nestingDepth is how many arrays and objects of a text are open at once, strings left aside.
+func nestingDepth(text string) (deepest int) {
+	depth, inString := 0, false
+	for i := 0; i < len(text); i++ {
+		switch c := text[i]; {
+		case inString && c == '\\':
+			i++
+		case c == '"':
+			inString = !inString
+		case inString:
+		case c == '[' || c == '{':
+			if depth++; depth > deepest {
+				deepest = depth
+			}
+		case c == ']' || c == '}':
+			depth--
+		}
+	}
+	return deepest
+}
+
 func FuzzScannerValidatesLikeEncodingJSON(f *testing.F) {
 	for _, text := range scannerTexts {
 		f.Add(text)
 	}
-	f.Fuzz(func(t *testing.T, text string) {
-		if got, want := scanValid(text), json.Valid([]byte(text)); got != want {
-			t.Errorf("scanner says %v, encoding/json says %v for %q", got, want, text)
-		}
-	})
+	f.Add(strings.Repeat("[", 600) + strings.Repeat("]", 600)) // valid, beyond the depth the scanner reads
+	f.Fuzz(func(t *testing.T, text string) { checkScanVerdict(t, text) })
+}
+
+func TestScannerRefusesOnlyWhatIsTooDeep(t *testing.T) {
+	for _, text := range append(scannerTexts, strings.Repeat("[", 600)+strings.Repeat("]", 600), strings.Repeat(`{"a":`, 700)+"1"+strings.Repeat("}", 700)) {
+		checkScanVerdict(t, text)
+	}
+	if text := strings.Repeat("[", 600) + strings.Repeat("]", 600); scanValid(text) || !json.Valid([]byte(text)) {
+		t.Error("the depth limit no longer sends a valid, deeply nested text back to encoding/json")
+	}
 }
 
 func TestScannerStringsAreDecodedLikeEncodingJSON(t *testing.T) {
