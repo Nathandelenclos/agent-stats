@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"os"
@@ -89,7 +90,7 @@ func TestNewHarnessesReportApproved(t *testing.T) {
 	defer usage.Close()
 	got := map[string]jsonReport{}
 	for _, h := range []kernel.Harness{{}, kernel.Gemini, kernel.OpenCode, kernel.Kilo} {
-		r, err := reporting.BuildReport{Queries: usage}.Run(reporting.Query{Harness: h})
+		r, err := reporting.BuildReport{Queries: usage}.Run(context.Background(), reporting.Query{Harness: h})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -180,7 +181,7 @@ func TestAPromptTypedWhileKiloCodeRunsIsInTheReportOfItsSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	detail, err := reporting.ShowSession{Queries: usage.Sessions()}.Run(id)
+	detail, err := reporting.ShowSession{Queries: usage.Sessions()}.Run(context.Background(), id)
 
 	// Then it lists the new prompt after the first
 	if err != nil || len(detail.Prompts) != 2 || detail.Prompts[1].Text != "One more thing" {
