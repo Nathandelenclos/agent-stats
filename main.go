@@ -76,11 +76,15 @@ func run() error {
 	asJSON := flag.Bool("json", false, "print the report as JSON")
 	noSync := flag.Bool("no-sync", false, "skip re-reading the logs")
 	flag.Parse()
+	sub, err := subcommand(flag.CommandLine)
+	if err != nil {
+		return err
+	}
 
 	if *dbPath == "" {
 		return fmt.Errorf("no user cache directory: pass --db")
 	}
-	from, err := parseSince(*since, time.Now())
+	from, err := sinceOf(sub, *since, time.Now())
 	if err != nil {
 		return err
 	}
@@ -106,7 +110,7 @@ func run() error {
 			return err
 		}
 	}
-	ui := interactive(*asJSON, os.Stdout)
+	ui := sub == "" && interactive(*asJSON, os.Stdout)
 	if indexLogs != nil && !ui { // the interface indexes in the background instead
 		if err := indexBeforeReport(indexLogs); err != nil {
 			return err
@@ -118,6 +122,9 @@ func run() error {
 		return err
 	}
 	defer usage.Close()
+	if sub == promptsCommand {
+		return runPrompts(os.Stdout, usage.Prompts(), reporting.Query{Since: from, Harness: only}, *asJSON)
+	}
 	if ui {
 		sessions := usage.Sessions()
 		o := tui.Options{Reports: reporting.BuildReport{Queries: usage}, Harness: only, SinceLabel: *since, Since: from,

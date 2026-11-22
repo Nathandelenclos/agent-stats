@@ -50,3 +50,18 @@ func TestDuration(t *testing.T) {
 		}
 	}
 }
+
+func TestExcerptIsOneNeutralLine(t *testing.T) {
+	// Given a prompt over several lines, with an escape sequence that would clear the screen
+	in := "fix the\n\tbuild \x1b[2J  now"
+
+	// When it is reduced to an excerpt
+	// Then it is one line, spaced once, with the escape replaced
+	if got, want := Excerpt(in, 80), "fix the build �[2J now"; got != want {
+		t.Errorf("Excerpt = %q, want %q", got, want)
+	}
+	// And a long text is cut with an ellipsis
+	if got := Excerpt("one two three four", 9); got != "one two …" {
+		t.Errorf("cut = %q", got)
+	}
+}

@@ -58,3 +58,9 @@ func Printable(s string) string {
 		return r
 	}, s)
 }
+
+// Excerpt reduces untrusted text to one printable line of at most n runes: whitespace runs collapse to a space,
+// control characters are replaced, and a cut is marked by an ellipsis.
+func Excerpt(s string, n int) string {
+	return Head(Printable(strings.Join(strings.Fields(s), " ")), n)
+}
