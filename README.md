@@ -198,7 +198,8 @@ light or dark theme (or a choice made on the page), works on a narrow screen and
 in its address. Each chart has its values behind it (a table, or the table of the same name below).
 Like the terminal view, it indexes the logs in the background and shows the progress. Use **Re-index** to refresh the index again. The figures refresh when indexing ends.
 Switch to **Sessions** to sort the most recent sessions within the same filters. Open one to see its models, tools,
-subagents and the signals of its prompts. The detail resets when the filters change. **Prompts** shows repeated requests, flagged prompts and totals by folder. Press Ctrl-C to stop the server.
+subagents and the signals of its prompts. The detail renders prompt excerpts as Markdown with literal HTML and plain
+link labels and image descriptions. The detail resets when the filters change. **Prompts** shows repeated requests, flagged prompts and totals by folder. Press Ctrl-C to stop the server.
 
 Started from a project (see [Per-project view](#per-project-view)), `serve` opens on that project: the header says
 `Project: app` or `All projects`, and a toggle switches between the two. The page offers no other folder: the server

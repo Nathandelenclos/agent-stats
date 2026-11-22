@@ -1,3 +1,4 @@
+import Markdown, { type Components } from "react-markdown";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { DataTable, type Column } from "../../shared/DataTable";
 import { describe, Failure } from "../../shared/Failure";
@@ -143,6 +144,11 @@ const subagentColumns: Column<SubagentRow>[] = [
 ];
 
 
+const promptMarkdownComponents: Components = {
+  a: ({ children }) => <span>{children}</span>,
+  img: ({ alt }) => <span>{alt}</span>,
+};
+
 function SessionContents({ detail }: { detail: SessionDetail }) {
   const { session, tools, subagents, prompts, promptsVisible } = detail;
   return (
@@ -181,7 +187,11 @@ function SessionContents({ detail }: { detail: SessionDetail }) {
                     {formatDateTime(prompt.ts)} · {formatInteger(prompt.chars)} characters
                     {signals && <span className="ml-2 font-medium text-ink">{signals}</span>}
                   </p>
-                  {promptsVisible && prompt.excerpt && <pre className="max-w-prose whitespace-pre-wrap text-sm [overflow-wrap:anywhere]">{prompt.excerpt}</pre>}
+                  {promptsVisible && prompt.excerpt && (
+                    <div className="max-w-prose space-y-2 text-sm [overflow-wrap:anywhere] [&_blockquote]:border-l-2 [&_blockquote]:border-rule [&_blockquote]:pl-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-surface [&_pre]:p-3 [&_ul]:list-disc [&_ul]:pl-5">
+                      <Markdown components={promptMarkdownComponents}>{prompt.excerpt}</Markdown>
+                    </div>
+                  )}
                 </li>
               );
             })}

@@ -95,6 +95,29 @@ it("opens a session with its models, tools, subagents and prompts", async () => 
   expect(requests).toHaveBeenCalledWith("/api/sessions/claude%3Amain%2Fhelper?since=7d&harness=claude&project=current", expect.any(Object));
 });
 
+it("renders Markdown in the prompt detail", async () => {
+  const prompt = { ...detail.prompts[0], excerpt: "Check **imports**.\n\n- First\n- Second\n\n```go\nfmt.Println()\n```" };
+  vi.stubGlobal("fetch", vi.fn(async (input: string) => json(input.startsWith("/api/sessions/") ? { ...detail, prompts: [prompt] } : list("current"))));
+  const { container } = showSessions();
+  await openSession(container);
+
+  const contents = container.querySelector('[aria-label="Session detail"]')!;
+  await eventually(() => expect(contents.querySelector("strong")?.textContent).toBe("imports"));
+  expect([...contents.querySelectorAll("ul li")].map((item) => item.textContent)).toEqual(["First", "Second"]);
+  expect(contents.querySelector("pre code")?.textContent?.trim()).toBe("fmt.Println()");
+});
+
+it("shows Markdown link labels and image descriptions without external resources", async () => {
+  const prompt = { ...detail.prompts[0], excerpt: "[Reference](https://example.com) and ![Diagram](https://example.com/diagram.png)" };
+  vi.stubGlobal("fetch", vi.fn(async (input: string) => json(input.startsWith("/api/sessions/") ? { ...detail, prompts: [prompt] } : list("current"))));
+  const { container } = showSessions();
+  await openSession(container);
+
+  const contents = container.querySelector('[aria-label="Session detail"]')!;
+  await eventually(() => expect(contents.textContent).toContain("Reference and Diagram"));
+  expect(contents.querySelector("a, img")).toBeNull();
+});
+
 it("hides prompt excerpts when the server withholds them", async () => {
   // Given a server that does not make prompt excerpts available
   vi.stubGlobal("fetch", vi.fn(async (input: string) => json(input.startsWith("/api/sessions/") ? { ...detail, promptsVisible: false } : list("current"))));
