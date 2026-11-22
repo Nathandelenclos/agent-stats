@@ -51,8 +51,8 @@ func runServe(args []string) error {
 	if err := web.ValidateAddr(*addr, *allowRemote); err != nil {
 		return err
 	}
-	if _, err := parseSince(*since, time.Now()); err != nil {
-		return err
+	if _, err := web.ValidateSince(*since, time.Now(), parseSince); err != nil {
+		return fmt.Errorf("invalid --since %q: %w", *since, err)
 	}
 	var only kernel.Harness
 	if *harness != "" {

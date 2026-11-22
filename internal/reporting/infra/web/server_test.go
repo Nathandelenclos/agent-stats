@@ -287,6 +287,33 @@ func TestInvalidParametersAreRefusedWithTheParameterNamed(t *testing.T) {
 	}
 }
 
+func TestTheLaunchPeriodFollowsTheRulesOfTheAPI(t *testing.T) {
+	for _, c := range []struct {
+		since string
+		ok    bool
+	}{
+		{"", true}, {"7d", true}, {"12h", true}, {"2026-01-01", true},
+		{"1999-01-01", false}, {"-3d", false}, {"2999-01-01", false}, {"banana", false}, {strings.Repeat("1", 33), false},
+	} {
+		t.Run(c.since, func(t *testing.T) {
+			// Given a period, whether it is the launch period or the one a request asks for
+			// When the command line validates it
+			_, err := ValidateSince(c.since, fixedNow, parseSince)
+
+			// Then the API, which applies the same rule, agrees
+			if (err == nil) != c.ok {
+				t.Errorf("ValidateSince(%q) = %v, want ok=%v", c.since, err, c.ok)
+			}
+			if c.since != "" {
+				rec := newRig(t).get("/api/report?since=" + c.since)
+				if (rec.Code == http.StatusOK) != c.ok {
+					t.Errorf("GET /api/report?since=%s = %d, want ok=%v", c.since, rec.Code, c.ok)
+				}
+			}
+		})
+	}
+}
+
 func TestAQueryStringOverTheBoundIsRefused(t *testing.T) {
 	// Given a query string longer than any legitimate one
 	r := newRig(t)

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -22,6 +23,20 @@ const (
 
 // earliestSince is the oldest period start accepted: no agent log is older, and it keeps date arithmetic far from overflow.
 var earliestSince = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// ValidateSince reads a period start with parse and checks it is one a report can cover: not older than the logs of any
+// agent, not in the future. The API applies it to every request and the command line to --since, so that a period the
+// server opens on is a period the API answers.
+func ValidateSince(v string, now time.Time, parse func(string, time.Time) (time.Time, error)) (time.Time, error) {
+	if v == "" {
+		return time.Time{}, nil
+	}
+	since, err := parse(v, now)
+	if len(v) > maxSinceChars || err != nil || since.Before(earliestSince) || since.After(now) {
+		return time.Time{}, errors.New("use 24h, 7d, 30d, another duration such as 12h, or a date such as 2006-01-02, not in the future")
+	}
+	return since, nil
+}
 
 // params are the validated query parameters of a request.
 type params struct {
@@ -61,14 +76,9 @@ func (s *Server) parseParams(r *http.Request, accepts ...string) (params, *probl
 		}
 	}
 	if v := values.Get(paramSince); v != "" {
-		if len(v) > maxSinceChars {
-			pr := invalidParameter(paramSince, "too long")
-			return p, &pr
-		}
-		now := s.now()
-		since, err := s.parseSince(v, now)
-		if err != nil || since.Before(earliestSince) || since.After(now) {
-			pr := invalidParameter(paramSince, "use 24h, 7d, 30d, another duration such as 12h, or a date such as 2006-01-02, not in the future")
+		since, err := ValidateSince(v, s.now(), s.parseSince)
+		if err != nil {
+			pr := invalidParameter(paramSince, err.Error())
 			return p, &pr
 		}
 		p.query.Since = since

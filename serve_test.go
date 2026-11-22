@@ -21,6 +21,8 @@ func TestServeRefusesWhatWouldExposeTheIndexOrIsMalformed(t *testing.T) {
 		{"an address without a port", []string{"--db", db, "--addr", "127.0.0.1"}, "host:port"},
 		{"an unknown harness", []string{"--db", db, "--harness", "vim"}, "unknown harness"},
 		{"an invalid period", []string{"--db", db, "--since", "yesterday"}, "invalid --since"},
+		{"a period before any agent log", []string{"--db", db, "--since", "1999-01-01"}, "invalid --since"},
+		{"a period in the future", []string{"--db", db, "--since", "2999-01-01"}, "invalid --since"},
 		{"a stray argument", []string{"--db", db, "7373"}, "takes no argument"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
