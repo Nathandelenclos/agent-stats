@@ -81,9 +81,11 @@ func TestSessionsOnATerminal(t *testing.T) {
 	s.waitForNew(t, n, sessionsModeOn)
 	s.waitForNew(t, n, "fix build")
 
-	// Open the detail, then its Prompts section.
+	// Open the session, then its graph and prompt sections.
 	n = s.press(t, "\r")
-	s.waitForNew(t, n, "browse session sections")
+	s.waitForNew(t, n, "Summary")
+	n = s.press(t, "6")
+	s.waitForNew(t, n, "No subagent links were recorded for this session.")
 	n = s.press(t, "5")
 	s.waitForNew(t, n, "fix the build")
 	s.waitForNew(t, n, "WHY IS IT STILL BROKEN??")
@@ -93,7 +95,7 @@ func TestSessionsOnATerminal(t *testing.T) {
 	n = s.press(t, "\x1b")
 	s.waitForNew(t, n, "enter open")
 
-	// And m leads on to the review of the flagged prompts, then back to the usage report
+	// And m leads on to the review of the flagged prompts.
 	n = s.press(t, "m")
 	s.waitForNew(t, n, promptsModeOn)
 	s.waitForNew(t, n, "1 flagged prompt in 1 session")

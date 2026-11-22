@@ -183,6 +183,17 @@ func TestNestedSubagentsCountForTheTopSession(t *testing.T) {
 	if s := list[0]; s.ID.String() != "claude:a" || s.Requests != 3 || s.Cost != 3 || s.SubagentCount != 2 || len(s.Models) != 3 {
 		t.Errorf("summary = %+v", s)
 	}
+	detail, err := usage.Sessions().Session(context.Background(), list[0].ID, kernel.Project{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parents := map[string]string{}
+	for _, agent := range detail.Subagents {
+		parents[agent.ID.String()] = agent.ParentID.String()
+	}
+	if parents["claude:a/b"] != "claude:a" || parents["claude:a/b/c"] != "claude:a/b" {
+		t.Errorf("direct parents = %v", parents)
+	}
 }
 
 // TestASessionIsActiveUntilItsLastSubagentStops asks for the sessions active since a time that falls after the top
@@ -206,7 +217,7 @@ func TestASessionIsActiveUntilItsLastSubagentStops(t *testing.T) {
 }
 
 // publishedViews is the index's read model; only session_prompts may carry prompt text.
-const publishedViews = "session_overview,session_prompts,session_requests,session_tool_calls,usage_folders,usage_requests,usage_tool_calls"
+const publishedViews = "session_lineage,session_overview,session_prompts,session_requests,session_tool_calls,usage_folders,usage_requests,usage_tool_calls"
 
 // TestReadModelHidesPromptTexts checks that the published views expose no prompt text, except the one made for it.
 func TestReadModelHidesPromptTexts(t *testing.T) {

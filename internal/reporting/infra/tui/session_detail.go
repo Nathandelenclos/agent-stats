@@ -19,10 +19,15 @@ const (
 	sessionToolsSection
 	sessionSubagentsSection
 	sessionPromptsSection
+	sessionGraphSection
 	sessionSectionCount
 )
 
-var sessionSections = []string{"Summary", "Models", "Tools", "Subagents", "Prompts"}
+var sessionSections = []string{"Summary", "Models", "Tools", "Subagents", "Prompts", "Graph"}
+
+func (s sessionSection) usesList() bool {
+	return s != sessionSummarySection && s != sessionGraphSection
+}
 
 func (d *sessionDetail) changeSection(section sessionSection) {
 	if section != d.section {
@@ -60,10 +65,40 @@ func (d *sessionDetail) layout(width, height int) {
 		if data.Unpriced > 0 {
 			d.lines = append(d.lines, wrappedText(fmt.Sprintf("Cost known for %s of %s requests.", textfmt.Number(data.Requests-data.Unpriced), textfmt.Number(data.Requests)), width)...)
 		}
+	case d.section == sessionGraphSection:
+		d.lines = wrappedText(sessionGraph(d.data), width)
 	default:
 		d.list.layout(d.rows(), width, height-1-d.list.search.rows(), "No "+strings.ToLower(sessionSections[d.section])+" in this session.")
 	}
 	d.scrollBy(0)
+}
+
+func sessionGraph(data reporting.SessionDetail) string {
+	title := sessionTitle(data.SessionSummary)
+	lines := []string{title + " · " + data.Harness.String()}
+	if data.ForkedFrom != "" {
+		lines = append(lines, "Forked from "+textfmt.Printable(data.ForkedFrom))
+	}
+	if len(data.Subagents) == 0 {
+		return strings.Join(append(lines, "", "No subagent links were recorded for this session."), "\n")
+	}
+	names := make(map[string]string, len(data.Subagents)+1)
+	names[data.ID.String()] = title
+	for _, agent := range data.Subagents {
+		if id := agent.ID.String(); id != "" {
+			names[id] = sessionTitle(reporting.SessionSummary{Title: agent.Title})
+		}
+	}
+	for _, agent := range data.Subagents {
+		parent := names[agent.ParentID.String()]
+		if parent == "" {
+			parent = "Parent unavailable"
+		}
+		name := sessionTitle(reporting.SessionSummary{Title: agent.Title})
+		lines = append(lines, "", parent+" → "+name,
+			fmt.Sprintf("  %s · %s requests · %s", textfmt.Printable(agent.AgentType), textfmt.Number(agent.Requests), displayCost(agent.Usage)))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (d sessionDetail) rows() []readingRow {
@@ -100,7 +135,7 @@ func (m Model) sessionDetailView() string {
 		return m.readerView(d.reader, trail+" › "+sessionSections[d.section])
 	}
 	tabs := readingTabs(sessionSections, int(d.section), m.width)
-	if d.section != sessionSummarySection && d.loaded && d.err == nil {
+	if d.section.usesList() && d.loaded && d.err == nil {
 		return m.readingPage(trail, tabs, d.list.search.view(m.width, "Filter"), d.list.visible())
 	}
 	return m.readingPage(trail, tabs, "", d.visible())

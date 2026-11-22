@@ -43,11 +43,23 @@ export interface SessionPrompt {
   signals: PromptSignals;
 }
 
+interface Subagent {
+  id?: string;
+  parentId?: string;
+  agentType: string;
+  title: string;
+  startTs?: number;
+  endTs?: number;
+  models?: string[];
+  usage: Usage;
+}
+
 export interface SessionDetail {
   scope: Scope;
   session: Session;
   tools: Tool[];
-  subagents: { agentType: string; title: string; usage: Usage }[];
+  forkedFrom?: string;
+  subagents: Subagent[];
   promptsVisible: boolean;
   prompts: SessionPrompt[];
 }

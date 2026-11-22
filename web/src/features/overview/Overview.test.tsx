@@ -65,6 +65,13 @@ it("opens a date's contributions and restores its selection on browser back", as
   click(relatedSession);
   await eventually(() => expect(container.querySelector("h1")?.textContent).toBe("Sessions"));
   expect(new URLSearchParams(location.search).get("session")).toBe("codex:matching");
+
+  const graph = () => button(container, "Activity graph");
+  await eventually(() => expect(graph()).toBeDefined());
+  click(graph()!);
+  expect(new URLSearchParams(location.search).get("section")).toBe("activity graph");
+  expect(container.querySelector('[aria-label="Session activity graph"]')).not.toBeNull();
+
   await act(async () => { window.history.back(); });
   await eventually(() => expect(panel()?.textContent).toContain("Trace the cost of retries"));
   await eventually(() => expect(document.activeElement).toBe(panel()!.querySelector(".dashboard-row")));

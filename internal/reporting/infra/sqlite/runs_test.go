@@ -69,6 +69,8 @@ func newCrossing(t *testing.T) crossing {
 		VALUES (?, ?, ?, 'm', 1, 1, 0, 0, ?, 1, NULL, NULL, NULL)`, s.root, s.id, at, s.cost)
 		exec(`INSERT INTO usage_folders VALUES (?)`, s.folder)
 	}
+	// A subagent present in A was started by an agent that worked in B.
+	exec(`INSERT INTO session_lineage VALUES ('child-b', 'parent-a'), ('child-a', 'child-b')`)
 	// the run of a root spans all its sessions, as the index's view says
 	exec(`UPDATE session_overview SET run_started_at = ?, run_ended_at = ? WHERE root_id = 'parent-a'`, t0, t0+2)
 	exec(`UPDATE session_overview SET run_started_at = ?, run_ended_at = ? WHERE root_id = 'root-b'`, t0+3, t0+4)
@@ -157,6 +159,21 @@ func TestTheDescriptionOfASessionInAProjectCountsOnlyWhatWorkedInIt(t *testing.T
 	// Then its figures, its subagents and its tools are those of the sessions that worked in A
 	if err != nil || d.Cost != 1+4 || len(d.Subagents) != 1 || d.Subagents[0].Cost != 4 {
 		t.Errorf("cost = %v, subagents = %+v, %v", d.Cost, d.Subagents, err)
+	}
+}
+
+func TestAParentOutsideTheProjectIsNotExposedInTheGraph(t *testing.T) {
+	c := newCrossing(t)
+	id := mustID(t, "parent-a")
+
+	all, err := c.index.Sessions().Session(context.Background(), id, kernel.Project{})
+	if err != nil || len(all.Subagents) != 2 || all.Subagents[0].ParentID.String() != "child-b" {
+		t.Fatalf("unrestricted subagents = %+v (%v)", all.Subagents, err)
+	}
+
+	scoped, err := c.index.Sessions().Session(context.Background(), id, projectAt(t, c.a))
+	if err != nil || len(scoped.Subagents) != 1 || scoped.Subagents[0].ParentID.String() != "" {
+		t.Fatalf("scoped subagents = %+v (%v)", scoped.Subagents, err)
 	}
 }
 

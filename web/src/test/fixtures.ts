@@ -55,8 +55,10 @@ export function serveReports(
     switch (url.pathname) {
       case "/api/meta":
         return json(typeof about === "function" ? about() : about);
-      case "/api/sync":
-        return json({ state: indexing(), indexed: 0, startedAt: 0, finishedAt: 0 });
+      case "/api/sync": {
+        const state = indexing();
+        return json({ state, indexed: 0, startedAt: 1, finishedAt: state === "done" ? 2 : 0, dataVersion: state === "done" ? 1 : 0 });
+      }
       case "/api/report": {
         const scope = url.searchParams.get("project") ?? "";
         return json({ ...(await reportFor(url.searchParams.get("since") ?? "", url.searchParams.get("harness") ?? "", scope)), scope });

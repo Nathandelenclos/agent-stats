@@ -643,7 +643,7 @@ func TestRequestDetailsViewMigrationPreservesIndexedCalls(t *testing.T) {
 }
 
 const schemaBeforeRequestDetails = `
-PRAGMA user_version = 4;
+PRAGMA user_version = 5;
 DROP TABLE request_metadata;
 DROP TABLE quota_snapshots;
 DROP VIEW session_requests;
@@ -673,5 +673,25 @@ func TestRequestMetadataFollowsTheIndexedRequest(t *testing.T) {
 	}
 	if err := s.db.QueryRow(`SELECT premium_units FROM usage_requests`).Scan(&units); err != nil || units != 0 {
 		t.Fatalf("replaced metadata = %v, %v", units, err)
+	}
+}
+
+func TestOpeningAnOlderIndexPublishesRecordedParentsWithoutReindexing(t *testing.T) {
+	index := open(t)
+	at := time.Unix(1000, 0)
+	file := application.LogFile{Path: "/logs/child", Harness: kernel.Claude}
+	if err := save(index, file, subagentNamed(t, "child", "parent", at)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := index.db.Exec(schemaBeforeRequestDetails + "DROP VIEW session_lineage; PRAGMA user_version = 4"); err != nil {
+		t.Fatal(err)
+	}
+	path := pathOf(t, index)
+	index.Close()
+
+	upgraded := reopen(t, path)
+	var parent string
+	if err := upgraded.db.QueryRow("SELECT parent_id FROM session_lineage WHERE id = 'claude:child'").Scan(&parent); err != nil || parent != "claude:parent" {
+		t.Fatalf("recorded parent = %q (%v)", parent, err)
 	}
 }

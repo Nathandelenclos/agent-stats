@@ -322,7 +322,7 @@ func detailOf(s reporting.SessionSummary) reporting.SessionDetail {
 	return reporting.SessionDetail{
 		SessionSummary: s,
 		Tools:          []domain.ToolUsage{{Name: "Bash", Calls: 42, Errors: 3}, {Name: "search", Server: "grace", Calls: 7}},
-		Subagents:      []domain.SubagentUsage{{AgentType: "Explore", Title: "look around", Usage: reporting.Usage{Requests: 5, Cost: 1.25}}},
+		Subagents:      []domain.SubagentUsage{{AgentType: "Explore", Title: "look around", ParentID: s.ID, Usage: reporting.Usage{Requests: 5, Cost: 1.25}}},
 		Prompts: []domain.Prompt{
 			{At: at(2, 11, 55), Text: "please fix the build", Chars: 20, Words: 4},
 			{At: at(2, 11, 58), Text: "WHY IS THIS STILL BROKEN?? no, stop", Chars: 35, Words: 7,
@@ -359,6 +359,7 @@ func TestDetailShowsWhatTheSessionDid(t *testing.T) {
 		{"3", []string{"[Tools]", "Bash", "42 calls", "grace / search"}},
 		{"4", []string{"[Subagents]", "Explore", "look around", "$1.25"}},
 		{"5", []string{"[Prompts]", "please fix the build", "WHY IS THIS STILL BROKEN?? no, stop", "yelling 4 · anguish 3 · negation 2 · repeated"}},
+		{"6", []string{"[Graph]", "quick fix → look around", "$1.25"}},
 	}
 	for _, section := range sections {
 		m = press(t, m, section.key)

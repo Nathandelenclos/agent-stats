@@ -340,6 +340,9 @@ func (m Model) readingShortcuts() []string {
 		if d.section == sessionSummarySection {
 			return []string{"←→ sections", "enter prompts", "esc back to sessions"}
 		}
+		if d.section == sessionGraphSection {
+			return []string{"←→ sections", "↑↓ scroll", "esc back"}
+		}
 		return []string{"←→ sections", "enter open", "/ filter", "esc back"}
 	}
 	return []string{"←→ sections", "enter open", "/ filter", "↑↓ select", "esc back"}

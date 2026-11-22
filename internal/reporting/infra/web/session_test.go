@@ -21,10 +21,11 @@ func (idx *sessionDetailIndex) Session(_ context.Context, id domain.SessionID, p
 	if id.String() != "claude:root/sub" {
 		return domain.SessionDetail{}, domain.ErrSessionNotFound
 	}
+	child, _ := domain.NewSessionID("claude:child")
 	return domain.SessionDetail{
 		SessionSummary: domain.SessionSummary{ID: id, Title: "Session", Harness: kernel.Claude, End: fixedNow},
 		Tools:          []domain.ToolUsage{{Name: "Read", Calls: 2}},
-		Subagents:      []domain.SubagentUsage{{Title: "Research", AgentType: "explore"}},
+		Subagents:      []domain.SubagentUsage{{ID: child, ParentID: id, Title: "Research", AgentType: "explore", Models: []string{"sonnet"}}},
 		Prompts: []domain.Prompt{{
 			Position: 8, Text: "private prompt <script>", Chars: 23, Signals: domain.PromptSignals{Negation: 1},
 		}},
@@ -50,7 +51,7 @@ func TestSessionDetailCarriesTheSessionActivity(t *testing.T) {
 	if idx.project.Root() != "/work/app" {
 		t.Errorf("queried project = %q", idx.project.Root())
 	}
-	for _, want := range []string{`"scope":"current"`, `"id":"claude:root/sub"`, `"name":"Read"`, `"title":"Research"`, `"negation":1`, `"position":8`, `"revision":"`, `"excerpt":"private prompt`} {
+	for _, want := range []string{`"scope":"current"`, `"id":"claude:root/sub"`, `"name":"Read"`, `"title":"Research"`, `"id":"claude:child"`, `"parentId":"claude:root/sub"`, `"models":["sonnet"]`, `"negation":1`, `"position":8`, `"revision":"`, `"excerpt":"private prompt`} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Errorf("missing %q in %s", want, rec.Body.String())
 		}

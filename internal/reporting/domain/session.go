@@ -79,11 +79,13 @@ func (s SessionSummary) ModelShare(m UsageGroup) float64 {
 	return 0
 }
 
-// SubagentUsage is one subagent a session started, with what it used. A subagent is not a session of its own:
-// it has no identity to ask for, and its figures are part of the session that started it.
+// SubagentUsage describes one member of a run. ParentID is empty when the recorded parent is outside the run.
 type SubagentUsage struct {
-	AgentType string
-	Title     string
+	ID, ParentID SessionID
+	AgentType    string
+	Title        string
+	Start, End   time.Time
+	Models       []string
 	Usage
 }
 
@@ -133,7 +135,8 @@ type Prompt struct {
 // SessionDetail is what one session did: its summary, the tools it called, the subagents it started and its prompts in order.
 type SessionDetail struct {
 	SessionSummary
-	Tools     []ToolUsage // most used first, subagents' calls included
-	Subagents []SubagentUsage
-	Prompts   []Prompt
+	Tools      []ToolUsage // most used first, subagents' calls included
+	Subagents  []SubagentUsage
+	ForkedFrom string // source ID of a Codex fork, when visible in this project
+	Prompts    []Prompt
 }

@@ -266,7 +266,7 @@ func (m Model) detailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		d.changeSection((d.section + 1) % sessionSectionCount)
 	case "shift+tab", "left":
 		d.changeSection((d.section + sessionSectionCount - 1) % sessionSectionCount)
-	case "1", "2", "3", "4", "5":
+	case "1", "2", "3", "4", "5", "6":
 		d.changeSection(sessionSection(k[0] - '1'))
 	case "enter":
 		if !d.loaded {
@@ -274,11 +274,11 @@ func (m Model) detailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if d.section == sessionSummarySection {
 			d.changeSection(sessionPromptsSection)
-		} else if i := d.list.selected(); i >= 0 {
+		} else if i := d.list.selected(); d.section.usesList() && i >= 0 {
 			return m.openSessionItem(i)
 		}
 	case "/":
-		if d.section != sessionSummarySection {
+		if d.section.usesList() {
 			d.list.search.begin()
 		}
 	case "m":
@@ -286,7 +286,7 @@ func (m Model) detailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		return m.reindex()
 	default:
-		if d.section == sessionSummarySection {
+		if !d.section.usesList() {
 			d.scrollKey(k)
 			return m, nil
 		}

@@ -300,16 +300,16 @@ it("keeps view navigation before the main content and opens Prompts with the act
   expect(container.querySelector('a[href="#main"]')?.textContent?.trim()).toBe("Skip to main content");
   expect(main.contains(nav)).toBe(false);
   expect(nav.compareDocumentPosition(main) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(buttons.map((button) => button.textContent)).toEqual(["Overview", "Usage", "Sessions", "Prompts"]);
-  expect(buttons.map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "true", "false", "false"]);
+  expect(buttons.map((button) => button.textContent)).toEqual(["Overview", "Usage", "Sessions", "Requests", "Errors", "Prompts", "Improvements"]);
+  expect(buttons.map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "true", "false", "false", "false", "false", "false"]);
 
-  const prompts = buttons[3]!;
+  const prompts = buttons.find((button) => button.textContent === "Prompts")!;
   prompts.focus();
   click(prompts);
 
   await eventually(() => expect(main.textContent).toContain("No flagged prompts match these filters."));
   expect(document.activeElement).toBe(prompts);
-  expect(buttons.map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "false", "false", "true"]);
+  expect(buttons.map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "false", "false", "false", "false", "true", "false"]);
   expect(fetch).toHaveBeenCalledWith("/api/prompts?since=30d&project=current&limit=1000", expect.any(Object));
   expect(periodSelect(container).value).toBe("30d");
   window.history.replaceState(null, "", "/");
@@ -364,6 +364,9 @@ it("reads account quotas without usage filters and refreshes them on demand", as
     provider: "Codex", label: "Weekly quota", remaining: 0, resetAt: "0001-01-01T00:00:00Z", observedAt: new Date().toISOString(),
   };
   const fetch = vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input) === "/api/quotas/history") {
+      return new Response(JSON.stringify([snapshot]));
+    }
     if (String(input) === "/api/quotas") {
       calls++;
       return new Response(JSON.stringify(calls === 1 ? [
@@ -386,7 +389,7 @@ it("reads account quotas without usage filters and refreshes them on demand", as
   expect(container.textContent).toContain("Resetsunknown");
   expect(container.textContent).not.toContain("Expired quota");
   expect([...container.querySelectorAll("label")].some((label) => label.textContent === "Period")).toBe(false);
-  expect(fetch.mock.calls.filter(([url]) => String(url).startsWith("/api/quotas")).map(([url]) => url)).toEqual(["/api/quotas"]);
+  expect(fetch.mock.calls.filter(([url]) => String(url).startsWith("/api/quotas")).map(([url]) => url)).toEqual(["/api/quotas", "/api/quotas/history"]);
 
   await act(async () => {
     focusManager.setFocused(false);
@@ -400,6 +403,7 @@ it("reads account quotas without usage filters and refreshes them on demand", as
   await eventually(() => expect(container.textContent).toContain("73% remaining"));
   expect(document.activeElement).toBe(refresh);
   expect(calls).toBe(2);
+  await eventually(() => expect(container.textContent).toContain("Recorded observations"));
 
   focusManager.setFocused(undefined);
   window.history.replaceState(null, "", "/");
@@ -471,4 +475,32 @@ it("labels the current-rate cost breakdown separately and shows rate coverage", 
   await eventually(() => expect(container.textContent).toContain("API cost at current rates"));
   expect(container.textContent).toContain("Rates available for 8 of 10 requests");
   expect(container.textContent).toContain("Input cost saved by caching25%");
+});
+
+it("shows workflow signals with evidence for the selected filters", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+    const url = new URL(input, "http://localhost");
+    const response = (data: unknown) => new Response(JSON.stringify(data));
+    switch (url.pathname) {
+      case "/api/meta": return response(meta({ catalogAvailable: true }));
+      case "/api/sync": return response({ state: "disabled" });
+      case "/api/report": return response(report());
+      case "/api/prompts": return response({
+        scope: "all", count: 0, sessions: 0, promptsVisible: true, prompts: [], byFolder: [],
+        recurring: [{ excerpt: "Run the small test first", sessions: 3, count: 4, lastTs: 1_700_000_000_000 }],
+      });
+      case "/api/catalog": return response({
+        scope: "all", skipped: 0, entries: [{ name: "reviewer", harness: "claude", kind: "agent", scope: "user", enabled: true, uses: 0 }],
+      });
+      default: return new Response(null, { status: 404 });
+    }
+  }));
+  const { container } = render(withQueries(testQueryClient(), <App />));
+  await eventually(() => expect(container.querySelector('[aria-label="Views"]')).not.toBeNull());
+  click([...container.querySelectorAll("nav button")].find((element) => element.textContent === "Improvements")!);
+  await eventually(() => expect(container.textContent).toContain("Run the small test first"));
+  expect(new URLSearchParams(location.search).get("view")).toBe("improvements");
+  expect(container.textContent).toContain("4 occurrences across 3 sessions");
+  expect(container.textContent).toContain("reviewer");
+  expect(fetch).toHaveBeenCalledWith(expect.stringMatching(/^\/api\/catalog\?.*unused=true/), expect.anything());
 });

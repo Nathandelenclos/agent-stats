@@ -139,6 +139,7 @@ var migrations = []migration{
 	sqlSteps(recordSkills),
 	sqlSteps(recordRevisions),
 	sqlSteps(publishFolders),
+	sqlSteps(`CREATE VIEW session_lineage AS SELECT id, parent_id FROM sessions WHERE parent_id IS NOT NULL AND parent_id <> id`),
 	sqlSteps(publishRequestDetails),
 	sqlSteps(recordRequestMetadata),
 	sqlSteps(recordQuotaHistory),

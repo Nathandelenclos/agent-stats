@@ -223,7 +223,7 @@ it("moves to a neighboring detail section with the keyboard", async () => {
   const { container } = showSessions();
   await openSession(container);
   const tabs = () => [...container.querySelectorAll<HTMLElement>('[role="tab"]')];
-  await eventually(() => expect(tabs()).toHaveLength(7));
+  await eventually(() => expect(tabs()).toHaveLength(8));
   act(() => tabs()[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
   expect(tabs()[1]!.getAttribute("aria-selected")).toBe("true");
   expect(document.activeElement).toBe(tabs()[1]);
@@ -293,4 +293,38 @@ it("shows the trace with both model and subagent tool events", async () => {
   expect(container.querySelector("ol")?.textContent).toContain("explorer");
   expect(container.querySelector("ol")?.textContent).toContain("Failed");
   expect(button(container, "Next events")?.disabled).toBe(false);
+});
+
+it("shows the recorded parent and opens a subagent's activity from the graph", async () => {
+  const agents = [
+    { ...detail.subagents[0], id: "claude:parent", parentId: session.id },
+    { ...detail.subagents[0], title: "Check import paths", id: "claude:child", parentId: "claude:parent", startTs: session.startTs + 3000, endTs: session.startTs + 5400 },
+    { ...detail.subagents[0], title: "Unlinked review", id: "claude:unlinked" },
+  ];
+  vi.stubGlobal("fetch", vi.fn(async (input: string) => json(
+    input.startsWith("/api/sessions/") ? { ...detail, subagents: agents } : list("current"),
+  )));
+  const { container } = showSessions();
+  await openSession(container);
+  await selectSection(container, "Activity graph");
+  const graph = container.querySelector('[aria-label="Session activity graph"]')!;
+  expect(graph.textContent).toContain("Parent: Find import callers");
+  expect(graph.textContent).toContain("Parent unavailable in this view");
+  const node = [...graph.querySelectorAll("button")].find((row) => row.textContent?.includes("Check import paths"))!;
+  click(node);
+  expect(node.getAttribute("aria-pressed")).toBe("true");
+  expect(graph.querySelector('[aria-label="Selected activity"]')?.textContent).toContain("Recorded span2.4 s");
+});
+
+it("shows the available activity when no subagent links were recorded", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: string) => json(
+    input.startsWith("/api/sessions/") ? { ...detail, subagents: [] } : list("current"),
+  )));
+  const { container } = showSessions();
+  await openSession(container);
+  await selectSection(container, "Activity graph");
+  const graph = container.querySelector('[aria-label="Session activity graph"]')!;
+  expect(graph.textContent).toContain("No subagent links were recorded for this session");
+  expect(graph.textContent).toContain("opus");
+  expect(graph.textContent).toContain("Read");
 });
