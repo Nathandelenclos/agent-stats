@@ -159,7 +159,7 @@ type metaJSON struct {
 	Defaults  struct {
 		Since   string `json:"since"`   // the period the page opens on, "" for all
 		Harness string `json:"harness"` // "" for all
-		Project string `json:"project"` // the scope the page opens on: "current" (the project above) or "all"
+		Scope   string `json:"scope"`   // what the page opens on: "current" (the project above) or "all"
 	} `json:"defaults"`
 }
 
@@ -173,7 +173,7 @@ func (s *Server) meta(w http.ResponseWriter, r *http.Request) {
 	for _, h := range kernel.Harnesses {
 		m.Harnesses = append(m.Harnesses, h.String())
 	}
-	m.Defaults.Since, m.Defaults.Harness, m.Defaults.Project = s.opts.Since, s.opts.Harness.String(), s.defaultScope()
+	m.Defaults.Since, m.Defaults.Harness, m.Defaults.Scope = s.opts.Since, s.opts.Harness.String(), s.defaultScope()
 	if !s.opts.Project.IsZero() {
 		m.Project = s.opts.Project.Name()
 	}

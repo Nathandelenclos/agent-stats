@@ -181,7 +181,7 @@ Unknown or repeated parameters are refused with `400`.
 |-------|--------|
 | `/api/report?since=&harness=&project=` | The `--json` report (same fields), plus `daily`: one entry per local day with activity, oldest first, `key` being `2006-01-02`. Lists are `[]` when empty, never `null`. |
 | `/api/sessions?since=&harness=&project=&limit=` | The most recent sessions (`limit` 1 to 1000, default 100) with their usage, models and subagent count, without the prompts. `count` and `total` cover every matching session. `title` is the session title, which for an untitled session is the start of its first prompt. |
-| `/api/meta` | The harness names, the name of the project the server runs in (`project`, `""` when it found none), and the period, harness and scope (`defaults.project`: `current` or `all`) the page opens on. |
+| `/api/meta` | The harness names, the name of the project the server runs in (`project`, `""` when it found none), and the period, harness and scope (`defaults.scope`: `current` or `all`) the page opens on. |
 | `/api/sync` | The background indexing: `state` (`running`, `done`, `failed`, or `disabled` with `--no-sync`), files `indexed`, and what was skipped. |
 
 ### Security

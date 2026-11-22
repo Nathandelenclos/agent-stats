@@ -4,8 +4,8 @@ import { click, optionValues, render, selectLabelled } from "../../test/render";
 import { FilterBar } from "./Filters";
 import type { Filters } from "./types";
 
-const meta = (since: string) => serverMeta({ defaults: { since, harness: "", project: "all" } });
-const filters = (over: Partial<Filters> = {}): Filters => ({ since: "7d", harness: "", project: "all", ...over });
+const meta = (since: string) => serverMeta({ defaults: { since, harness: "", scope: "all" } });
+const filters = (over: Partial<Filters> = {}): Filters => ({ since: "7d", harness: "", scope: "all", ...over });
 const scopeButtons = (container: HTMLElement) => [...container.querySelectorAll('[role="group"][aria-label="Projects"] button')] as HTMLButtonElement[];
 
 describe("FilterBar", () => {
@@ -46,7 +46,7 @@ describe("FilterBar", () => {
 
   it("offers the project and every project, and shows which one is chosen", () => {
     // Given a server started in the app project and a person looking at it
-    const { container } = render(<FilterBar meta={metaInProject("app")} value={filters({ project: "current" })} onChange={() => {}} />);
+    const { container } = render(<FilterBar meta={metaInProject("app")} value={filters({ scope: "current" })} onChange={() => {}} />);
 
     // When the bar is drawn
     const buttons = scopeButtons(container);
@@ -58,21 +58,27 @@ describe("FilterBar", () => {
     ]);
   });
 
-  it("switches to every project, and back, keeping the other filters", () => {
+  it("switches to every project, keeping the other filters", () => {
     // Given a person on the project with the last 30 days of claude
     const onChange = vi.fn();
-    const chosen = filters({ since: "30d", harness: "claude", project: "current" });
-    const { container, rerender } = render(<FilterBar meta={metaInProject("app")} value={chosen} onChange={onChange} />);
+    const { container } = render(<FilterBar meta={metaInProject("app")} value={filters({ since: "30d", harness: "claude", scope: "current" })} onChange={onChange} />);
 
     // When they choose every project
     click(scopeButtons(container)[1]!);
 
     // Then only the scope changes
-    expect(onChange).toHaveBeenLastCalledWith({ since: "30d", harness: "claude", project: "all" });
+    expect(onChange).toHaveBeenLastCalledWith({ since: "30d", harness: "claude", scope: "all" });
+  });
 
-    // And choosing the project again from there changes only the scope too
-    rerender(<FilterBar meta={metaInProject("app")} value={{ ...chosen, project: "all" }} onChange={onChange} />);
+  it("switches back to the project from every project, keeping the other filters", () => {
+    // Given a person on every project with the last 30 days of claude
+    const onChange = vi.fn();
+    const { container } = render(<FilterBar meta={metaInProject("app")} value={filters({ since: "30d", harness: "claude", scope: "all" })} onChange={onChange} />);
+
+    // When they choose the project
     click(scopeButtons(container)[0]!);
-    expect(onChange).toHaveBeenLastCalledWith(chosen);
+
+    // Then only the scope changes
+    expect(onChange).toHaveBeenLastCalledWith({ since: "30d", harness: "claude", scope: "current" });
   });
 });

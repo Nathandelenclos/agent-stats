@@ -110,7 +110,7 @@ func TestMetaSaysWhichProjectTheServerRunsInAndThatItOpensOnIt(t *testing.T) {
 	got := decode[metaJSON](t, r.get("/api/meta"))
 
 	// Then it learns the project and that the page opens on it
-	if got.Project != "app" || got.Defaults.Project != "current" {
+	if got.Project != "app" || got.Defaults.Scope != "current" {
 		t.Errorf("meta = %+v", got)
 	}
 }
@@ -123,7 +123,7 @@ func TestMetaOffersNoProjectWhenNoneWasDetected(t *testing.T) {
 	got := decode[metaJSON](t, r.get("/api/meta"))
 
 	// Then there is no project and the page opens on every project
-	if got.Project != "" || got.Defaults.Project != "all" {
+	if got.Project != "" || got.Defaults.Scope != "all" {
 		t.Errorf("meta = %+v", got)
 	}
 }
@@ -136,7 +136,7 @@ func TestMetaOpensOnEveryProjectWhenTheServerWasStartedWithAll(t *testing.T) {
 	got := decode[metaJSON](t, r.get("/api/meta"))
 
 	// Then it still learns the project, so that it can switch to it, and opens on every project
-	if got.Project != "app" || got.Defaults.Project != "all" {
+	if got.Project != "app" || got.Defaults.Scope != "all" {
 		t.Errorf("meta = %+v", got)
 	}
 }

@@ -26,12 +26,12 @@ import { SyncBanner, useSyncStatus, type SyncStatus } from "./features/sync";
 function readFilters(meta: Meta): Filters {
   const params = new URLSearchParams(window.location.search);
   const harness = params.get("harness") ?? meta.defaults.harness;
-  const project = params.get("project");
+  const scope = params.get("project"); // the address and the API call the scope "project"
   return {
     since: params.get("since") ?? meta.defaults.since,
     harness: harness === "" || meta.harnesses.includes(harness) ? harness : meta.defaults.harness,
     // "current" names a project only a server that found one can answer for: with none, the server refuses it.
-    project: project === "all" || (project === "current" && meta.project !== "") ? project : meta.defaults.project,
+    scope: scope === "all" || (scope === "current" && meta.project !== "") ? scope : meta.defaults.scope,
   };
 }
 
@@ -39,7 +39,7 @@ function writeFilters(f: Filters) {
   const params = new URLSearchParams();
   params.set("since", f.since);
   params.set("harness", f.harness);
-  params.set("project", f.project);
+  params.set("project", f.scope);
   window.history.replaceState(null, "", `?${params}`);
 }
 

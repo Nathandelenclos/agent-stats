@@ -12,7 +12,7 @@ const selectClass = "min-h-9 rounded-md border border-border bg-bg px-2 text-ink
 
 /** What the report covers, in words: the project the server runs in, or every project. */
 export function scopeLabel(meta: Meta, filters: Filters): string {
-  return filters.project === "current" && meta.project !== "" ? `Project: ${meta.project}` : "All projects";
+  return filters.scope === "current" && meta.project !== "" ? `Project: ${meta.project}` : "All projects";
 }
 
 const scopes: { value: Scope; label: string }[] = [
@@ -65,7 +65,7 @@ export function FilterBar({ meta, value, onChange }: { meta: Meta; value: Filter
           ))}
         </select>
       </div>
-      {meta.project !== "" && <ScopeToggle value={value.project} onChange={(project) => onChange({ ...value, project })} />}
+      {meta.project !== "" && <ScopeToggle value={value.scope} onChange={(scope) => onChange({ ...value, scope })} />}
     </form>
   );
 }

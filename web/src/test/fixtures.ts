@@ -30,10 +30,10 @@ export const report = (over: Partial<Report> = {}): Report => ({
 export const emptyReport = (over: Partial<Report> = {}): Report => ({ ...nothing, ...over });
 
 /** A server started outside any project; `over` replaces any part of it. */
-export const meta = (over: Partial<Meta> = {}): Meta => ({ harnesses: ["claude", "codex"], project: "", defaults: { since: "7d", harness: "", project: "all" }, ...over });
+export const meta = (over: Partial<Meta> = {}): Meta => ({ harnesses: ["claude", "codex"], project: "", defaults: { since: "7d", harness: "", scope: "all" }, ...over });
 
 /** A server started in the project `name`, whose page opens on it. */
-export const metaInProject = (name: string): Meta => meta({ project: name, defaults: { since: "7d", harness: "", project: "current" } });
+export const metaInProject = (name: string): Meta => meta({ project: name, defaults: { since: "7d", harness: "", scope: "current" } });
 
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
 

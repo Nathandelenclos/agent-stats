@@ -49,13 +49,13 @@ export interface Meta {
   harnesses: string[];
   /** The name of the project the server runs in; "" when it found none, and there is then no scope to choose. */
   project: string;
-  defaults: { since: string; harness: string; project: Scope };
+  defaults: { since: string; harness: string; scope: Scope };
 }
 
 export interface Filters {
   since: string; // "" for all time
   harness: string; // "" for all harnesses
-  project: Scope;
+  scope: Scope;
 }
 
 /** Tokens the model read in: uncached, read from cache and written to cache. */
