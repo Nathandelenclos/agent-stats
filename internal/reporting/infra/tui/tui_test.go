@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -386,7 +387,7 @@ func TestPeriodKeyAsksForAnotherReport(t *testing.T) {
 func TestHarnessKeyCyclesThroughEveryHarness(t *testing.T) {
 	reports := &fakeReports{report: sampleReport()}
 	m := startWith(t, reports, Options{})
-	for _, want := range []kernel.Harness{kernel.Claude, kernel.Codex, kernel.OMP, kernel.Pi, {}} {
+	for _, want := range append(slices.Clone(kernel.Harnesses), kernel.Harness{}) {
 		var cmd tea.Cmd
 		m, cmd = pressCmd(t, m, "h")
 		m = answer(t, m, cmd)
