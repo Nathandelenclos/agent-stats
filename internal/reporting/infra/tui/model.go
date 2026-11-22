@@ -79,7 +79,7 @@ type syncDoneMsg struct {
 
 // Model is the Bubble Tea model of the interface.
 type Model struct {
-	reports Reports
+	reports reporting.BuildReport
 	sync    Sync // nil when indexing is off
 	now     func() time.Time
 
@@ -315,6 +315,7 @@ func (m *Model) layout() {
 	m.table.SetRows(nil) // bubbles/table indexes old rows by the new columns, so never leave them mismatched
 	m.table.SetColumns(cols)
 	m.table.SetRows(rows)
+	m.table.SetCursor(max(0, m.table.Cursor())) // a shorter table must not leave the cursor past its end
 	m.table.SetWidth(m.width)
 	m.table.SetHeight(max(4, m.height-chromeLines))
 	s := table.DefaultStyles()

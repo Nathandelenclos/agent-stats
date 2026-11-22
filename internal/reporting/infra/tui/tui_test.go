@@ -11,19 +11,32 @@ import (
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
+	"github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 )
 
-// fakeReports answers every query with report, and remembers the queries it was asked.
+// fakeReports is the usage index behind BuildReport: it answers every filter with report, and remembers
+// the queries it was asked (one Total call per report).
 type fakeReports struct {
 	report  reporting.Report
 	err     error
 	queries []reporting.Query
 }
 
-func (f *fakeReports) Run(q reporting.Query) (reporting.Report, error) {
-	f.queries = append(f.queries, q)
-	return f.report, f.err
+func (f *fakeReports) Total(fl domain.Filter) (domain.Usage, error) {
+	f.queries = append(f.queries, reporting.Query{Since: fl.Since, Harness: fl.Harness})
+	return f.report.Total, f.err
 }
+
+func (f *fakeReports) UsageBy(_ domain.Filter, d domain.Dimension) ([]domain.UsageGroup, error) {
+	return map[domain.Dimension][]domain.UsageGroup{
+		domain.ByHarness: f.report.ByHarness, domain.ByModel: f.report.ByModel,
+		domain.ByFolder: f.report.ByFolder, domain.ByAgentType: f.report.ByAgent,
+	}[d], nil
+}
+
+func (f *fakeReports) Tools(domain.Filter) ([]domain.ToolUsage, error) { return f.report.Tools, nil }
+
+func build(f *fakeReports) reporting.BuildReport { return reporting.BuildReport{Queries: f} }
 
 func usage(requests, failed, input, output, cacheRead int64, cost float64) reporting.Usage {
 	return reporting.Usage{Requests: requests, Failed: failed, Input: input, Output: output, CacheRead: cacheRead,
@@ -51,7 +64,7 @@ func sampleReport() reporting.Report {
 // start returns the interface once the first report arrived.
 func start(t *testing.T, reports *fakeReports) Model {
 	t.Helper()
-	m := New(Options{Reports: reports})
+	m := New(Options{Reports: build(reports)})
 	cmd := m.Init()
 	if cmd == nil {
 		t.Fatal("Init asks for no report")
@@ -124,16 +137,16 @@ func TestTabsShowOneTableEach(t *testing.T) {
 func TestTabKeysCycleAndWrap(t *testing.T) {
 	m := start(t, &fakeReports{report: sampleReport()})
 	m = press(t, m, "tab", "tab")
-	if m.tab != folderTab {
-		t.Fatalf("after two tab presses: %v", m.tab)
+	if view := m.View(); !strings.Contains(view, "FOLDER") {
+		t.Fatalf("after two tab presses, want the folder table:\n%s", view)
 	}
 	m = press(t, m, "shift+tab", "shift+tab", "left")
-	if m.tab != toolsTab {
-		t.Errorf("left from the first tab: %v, want the last", m.tab)
+	if view := m.View(); !strings.Contains(view, "MCP SERVER") {
+		t.Errorf("left from the first tab, want the tools table:\n%s", view)
 	}
 	m = press(t, m, "right")
-	if m.tab != harnessTab {
-		t.Errorf("right from the last tab: %v, want the first", m.tab)
+	if view := m.View(); !strings.Contains(view, "HARNESS") {
+		t.Errorf("right from the last tab, want the harness table:\n%s", view)
 	}
 }
 
@@ -261,15 +274,15 @@ func TestSortingCyclesBackToTheReportOrder(t *testing.T) {
 	for range 7 { // 7 columns on a usage table
 		m = press(t, m, "s")
 	}
-	if m.sorts[harnessTab].col != 6 {
-		t.Fatalf("after 7 presses: %+v", m.sorts[harnessTab])
+	if view := m.View(); !strings.Contains(view, "COST▼") {
+		t.Fatalf("after 7 presses, want the cost column sorted:\n%s", view)
 	}
 	if got := order(m.View(), "zed", "amy", "Bob"); got != "zed amy Bob" { // COST descending is the report's order here
 		t.Errorf("by cost: %q", got)
 	}
 	m = press(t, m, "s")
-	if m.sorts[harnessTab] != reportOrder || strings.ContainsAny(m.View(), "▲▼") {
-		t.Errorf("did not return to the report's order: %+v", m.sorts[harnessTab])
+	if strings.ContainsAny(m.View(), "▲▼") {
+		t.Errorf("did not return to the report's order:\n%s", m.View())
 	}
 }
 
@@ -286,8 +299,8 @@ func TestEachTabKeepsItsOwnSort(t *testing.T) {
 	if got := order(m.View(), "zed", "amy", "Bob"); got != "amy Bob zed" {
 		t.Errorf("harness tab lost its sort: %q", got)
 	}
-	if m.sorts[modelTab] != reportOrder {
-		t.Errorf("model tab was sorted: %+v", m.sorts[modelTab])
+	if m = press(t, m, "2"); strings.ContainsAny(m.View(), "▲▼") {
+		t.Errorf("model tab was sorted:\n%s", m.View())
 	}
 }
 
@@ -308,7 +321,7 @@ var noon = time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
 // startWith opens the interface with o at a fixed time and delivers the first report.
 func startWith(t *testing.T, reports *fakeReports, o Options) Model {
 	t.Helper()
-	o.Reports = reports
+	o.Reports = build(reports)
 	m := New(o)
 	m.now = func() time.Time { return noon }
 	return send(t, m, m.Init()())
@@ -495,7 +508,7 @@ func (f *fakeSync) run(progress func(int)) (string, error) {
 
 func openWithSync(t *testing.T, reports *fakeReports, s *fakeSync) Model {
 	t.Helper()
-	m := New(Options{Reports: reports, Sync: s.run})
+	m := New(Options{Reports: build(reports), Sync: s.run})
 	return settle(t, m, m.Init())
 }
 
@@ -503,7 +516,7 @@ func TestIndexingRunsInTheBackgroundThenTheReportRefreshes(t *testing.T) {
 	// Given a sync that indexes files and skips some
 	reports := &fakeReports{report: sampleReport()}
 	s := &fakeSync{counts: []int{50, 100}, note: "2 files skipped"}
-	m := New(Options{Reports: reports, Sync: s.run})
+	m := New(Options{Reports: build(reports), Sync: s.run})
 
 	// When the interface opens, then it says it is indexing before anything finishes
 	if view := m.View(); !strings.Contains(view, "indexing…") {
@@ -522,7 +535,7 @@ func TestIndexingRunsInTheBackgroundThenTheReportRefreshes(t *testing.T) {
 }
 
 func TestProgressShowsFilesIndexedSoFar(t *testing.T) {
-	m := New(Options{Reports: &fakeReports{}, Sync: (&fakeSync{}).run})
+	m := New(Options{Reports: build(&fakeReports{}), Sync: (&fakeSync{}).run})
 	m = send(t, m, syncProgressMsg{indexed: 1250, events: make(chan tea.Msg)})
 	if view := m.View(); !strings.Contains(view, "indexing… 1 250 files") {
 		t.Errorf("progress:\n%s", view)
@@ -532,7 +545,7 @@ func TestProgressShowsFilesIndexedSoFar(t *testing.T) {
 func TestProgressReachesTheScreenWhileIndexingIsStillRunning(t *testing.T) {
 	// Given a sync that is still working after its first progress report
 	release := make(chan struct{})
-	m := New(Options{Reports: &fakeReports{}, Sync: func(progress func(int)) (string, error) {
+	m := New(Options{Reports: build(&fakeReports{}), Sync: func(progress func(int)) (string, error) {
 		progress(50)
 		<-release
 		return "", nil
@@ -587,7 +600,7 @@ func TestReindexKeyRunsTheSyncAgain(t *testing.T) {
 
 func TestWithoutSyncNothingIsIndexed(t *testing.T) {
 	reports := &fakeReports{report: sampleReport()}
-	m := New(Options{Reports: reports})
+	m := New(Options{Reports: build(reports)})
 	if view := m.View(); strings.Contains(view, "indexing") || strings.Contains(view, "re-index") {
 		t.Errorf("sync-less view mentions indexing:\n%s", view)
 	}
@@ -611,5 +624,30 @@ func TestIndexingMessagesCannotDriveTheTerminal(t *testing.T) {
 	m := openWithSync(t, &fakeReports{report: sampleReport()}, &fakeSync{err: errors.New("bad\x1b[2Jpath"), note: "n\x07"})
 	if view := m.View(); strings.ContainsAny(view, "\x07") || strings.Contains(view, "\x1b[2J") {
 		t.Errorf("control characters reached the view: %q", view)
+	}
+}
+
+func TestShorterReportKeepsASelectedRow(t *testing.T) {
+	// Given the cursor far down a long table
+	long := sortReport()
+	for i := 0; i < 30; i++ {
+		long.ByHarness = append(long.ByHarness, group("filler", usage(1, 0, 1, 1, 0, 0)))
+	}
+	reports := &fakeReports{report: long}
+	m := start(t, reports)
+	m = press(t, m, "j", "j", "j", "j", "j", "j", "j", "j", "j", "j")
+
+	// When a filter leaves a single row
+	reports.report = sortReport()
+	reports.report.ByHarness = reports.report.ByHarness[:1]
+	m, cmd := pressCmd(t, m, "p")
+	m = answer(t, m, cmd)
+
+	// Then the cursor is on that row, and scrolling down stays on it
+	if c := m.table.Cursor(); c != 0 {
+		t.Errorf("cursor = %d on a one-row table", c)
+	}
+	if m = press(t, m, "j"); m.table.Cursor() != 0 || !strings.Contains(m.View(), "zed") {
+		t.Errorf("cursor = %d; view:\n%s", m.table.Cursor(), m.View())
 	}
 }
