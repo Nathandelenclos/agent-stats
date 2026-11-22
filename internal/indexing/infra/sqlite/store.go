@@ -140,6 +140,7 @@ var migrations = []migration{
 	sqlSteps(recordRevisions),
 	sqlSteps(publishFolders),
 	sqlSteps(publishRequestDetails),
+	sqlSteps(recordRequestMetadata),
 }
 
 // recordSkills makes the index record the skill each Skill call loads. It is a table of its own, not a column of
@@ -204,6 +205,28 @@ CREATE VIEW usage_requests AS
 	SELECT r.ts, r.model, r.input, r.output, r.cache_read, r.cache_write, r.cost, r.priced, r.duration_ms, r.ttft_ms, r.error,
 		s.harness, s.agent_type, s.folder, r.provider
 	FROM requests r JOIN sessions s ON s.id = r.session_id;
+`
+
+const recordRequestMetadata = `
+CREATE TABLE request_metadata (
+	file TEXT NOT NULL, session_id TEXT NOT NULL, key TEXT NOT NULL,
+	premium_units REAL NOT NULL, purpose TEXT NOT NULL, service_tier TEXT NOT NULL,
+	PRIMARY KEY (session_id, key)
+) WITHOUT ROWID;
+CREATE INDEX request_metadata_file ON request_metadata (file);
+DROP VIEW session_requests;
+CREATE VIEW session_requests AS
+	SELECT o.root_id, r.session_id, r.ts, r.model, r.input, r.output, r.cache_read, r.cache_write, r.cost, r.priced,
+		r.duration_ms, r.ttft_ms, r.error, r.key, r.provider, r.stop_reason,
+		COALESCE(m.premium_units, 0) AS premium_units, COALESCE(m.purpose, '') AS purpose, COALESCE(m.service_tier, '') AS service_tier
+	FROM requests r JOIN session_overview o ON o.id = r.session_id
+	LEFT JOIN request_metadata m ON (m.session_id, m.key, m.file) = (r.session_id, r.key, r.file);
+DROP VIEW usage_requests;
+CREATE VIEW usage_requests AS
+	SELECT r.ts, r.model, r.input, r.output, r.cache_read, r.cache_write, r.cost, r.priced, r.duration_ms, r.ttft_ms, r.error,
+		s.harness, s.agent_type, s.folder, r.provider, COALESCE(m.premium_units, 0) AS premium_units
+	FROM requests r JOIN sessions s ON s.id = r.session_id
+	LEFT JOIN request_metadata m ON (m.session_id, m.key, m.file) = (r.session_id, r.key, r.file);
 `
 
 // migrate runs, in one transaction, the migrations the index has not run, then records how many it has run: another
@@ -342,11 +365,11 @@ func (s *SQLiteIndex) IndexedFiles() (map[string]application.LogFile, error) {
 
 // statements are the prepared statements that write one log, bound to the transaction of a batch.
 type statements struct {
-	deletes                                               [5]*sql.Stmt // the rows of a file, in each of deletedTables
-	session, request, tool, skill, prompt, file, revision *sql.Stmt
+	deletes                                                         [len(deletedTables)]*sql.Stmt // the rows of a file, in each of deletedTables
+	session, request, metadata, tool, skill, prompt, file, revision *sql.Stmt
 }
 
-var deletedTables = [...]string{"sessions", "requests", "tool_calls", "tool_call_skills", "prompts"}
+var deletedTables = [...]string{"sessions", "requests", "request_metadata", "tool_calls", "tool_call_skills", "prompts"}
 
 func prepare(tx *sql.Tx) (st statements, err error) {
 	prep := func(query string) *sql.Stmt {
@@ -370,6 +393,7 @@ func prepare(tx *sql.Tx) (st statements, err error) {
 		WHERE (COALESCE(excluded.ended_at, 0), excluded.file) >= (COALESCE(sessions.ended_at, 0), sessions.file)`)
 	st.request = prep(ownedRows("requests", "file", "key", "session_id", "ts", "model", "provider", "input", "output", "cache_read", "cache_write", "reasoning",
 		"cost", "priced", "duration_ms", "ttft_ms", "stop_reason", "error"))
+	st.metadata = prep(ownedRows("request_metadata", "file", "session_id", "key", "premium_units", "purpose", "service_tier"))
 	st.tool = prep(ownedRows("tool_calls", "file", "key", "session_id", "ts", "name", "server", "args_chars", "result_chars", "is_error", "duration_ms"))
 	st.skill = prep(ownedRows("tool_call_skills", "file", "session_id", "key", "skill"))
 	st.prompt = prep(ownedRows("prompts", "file", "key", "session_id", "ts", "text", "chars", "words", "yelling", "profanity", "anguish", "negation",
@@ -397,7 +421,7 @@ func ownedRows(table string, cols ...string) string {
 }
 
 func (st statements) close() {
-	for _, stmt := range append(st.deletes[:], st.session, st.request, st.tool, st.skill, st.prompt, st.file, st.revision) {
+	for _, stmt := range append(st.deletes[:], st.session, st.request, st.metadata, st.tool, st.skill, st.prompt, st.file, st.revision) {
 		if stmt != nil {
 			stmt.Close()
 		}
@@ -476,6 +500,11 @@ func (s *SQLiteIndex) saveLog(st statements, file application.LogFile, t applica
 		if _, err := st.request.Exec(path, r.Key, ss.ID.String(), kernel.UnixMilli(r.At), r.Model, r.Provider, n.Input, n.Output, n.CacheRead, n.CacheWrite, n.Reasoning,
 			c.Cost.USD(), c.Priced, nullMillis(r.Duration), nullMillis(r.TTFT), r.StopReason, nullStr(r.Failure)); err != nil {
 			return err
+		}
+		if r.PremiumUnits > 0 || r.Purpose != "" || r.ServiceTier != "" {
+			if _, err := st.metadata.Exec(path, ss.ID.String(), r.Key, r.PremiumUnits, r.Purpose, r.ServiceTier); err != nil {
+				return err
+			}
 		}
 	}
 	for _, c := range t.Tools {

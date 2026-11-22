@@ -6,9 +6,9 @@ import "encoding/json"
 // Keys that are not listed are skipped without being decoded.
 
 var (
-	piLineFields    = fieldNames("type", "id", "timestamp", "cwd", "title", "model", "provider", "modelId", "message")
-	piMessageFields = fieldNames("role", "content", "provider", "model", "stopReason", "errorMessage", "duration", "ttft", "toolCallId", "isError", "usage")
-	piUsageFields   = fieldNames("input", "output", "cacheRead", "cacheWrite", "reasoningTokens", "cost")
+	piLineFields    = fieldNames("type", "id", "timestamp", "cwd", "title", "model", "provider", "modelId", "message", "purpose", "duration", "ttft", "stopReason", "errorMessage", "usage", "serviceTier")
+	piMessageFields = fieldNames("role", "content", "provider", "model", "stopReason", "errorMessage", "duration", "ttft", "toolCallId", "isError", "usage", "serviceTier")
+	piUsageFields   = fieldNames("input", "output", "cacheRead", "cacheWrite", "reasoningTokens", "cost", "premiumRequests")
 	piCostFields    = fieldNames("total")
 	piBlockFields   = fieldNames("type", "text", "id", "name", "arguments")
 )
@@ -41,6 +41,20 @@ func scanPiLine(line []byte, l *piLine) bool {
 			}
 			l.Message = new(piMessage)
 			return s.piMessage(l.Message)
+		case "purpose":
+			return m.first(9) && s.setText(&l.Purpose)
+		case "duration":
+			return m.first(10) && s.setFloat64(&l.Duration)
+		case "ttft":
+			return m.first(11) && s.setFloat64(&l.TTFT)
+		case "stopReason":
+			return m.first(12) && s.setText(&l.StopReason)
+		case "errorMessage":
+			return m.first(13) && s.setText(&l.ErrorMessage)
+		case "usage":
+			return m.first(14) && s.piUsageField(&l.Usage)
+		case "serviceTier":
+			return m.first(15) && s.setText(&l.ServiceTier)
 		}
 		return !foldsToField(key, piLineFields) && s.value()
 	}) && s.done()
@@ -77,14 +91,17 @@ func (s *scanner) piMessage(msg *piMessage) bool {
 		case "isError":
 			return m.first(9) && s.setBool(&msg.IsError)
 		case "usage":
-			if !m.first(10) {
-				return false
-			}
-			msg.Usage = new(piUsageLog)
-			return s.piUsage(msg.Usage)
+			return m.first(10) && s.piUsageField(&msg.Usage)
+		case "serviceTier":
+			return m.first(11) && s.setText(&msg.ServiceTier)
 		}
 		return !foldsToField(key, piMessageFields) && s.value()
 	})
+}
+
+func (s *scanner) piUsageField(u **piUsageLog) bool {
+	*u = new(piUsageLog)
+	return s.piUsage(*u)
 }
 
 func (s *scanner) piUsage(u *piUsageLog) bool {
@@ -101,6 +118,8 @@ func (s *scanner) piUsage(u *piUsageLog) bool {
 			return m.first(3) && s.setInt64(&u.CacheWrite)
 		case "reasoningTokens":
 			return m.first(4) && s.setInt64(&u.Reasoning)
+		case "premiumRequests":
+			return m.first(6) && s.setFloat64(&u.PremiumUnits)
 		case "cost":
 			if !m.first(5) {
 				return false

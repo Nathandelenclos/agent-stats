@@ -146,11 +146,14 @@ type Request struct {
 	// PartialUsage means the log omits some classes of tokens, so listed rates cannot price this request.
 	PartialUsage bool
 	// LoggedCost is the cost the harness wrote itself; zero when it wrote none or wrote 0.
-	LoggedCost kernel.Cost
-	Duration   Duration
-	TTFT       Duration
-	StopReason string // as the harness names it
-	Failure    string // why the request failed; empty when it did not
+	LoggedCost   kernel.Cost
+	Duration     Duration
+	TTFT         Duration
+	StopReason   string // as the harness names it
+	Failure      string // why the request failed; empty when it did not
+	Purpose      string // background request purpose, when the harness records one
+	ServiceTier  string
+	PremiumUnits float64
 }
 
 // Failed reports whether the request ended in an error.

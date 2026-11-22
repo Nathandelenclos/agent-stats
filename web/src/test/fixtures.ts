@@ -4,7 +4,7 @@ import type { SyncStatus } from "../features/sync";
 
 export const usage = (over: Partial<Usage> = {}): Usage => ({
   requests: 10, failed: 1, input: 1000, output: 500, cacheRead: 3000, cacheWrite: 0, cost: 1.5, unpriced: 0,
-  avgDurationMs: 0, avgTtftMs: 0, durationSamples: 0, ttftSamples: 0, avgTokensPerSecond: 0, throughputSamples: 0, cacheRate: 0.75, firstTs: 1_700_000_000_000, lastTs: 1_700_086_400_000, ...over,
+  avgDurationMs: 0, avgTtftMs: 0, durationSamples: 0, ttftSamples: 0, avgTokensPerSecond: 0, throughputSamples: 0, premiumUnits: 0, cacheRate: 0.75, firstTs: 1_700_000_000_000, lastTs: 1_700_086_400_000, ...over,
 });
 
 export const group = (key: string, over: Partial<Usage> = {}): UsageGroup => ({ key, ...usage(over) });

@@ -43,7 +43,7 @@ func (s *SQLiteSessions) SessionRequests(ctx context.Context, id report.SessionI
 		}
 		rows, err := q.Query(r.with+`
 			SELECT u.run_id, COALESCE(u.folder, ''), r.ts, r.model, u.agent_type, r.input, r.output, r.cache_read, r.cache_write,
-				r.cost, r.priced, COALESCE(r.duration_ms, 0), COALESCE(r.ttft_ms, 0), COALESCE(r.error, ''), r.provider, COALESCE(r.stop_reason, '')
+				r.cost, r.priced, COALESCE(r.duration_ms, 0), COALESCE(r.ttft_ms, 0), COALESCE(r.error, ''), r.provider, COALESCE(r.stop_reason, ''), r.purpose, r.service_tier, r.premium_units
 			FROM session_requests r JOIN unit u ON u.id = r.session_id
 			WHERE 1 = 1`+condition+`
 			ORDER BY r.ts DESC, r.session_id, r.key
@@ -57,7 +57,7 @@ func (s *SQLiteSessions) SessionRequests(ctx context.Context, id report.SessionI
 			var ts int64
 			if err := rows.Scan(&item.SessionID, &item.Folder, &ts, &item.Model, &item.AgentType, &item.Input, &item.Output,
 				&item.CacheRead, &item.CacheWrite, &item.Cost, &item.Priced, &item.Duration,
-				&item.TTFT, &item.Error, &item.Provider, &item.StopReason); err != nil {
+				&item.TTFT, &item.Error, &item.Provider, &item.StopReason, &item.Purpose, &item.ServiceTier, &item.PremiumUnits); err != nil {
 				return err
 			}
 			item.At = fromMillis(ts)

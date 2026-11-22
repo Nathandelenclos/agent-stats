@@ -390,3 +390,15 @@ func fileSize(t *testing.T, dir, name string) int64 {
 	}
 	return info.Size()
 }
+
+func TestOMPReadsSideChannelRequestsAndPremiumUnits(t *testing.T) {
+	log := `{"type":"session","id":"s","timestamp":"2026-01-01T10:00:00Z","cwd":"/repo"}
+{"type":"model_usage","id":"background","timestamp":"2026-01-01T10:00:01Z","purpose":"title","model":"x","provider":"copilot","duration":100,"usage":{"input":120,"output":10,"premiumRequests":0.33}}
+{"type":"message","id":"priority","timestamp":"2026-01-01T10:00:02Z","message":{"role":"assistant","model":"x","provider":"openai","serviceTier":"priority","usage":{"output":20}}}
+`
+	p := parse(t, ParsePi(kernel.OMP), "/x/s.jsonl", log)
+	if len(p.Requests) != 2 || p.Requests[0].Purpose != "title" || p.Requests[0].PremiumUnits != .33 ||
+		p.Requests[0].Tokens.Counts().Input != 120 || p.Requests[1].PremiumUnits != 1 || p.Requests[1].ServiceTier != "priority" {
+		t.Fatalf("OMP requests = %+v", p.Requests)
+	}
+}

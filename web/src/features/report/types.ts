@@ -15,6 +15,7 @@ export interface Usage {
   ttftSamples: number;
   avgTokensPerSecond: number;
   throughputSamples: number;
+  premiumUnits: number;
   cacheRate: number;
   firstTs: number;
   lastTs: number;

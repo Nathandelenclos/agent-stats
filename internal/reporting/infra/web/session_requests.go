@@ -10,23 +10,26 @@ import (
 )
 
 type sessionRequestJSON struct {
-	SessionID  string  `json:"sessionId"`
-	Folder     string  `json:"folder"`
-	TS         int64   `json:"ts"`
-	Model      string  `json:"model"`
-	Provider   string  `json:"provider"`
-	StopReason string  `json:"stopReason"`
-	AgentType  string  `json:"agentType"`
-	Input      int64   `json:"input"`
-	Output     int64   `json:"output"`
-	CacheRead  int64   `json:"cacheRead"`
-	CacheWrite int64   `json:"cacheWrite"`
-	Cost       float64 `json:"cost"`
-	Priced     bool    `json:"priced"`
-	DurationMS float64 `json:"durationMs"`
-	TTFTMS     float64 `json:"ttftMs"`
-	Failed     bool    `json:"failed"`
-	Error      string  `json:"error,omitempty"`
+	SessionID    string  `json:"sessionId"`
+	Folder       string  `json:"folder"`
+	TS           int64   `json:"ts"`
+	Model        string  `json:"model"`
+	Provider     string  `json:"provider"`
+	Purpose      string  `json:"purpose"`
+	ServiceTier  string  `json:"serviceTier"`
+	PremiumUnits float64 `json:"premiumUnits"`
+	StopReason   string  `json:"stopReason"`
+	AgentType    string  `json:"agentType"`
+	Input        int64   `json:"input"`
+	Output       int64   `json:"output"`
+	CacheRead    int64   `json:"cacheRead"`
+	CacheWrite   int64   `json:"cacheWrite"`
+	Cost         float64 `json:"cost"`
+	Priced       bool    `json:"priced"`
+	DurationMS   float64 `json:"durationMs"`
+	TTFTMS       float64 `json:"ttftMs"`
+	Failed       bool    `json:"failed"`
+	Error        string  `json:"error,omitempty"`
 }
 
 type sessionRequestsJSON struct {
@@ -75,7 +78,7 @@ func (s *Server) sessionRequests(w http.ResponseWriter, r *http.Request) {
 	for _, row := range rows[:size] {
 		item := sessionRequestJSON{
 			SessionID: row.SessionID, Folder: row.Folder, TS: kernel.UnixMilli(row.At), Model: row.Model, AgentType: row.AgentType,
-			Provider: row.Provider, StopReason: row.StopReason,
+			Provider: row.Provider, StopReason: row.StopReason, Purpose: row.Purpose, ServiceTier: row.ServiceTier, PremiumUnits: row.PremiumUnits,
 			Input: row.Input, Output: row.Output, CacheRead: row.CacheRead, CacheWrite: row.CacheWrite,
 			Cost: float64(row.Cost), Priced: row.Priced, DurationMS: float64(row.Duration),
 			TTFTMS: float64(row.TTFT), Failed: row.Error != "",

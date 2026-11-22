@@ -52,6 +52,7 @@ type Usage struct {
 	TTFTSamples        int64
 	AvgTokensPerSecond float64
 	ThroughputSamples  int64
+	PremiumUnits       float64
 	First, Last        time.Time
 }
 

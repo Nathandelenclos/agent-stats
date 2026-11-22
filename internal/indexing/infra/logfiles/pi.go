@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
@@ -49,38 +50,44 @@ type piCost struct {
 }
 
 type piUsageLog struct {
-	Input      int64   `json:"input"`
-	Output     int64   `json:"output"`
-	CacheRead  int64   `json:"cacheRead"`
-	CacheWrite int64   `json:"cacheWrite"`
-	Reasoning  int64   `json:"reasoningTokens"`
-	Cost       *piCost `json:"cost"`
+	Input        int64   `json:"input"`
+	Output       int64   `json:"output"`
+	CacheRead    int64   `json:"cacheRead"`
+	CacheWrite   int64   `json:"cacheWrite"`
+	Reasoning    int64   `json:"reasoningTokens"`
+	Cost         *piCost `json:"cost"`
+	PremiumUnits float64 `json:"premiumRequests"`
 }
 
-type piMessage struct {
-	Role         string      `json:"role"`
-	Content      piContent   `json:"content"`
+type piRequestLog struct {
 	Provider     string      `json:"provider"`
 	Model        string      `json:"model"`
 	StopReason   string      `json:"stopReason"`
 	ErrorMessage string      `json:"errorMessage"`
 	Duration     float64     `json:"duration"`
 	TTFT         float64     `json:"ttft"`
-	ToolCallID   string      `json:"toolCallId"`
-	IsError      bool        `json:"isError"`
 	Usage        *piUsageLog `json:"usage"`
+	ServiceTier  string      `json:"serviceTier"`
+}
+
+type piMessage struct {
+	piRequestLog
+	Role       string    `json:"role"`
+	Content    piContent `json:"content"`
+	ToolCallID string    `json:"toolCallId"`
+	IsError    bool      `json:"isError"`
 }
 
 type piLine struct {
-	Type      string     `json:"type"`
-	ID        string     `json:"id"`
-	Timestamp string     `json:"timestamp"`
-	Cwd       string     `json:"cwd"`
-	Title     string     `json:"title"`
-	Model     string     `json:"model"`
-	Provider  string     `json:"provider"`
-	ModelID   string     `json:"modelId"`
-	Message   *piMessage `json:"message"`
+	Type      string `json:"type"`
+	ID        string `json:"id"`
+	Timestamp string `json:"timestamp"`
+	Cwd       string `json:"cwd"`
+	Title     string `json:"title"`
+	piRequestLog
+	Purpose string     `json:"purpose"`
+	ModelID string     `json:"modelId"`
+	Message *piMessage `json:"message"`
 }
 
 // sessionDir matches pi/OMP session file and directory names: "<ISO time>_<uuid>".
@@ -143,6 +150,15 @@ func ParsePi(harness kernel.Harness) Parser {
 						provider, model = "", l.Model
 					}
 				}
+			case "model_usage":
+				if harness == kernel.OMP && l.ID != "" && l.Provider != "" && l.Model != "" && l.Usage != nil {
+					p.Session.Span(ts)
+					purpose := l.Purpose
+					if purpose == "" {
+						purpose = "unknown"
+					}
+					addPiRequest(p, l.piRequestLog, l.ID, ts, purpose, "", "", harness)
+				}
 			case "message":
 				m := l.Message
 				if m == nil {
@@ -161,19 +177,7 @@ func ParsePi(harness kernel.Harness) Parser {
 						p.Prompts = append(p.Prompts, pr)
 					}
 				case "assistant":
-					req := domain.Request{Key: l.ID, At: ts, Provider: m.Provider, Model: m.Model,
-						Duration: millis(m.Duration), TTFT: millis(m.TTFT), StopReason: m.StopReason, Failure: m.ErrorMessage}
-					if req.Model == "" {
-						req.Provider, req.Model = provider, model
-					}
-					if req.Failure == "" && req.StopReason == piStopError {
-						req.Failure = domain.UnspecifiedFailure
-					}
-					if err := piUsage(&req, m.Usage); err == nil {
-						p.Requests = append(p.Requests, req)
-					} else {
-						p.SkippedLines++
-					}
+					addPiRequest(p, m.piRequestLog, l.ID, ts, "", provider, model, harness)
 					for _, b := range m.Content.blocks() {
 						if b.Type != "toolCall" {
 							continue
@@ -196,6 +200,26 @@ func ParsePi(harness kernel.Harness) Parser {
 	}
 }
 
+func addPiRequest(p *domain.Transcript, m piRequestLog, id string, at time.Time, purpose, provider, model string, harness kernel.Harness) {
+	req := domain.Request{Key: id, At: at, Provider: m.Provider, Model: m.Model,
+		Duration: millis(m.Duration), TTFT: millis(m.TTFT), StopReason: m.StopReason, Failure: m.ErrorMessage,
+		Purpose: purpose, ServiceTier: m.ServiceTier}
+	if req.Model == "" {
+		req.Provider, req.Model = provider, model
+	}
+	if req.Failure == "" && req.StopReason == piStopError {
+		req.Failure = domain.UnspecifiedFailure
+	}
+	if err := piUsage(&req, m.Usage); err != nil {
+		p.SkippedLines++
+		return
+	}
+	if harness == kernel.OMP && req.PremiumUnits == 0 && (m.ServiceTier == "priority" || m.ServiceTier == "ultrafast") {
+		req.PremiumUnits = 1
+	}
+	p.Requests = append(p.Requests, req)
+}
+
 // piStopError is the stop reason pi and oh-my-pi write for a failed request.
 const piStopError = "error"
 
@@ -210,6 +234,9 @@ func piUsage(req *domain.Request, u *piUsageLog) error {
 		return err
 	}
 	req.Tokens = tokens
+	if u.PremiumUnits > 0 && u.PremiumUnits <= 1_000_000 {
+		req.PremiumUnits = u.PremiumUnits
+	}
 	if u.Cost != nil {
 		if req.LoggedCost, err = kernel.NewCost(u.Cost.Total); err != nil {
 			return err

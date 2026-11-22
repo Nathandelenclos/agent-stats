@@ -25,6 +25,7 @@ type usageJSON struct {
 	TTFTSamples        int64   `json:"ttftSamples"`
 	AvgTokensPerSecond float64 `json:"avgTokensPerSecond"`
 	ThroughputSamples  int64   `json:"throughputSamples"`
+	PremiumUnits       float64 `json:"premiumUnits"`
 	CacheRate          float64 `json:"cacheRate"`
 	FirstTS            int64   `json:"firstTs"`
 	LastTS             int64   `json:"lastTs"`
@@ -33,7 +34,7 @@ type usageJSON struct {
 func usage(u reporting.Usage) usageJSON {
 	return usageJSON{u.Requests, u.Failed, u.Input, u.Output, u.CacheRead, u.CacheWrite, float64(u.Cost), u.Unpriced,
 		float64(u.AvgDuration), float64(u.AvgTTFT),
-		u.DurationSamples, u.TTFTSamples, u.AvgTokensPerSecond, u.ThroughputSamples, u.CacheRate(), kernel.UnixMilli(u.First), kernel.UnixMilli(u.Last)}
+		u.DurationSamples, u.TTFTSamples, u.AvgTokensPerSecond, u.ThroughputSamples, u.PremiumUnits, u.CacheRate(), kernel.UnixMilli(u.First), kernel.UnixMilli(u.Last)}
 }
 
 type groupJSON struct {

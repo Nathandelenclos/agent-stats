@@ -644,8 +644,33 @@ func TestRequestDetailsViewMigrationPreservesIndexedCalls(t *testing.T) {
 
 const schemaBeforeRequestDetails = `
 PRAGMA user_version = 4;
+DROP TABLE request_metadata;
 DROP VIEW session_requests;
 CREATE VIEW session_requests AS SELECT session_id, cost FROM requests;
 DROP VIEW usage_requests;
 CREATE VIEW usage_requests AS SELECT ts, model FROM requests;
 `
+
+func TestRequestMetadataFollowsTheIndexedRequest(t *testing.T) {
+	s := open(t)
+	log := application.LogFile{Path: "/logs/s.jsonl", Harness: kernel.Claude}
+	tr := transcript(t, "s", time.UnixMilli(1767261600000))
+	req := &tr.Transcript.Requests[0]
+	req.Purpose, req.ServiceTier, req.PremiumUnits = "judge", "priority", 0.5
+	if err := save(s, log, tr); err != nil {
+		t.Fatal(err)
+	}
+	var purpose, tier string
+	var units float64
+	if err := s.db.QueryRow(`SELECT purpose, service_tier, premium_units FROM session_requests`).Scan(&purpose, &tier, &units); err != nil ||
+		purpose != "judge" || tier != "priority" || units != 0.5 {
+		t.Fatalf("metadata = %q %q %v, %v", purpose, tier, units, err)
+	}
+	req.Purpose, req.ServiceTier, req.PremiumUnits = "", "", 0
+	if err := save(s, log, tr); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT premium_units FROM usage_requests`).Scan(&units); err != nil || units != 0 {
+		t.Fatalf("replaced metadata = %v, %v", units, err)
+	}
+}

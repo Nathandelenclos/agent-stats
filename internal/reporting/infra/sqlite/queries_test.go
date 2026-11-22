@@ -25,7 +25,7 @@ const readModel = `
 CREATE TABLE usage_requests (ts INTEGER NOT NULL, model TEXT NOT NULL,
 	input INTEGER NOT NULL, output INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL,
 	cost REAL NOT NULL, priced INTEGER NOT NULL, duration_ms REAL, ttft_ms REAL, error TEXT,
-	harness TEXT NOT NULL, agent_type TEXT NOT NULL, folder TEXT, provider TEXT NOT NULL DEFAULT '');
+	harness TEXT NOT NULL, agent_type TEXT NOT NULL, folder TEXT, provider TEXT NOT NULL DEFAULT '', premium_units REAL NOT NULL DEFAULT 0);
 CREATE TABLE usage_tool_calls (ts INTEGER NOT NULL, name TEXT NOT NULL, server TEXT NOT NULL,
 	args_chars INTEGER NOT NULL, result_chars INTEGER NOT NULL, is_error INTEGER NOT NULL, duration_ms REAL, harness TEXT NOT NULL, folder TEXT);
 CREATE TABLE usage_folders (folder TEXT NOT NULL);

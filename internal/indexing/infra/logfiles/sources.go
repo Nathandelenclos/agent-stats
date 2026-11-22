@@ -25,8 +25,9 @@ type Source struct {
 	Database sessionDatabase
 	// Beside, when set, says what else than the log itself a transcript is made of (a file beside it): it is part of the
 	// log's revision, so that the log is read again when it changes.
-	Beside     func(path string) string
-	cursorUser string
+	Beside         func(path string) string
+	cursorUser     string
+	formatRevision string
 }
 
 // DefaultSources lists the standard log locations, honouring each harness's supported overrides.
@@ -45,7 +46,7 @@ func DefaultSources(home string) []Source {
 		{Harness: kernel.Claude, Root: filepath.Join(claude, "projects"), Match: jsonl, Parse: ParseClaude},
 		{Harness: kernel.Codex, Root: filepath.Join(codex, "sessions"), Match: rollout, Parse: ParseCodex},
 		{Harness: kernel.Codex, Root: filepath.Join(codex, "archived_sessions"), Match: rollout, Parse: ParseCodex},
-		{Harness: kernel.OMP, Root: filepath.Join(home, ".omp", "agent", "sessions"), Match: jsonl, Parse: ParsePi(kernel.OMP)},
+		{Harness: kernel.OMP, Root: filepath.Join(home, ".omp", "agent", "sessions"), Match: jsonl, Parse: ParsePi(kernel.OMP), formatRevision: ":omp-usage-v2"},
 		{Harness: kernel.Pi, Root: filepath.Join(home, ".pi", "agent", "sessions"), Match: jsonl, Parse: ParsePi(kernel.Pi)},
 		{Harness: kernel.OpenCode, Root: openCodeData, Database: &OpenCodeDatabase{Prefix: "opencode", Override: os.Getenv("OPENCODE_DB")}},
 		{Harness: kernel.Kilo, Root: kiloData, Database: &OpenCodeDatabase{Prefix: "kilo", Fallback: "opencode", Override: os.Getenv("KILO_DB")}},
@@ -175,7 +176,7 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 				return nil
 			}
 			readers[path] = func() (domain.Transcript, error) { return src.read(path) }
-			files = append(files, application.LogFile{Path: path, Harness: src.Harness, Revision: fileRevision(info) + besideRevision(src, path), WeightBytes: logWeight(path, info.Size())})
+			files = append(files, application.LogFile{Path: path, Harness: src.Harness, Revision: fileRevision(info) + besideRevision(src, path) + src.formatRevision, WeightBytes: logWeight(path, info.Size())})
 			return nil
 		})
 		if err != nil {

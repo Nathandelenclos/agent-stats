@@ -101,6 +101,9 @@ export interface SessionRequest {
   model: string;
   provider: string;
   stopReason: string;
+  purpose: string;
+  serviceTier: string;
+  premiumUnits: number;
   agentType: string;
   input: number;
   output: number;

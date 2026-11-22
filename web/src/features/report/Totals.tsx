@@ -23,6 +23,7 @@ export function Totals({ total }: { total: Usage }) {
       <Stat label="Tokens in" value={formatCompact(inputTokens(total))} hint={`${formatCompact(total.cacheRead)} read from cache`} />
       <Stat label="Tokens out" value={formatCompact(total.output)} />
       <Stat label="Cache rate" value={formatPercent(total.cacheRate)} hint="of input tokens" />
+      {total.premiumUnits > 0 && <Stat label="Premium requests" value={total.premiumUnits.toLocaleString("en-US", { maximumFractionDigits: 2 })} />}
       <Stat label="Activity" value={`${formatTimestamp(total.firstTs)} to ${formatTimestamp(total.lastTs)}`} />
     </dl>
   );

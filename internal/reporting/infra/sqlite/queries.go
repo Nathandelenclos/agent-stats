@@ -162,7 +162,7 @@ const usageCols = `COUNT(*), COUNT(r.error), COALESCE(SUM(r.input), 0), COALESCE
 	COALESCE(AVG(r.duration_ms), 0), COALESCE(AVG(r.ttft_ms), 0), COALESCE(MIN(r.ts), 0), COALESCE(MAX(r.ts), 0),
 	COUNT(r.duration_ms), COUNT(r.ttft_ms),
 	COALESCE(AVG(CASE WHEN r.duration_ms > 0 AND r.output > 0 THEN 1000.0 * r.output / r.duration_ms END), 0),
-	COUNT(CASE WHEN r.duration_ms > 0 AND r.output > 0 THEN 1 END)`
+	COUNT(CASE WHEN r.duration_ms > 0 AND r.output > 0 THEN 1 END), COALESCE(SUM(r.premium_units), 0)`
 
 // usageRow scans one usageCols row; timestamps are stored in Unix milliseconds, 0 when unknown.
 type usageRow struct {
@@ -173,7 +173,7 @@ type usageRow struct {
 func (r *usageRow) args() []any {
 	return []any{&r.u.Requests, &r.u.Failed, &r.u.Input, &r.u.Output, &r.u.CacheRead, &r.u.CacheWrite,
 		&r.u.Cost, &r.u.Unpriced, &r.u.AvgDuration, &r.u.AvgTTFT, &r.first, &r.last,
-		&r.u.DurationSamples, &r.u.TTFTSamples, &r.u.AvgTokensPerSecond, &r.u.ThroughputSamples}
+		&r.u.DurationSamples, &r.u.TTFTSamples, &r.u.AvgTokensPerSecond, &r.u.ThroughputSamples, &r.u.PremiumUnits}
 }
 
 func (r *usageRow) usage() report.Usage {

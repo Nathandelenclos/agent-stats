@@ -21,7 +21,8 @@ CREATE TABLE session_overview (id TEXT NOT NULL, root_id TEXT NOT NULL, harness 
 CREATE TABLE session_requests (root_id TEXT NOT NULL, session_id TEXT NOT NULL, ts INTEGER NOT NULL, model TEXT NOT NULL,
 	input INTEGER NOT NULL, output INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL,
 	cost REAL NOT NULL, priced INTEGER NOT NULL, duration_ms REAL, ttft_ms REAL, error TEXT,
-	key TEXT NOT NULL DEFAULT '', provider TEXT NOT NULL DEFAULT 'anthropic', stop_reason TEXT);
+	key TEXT NOT NULL DEFAULT '', provider TEXT NOT NULL DEFAULT 'anthropic', stop_reason TEXT,
+	premium_units REAL NOT NULL DEFAULT 0, purpose TEXT NOT NULL DEFAULT '', service_tier TEXT NOT NULL DEFAULT '');
 CREATE TABLE session_tool_calls (root_id TEXT NOT NULL, session_id TEXT NOT NULL, ts INTEGER NOT NULL, name TEXT NOT NULL,
 	server TEXT NOT NULL, args_chars INTEGER NOT NULL, result_chars INTEGER NOT NULL, is_error INTEGER NOT NULL, duration_ms REAL);
 CREATE TABLE session_prompts (session_id TEXT NOT NULL, position INTEGER NOT NULL, ts INTEGER NOT NULL, text TEXT NOT NULL,
