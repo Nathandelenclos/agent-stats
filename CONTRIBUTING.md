@@ -68,7 +68,7 @@ npm --prefix site run build
 npm --prefix site test
 ```
 
-The build outputs `site/out/`, including the static search index. The repository currently publishes the legacy site from `main:/docs`. When the new workflow reaches `main`, select **GitHub Actions** under **Settings → Pages**, keep the existing custom domain, and run **Documentation site** from `main`. GitHub Actions then publishes changes under `site/` pushed to `main`.
+The build outputs `site/out/`, including the static search index. The **Documentation site** workflow publishes it to GitHub Pages when `site/` changes on `main`. Under **Settings → Pages**, the publishing source is **GitHub Actions**. Run the workflow from `main` to redeploy.
 
 ## Releases
 
