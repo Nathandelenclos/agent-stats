@@ -23,6 +23,7 @@ const (
 	problemMethodNotAllowed = "urn:agent-stats:problem:method-not-allowed"
 	problemNotFound         = "urn:agent-stats:problem:not-found"
 	problemInternal         = "urn:agent-stats:problem:internal"
+	problemStopping         = "urn:agent-stats:problem:stopping"
 )
 
 func (p problem) write(w http.ResponseWriter) {

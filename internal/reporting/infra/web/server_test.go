@@ -849,6 +849,116 @@ func TestServeReturnsCleanlyWhenItsContextEnds(t *testing.T) {
 	}
 }
 
+// slowIndex answers its snapshot only when released, and stops as soon as its context ends. Winding down takes a moment,
+// and wound records that it was over, to tell whether Serve waited for it.
+type slowIndex struct {
+	index
+	started chan struct{}
+	release chan struct{}
+	sawStop atomic.Bool
+	wound   atomic.Bool
+}
+
+func newSlowIndex() *slowIndex {
+	return &slowIndex{started: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (x *slowIndex) Snapshot(ctx context.Context, fn func(reporting.UsageReader) error) error {
+	close(x.started)
+	select {
+	case <-x.release:
+		return x.index.Snapshot(ctx, fn)
+	case <-ctx.Done():
+		x.sawStop.Store(true)
+		time.Sleep(100 * time.Millisecond)
+		x.wound.Store(true)
+		return ctx.Err()
+	}
+}
+
+// slowRequest starts a report request in the background and returns once the index is reading for it.
+func slowRequest(t *testing.T, addr string, idx *slowIndex) (status <-chan int) {
+	t.Helper()
+	out := make(chan int, 1)
+	go func() {
+		res, err := http.Get("http://" + addr + "/api/report")
+		if err != nil {
+			out <- -1 // the connection was cut
+			return
+		}
+		io.Copy(io.Discard, res.Body)
+		res.Body.Close()
+		out <- res.StatusCode
+	}()
+	select {
+	case <-idx.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the request never reached the index")
+	}
+	return out
+}
+
+func TestServeDoesNotReportASuccessfulStopWhileARequestIsStillRunning(t *testing.T) {
+	// Given a request that the index cannot answer within the time the server grants in-flight requests to end
+	idx := newSlowIndex()
+	addr, stop, ended := serving(t, func(o *Options) {
+		o.Reports = reporting.BuildTimelineReport{Queries: idx}
+		o.ShutdownGrace = 50 * time.Millisecond
+	})
+	slowRequest(t, addr, idx)
+
+	// When the server is asked to stop
+	stop()
+
+	// Then Serve says the shutdown did not complete, and only after the request ended: the caller may then close the index
+	select {
+	case err := <-ended:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("Serve = %v, want the shutdown's deadline error", err)
+		}
+		if !idx.sawStop.Load() || !idx.wound.Load() {
+			t.Errorf("Serve returned while the request was still reading the index (cancelled: %v, over: %v)", idx.sawStop.Load(), idx.wound.Load())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Serve did not return")
+	}
+}
+
+func TestServeLetsARequestInFlightFinishWithinTheGrace(t *testing.T) {
+	// Given a request still reading the index when the server is asked to stop
+	idx := newSlowIndex()
+	addr, stop, ended := serving(t, func(o *Options) { o.Reports = reporting.BuildTimelineReport{Queries: idx} })
+	answer := slowRequest(t, addr, idx)
+	stop()
+	time.Sleep(50 * time.Millisecond)
+
+	// When the index answers before the grace is over
+	close(idx.release)
+
+	// Then the client gets its report and Serve returns without an error
+	if got := <-answer; got != http.StatusOK {
+		t.Errorf("status = %d, want 200", got)
+	}
+	if err := <-ended; err != nil {
+		t.Errorf("Serve = %v", err)
+	}
+}
+
+func TestARequestArrivingAfterTheDrainIsRefusedWithoutReadingTheIndex(t *testing.T) {
+	// Given a server that waited for its requests and is about to have its index closed
+	r := newRig(t)
+	r.handler.drain()
+
+	// When a late request arrives
+	rec := r.get("/api/report")
+
+	// Then it is refused, and no figure is read
+	wantProblem(t, rec, http.StatusServiceUnavailable, problemStopping)
+	if len(r.idx.filters) != 0 {
+		t.Error("the index was read after the drain")
+	}
+}
+
 func TestServeStopsTheIndexingAndWaitsForItWhenItsContextEnds(t *testing.T) {
 	// Given a running server whose indexing only ends when it is told to stop
 	started := make(chan struct{})

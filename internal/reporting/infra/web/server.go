@@ -1,14 +1,17 @@
 package web
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"log"
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
@@ -34,9 +37,14 @@ type Options struct {
 	Harness kernel.Harness
 	// AllowRemote lifts the Host header allowlist: the server is meant to be reached under other names than loopback.
 	AllowRemote bool
-	Log         *log.Logger // diagnostics; nil discards them
-	Now         func() time.Time
+	// ShutdownGrace is the time the requests in flight get to end when the server stops; 5 s when zero.
+	ShutdownGrace time.Duration
+	Log           *log.Logger // diagnostics; nil discards them
+	Now           func() time.Time
 }
+
+// defaultShutdownGrace is the time the requests in flight get to end when the server stops.
+const defaultShutdownGrace = 5 * time.Second
 
 // Server is the HTTP handler of the web interface.
 type Server struct {
@@ -47,6 +55,10 @@ type Server struct {
 	now        func() time.Time
 	parseSince func(string, time.Time) (time.Time, error)
 	mux        *http.ServeMux
+
+	mu       sync.Mutex
+	stopped  bool           // no request starts any more
+	inflight sync.WaitGroup // the requests being answered
 }
 
 // New builds the handler for a server listening on addr. It does not start the indexing: Serve does.
@@ -79,6 +91,11 @@ const contentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 
 
 // ServeHTTP checks the request is one this server answers, sets the security headers and routes it.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !s.enter() {
+		problem{Type: problemStopping, Title: "Server stopping", Status: http.StatusServiceUnavailable}.write(w)
+		return
+	}
+	defer s.inflight.Done()
 	h := w.Header()
 	h.Set("Content-Security-Policy", contentSecurityPolicy)
 	h.Set("X-Content-Type-Options", "nosniff")
@@ -106,6 +123,26 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.mux.ServeHTTP(w, r)
+}
+
+// enter registers a request about to be answered, unless the server has stopped taking them.
+func (s *Server) enter() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stopped {
+		return false
+	}
+	s.inflight.Add(1)
+	return true
+}
+
+// drain refuses the requests that have not started and waits for those in flight: once it returns, nothing reads the
+// index any more.
+func (s *Server) drain() {
+	s.mu.Lock()
+	s.stopped = true
+	s.mu.Unlock()
+	s.inflight.Wait()
 }
 
 // fromOwnPage reports whether a Sec-Fetch-Site value is one the API answers: the page this server served (same-origin),
@@ -149,8 +186,14 @@ func (s *Server) static(w http.ResponseWriter, r *http.Request) {
 }
 
 // Serve answers on ln until ctx is done, indexing in the background when Options.Sync is set. It returns once the
-// requests in flight are answered and the indexing has stopped, so the caller may close the index.
+// requests in flight are over and the indexing has stopped, so the caller may close the index. Requests get
+// the grace to finish; the ones still running then are cancelled and waited for, and Serve returns the error of
+// the shutdown that did not complete in time.
 func Serve(ctx context.Context, ln net.Listener, o Options) error {
+	grace := cmp.Or(o.ShutdownGrace, defaultShutdownGrace)
+	// The requests outlive the stop signal, up to the grace; they end early only when the grace is over.
+	requests, endRequests := context.WithCancel(context.WithoutCancel(ctx))
+	defer endRequests()
 	ctx, cancel := context.WithCancel(ctx) // also ends the indexing when the server stops on its own, on an error
 	s := New(o, ln.Addr())
 	var errLog *log.Logger = o.Log
@@ -159,6 +202,7 @@ func Serve(ctx context.Context, ln net.Listener, o Options) error {
 	}
 	srv := &http.Server{
 		Handler:           s,
+		BaseContext:       func(net.Listener) context.Context { return requests },
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -174,18 +218,25 @@ func Serve(ctx context.Context, ln net.Listener, o Options) error {
 		}
 	}()
 	defer func() { cancel(); <-indexed }()
+	var shutdownErr error
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		<-ctx.Done()
-		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		srv.Shutdown(shutdown)
+		graceEnds, endGrace := context.WithTimeout(context.Background(), grace)
+		defer endGrace()
+		if err := srv.Shutdown(graceEnds); err != nil {
+			shutdownErr = fmt.Errorf("stopping the server: %w", err)
+			endRequests() // the queries still running stop...
+			srv.Close()
+		}
+		s.drain() // ...and are waited for, so that nothing reads the index once Serve has returned
 	}()
 	err := srv.Serve(ln)
+	cancel()
+	<-done
 	if errors.Is(err, http.ErrServerClosed) {
-		<-done
-		return nil
+		return shutdownErr
 	}
 	return err
 }
