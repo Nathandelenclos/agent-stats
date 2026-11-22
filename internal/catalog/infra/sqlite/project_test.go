@@ -132,12 +132,28 @@ func TestTheActivityOfAProjectGivenThroughALinkIsThatOfTheFolderTheLinkLeadsTo(t
 	}
 }
 
-func TestTheActivityOfNoProjectIsEveryonesAndThatOfAFolderHoldingSeveralIsTheirs(t *testing.T) {
+func TestTheActivityOfNoProjectIsEveryones(t *testing.T) {
+	// Given sessions in the app, below it, in a sibling, through a link, and in folders that are not paths
 	w := newWorkplace(t)
-	if got, want := w.activityIn(t, ""), by("app", "sub", "sibling", "link", "relative", "dotdot"); got != want {
+
+	// When the activity is read for no project in particular
+	got := w.activityIn(t, "")
+
+	// Then it holds the sessions of every folder, those that are not paths included
+	if want := by("app", "sub", "sibling", "link", "relative", "dotdot"); got != want {
 		t.Errorf("activity without a project = %q", got)
 	}
-	if got, want := w.activityIn(t, filepath.Dir(w.app)), by("app", "sub", "sibling", "link", "dotdot"); got != want {
+}
+
+func TestTheActivityOfAFolderHoldingSeveralProjectsIsTheirs(t *testing.T) {
+	// Given the same sessions
+	w := newWorkplace(t)
+
+	// When the activity is read for the folder that holds both the app and its sibling
+	got := w.activityIn(t, filepath.Dir(w.app))
+
+	// Then it holds their sessions, not those whose folders are not paths
+	if want := by("app", "sub", "sibling", "link", "dotdot"); got != want {
 		t.Errorf("activity of the folder holding both = %q", got)
 	}
 }

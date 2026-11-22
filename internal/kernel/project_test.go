@@ -57,13 +57,23 @@ func TestAProjectRootAtTheTopOfTheTreeContainsEverything(t *testing.T) {
 	}
 }
 
-func TestAProjectIsNamedAfterItsFolderAndNeedsAnAbsoluteRoot(t *testing.T) {
+func TestAProjectIsNamedAfterItsFolder(t *testing.T) {
+	// Given a folder written with a trailing slash
 	p, err := NewProject("/work/app/")
+
+	// Then the project is rooted at the tidy folder and called after its last element
 	if err != nil || p.Root() != "/work/app" || p.Name() != "app" || p.IsZero() {
-		t.Fatalf("project = %#v %v", p, err)
+		t.Errorf("project = %#v %v", p, err)
 	}
+}
+
+func TestAProjectNeedsAnAbsoluteRoot(t *testing.T) {
 	for _, bad := range []string{"", "app", "./app", "../app"} {
-		if _, err := NewProject(bad); !errors.Is(err, ErrNotAbsolute) {
+		// When a project is rooted at a folder that is not an absolute path
+		_, err := NewProject(bad)
+
+		// Then it is refused
+		if !errors.Is(err, ErrNotAbsolute) {
 			t.Errorf("NewProject(%q) = %v", bad, err)
 		}
 	}
