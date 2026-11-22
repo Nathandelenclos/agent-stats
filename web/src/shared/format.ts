@@ -7,6 +7,7 @@ const usd = new Intl.NumberFormat(LOCALE, { style: "currency", currency: "USD" }
 const usdSmall = new Intl.NumberFormat(LOCALE, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 4 });
 const percent = new Intl.NumberFormat(LOCALE, { style: "percent", maximumFractionDigits: 0 });
 const date = new Intl.DateTimeFormat(LOCALE, { year: "numeric", month: "short", day: "numeric" });
+const dateTime = new Intl.DateTimeFormat(LOCALE, { dateStyle: "medium", timeStyle: "short" });
 
 export const formatInteger = (n: number): string => integer.format(n);
 export const formatCompact = (n: number): string => compact.format(n);
@@ -20,6 +21,10 @@ export function formatUSD(n: number): string {
 /** A Unix-millisecond timestamp as a date; "unknown" for 0. */
 export function formatTimestamp(ms: number): string {
   return ms === 0 ? "unknown" : date.format(new Date(ms));
+}
+
+export function formatDateTime(ms: number): string {
+  return ms === 0 ? "unknown" : dateTime.format(new Date(ms));
 }
 
 /** A local day, 2006-01-02, as a date. Parsed as local time: new Date("2006-01-02") would read it as UTC. */

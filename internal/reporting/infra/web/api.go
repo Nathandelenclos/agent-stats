@@ -54,6 +54,15 @@ type toolJSON struct {
 	LastTS      int64   `json:"lastTs"`
 }
 
+func tools(in []reporting.ToolUsage) []toolJSON {
+	out := make([]toolJSON, 0, len(in))
+	for _, t := range in {
+		out = append(out, toolJSON{t.Name, t.Server, t.Calls, t.Errors, t.ArgsChars, t.ResultChars,
+			float64(t.AvgDuration), kernel.UnixMilli(t.Last)})
+	}
+	return out
+}
+
 // reportJSON is the usage report of the command line's --json, with the usage per local day added.
 type reportJSON struct {
 	Scope     string      `json:"scope"` // what the figures cover: "current" (the project of the server) or "all"
@@ -79,11 +88,7 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := reportJSON{Scope: p.scope, Total: usage(rep.Total), ByHarness: groups(rep.ByHarness), ByModel: groups(rep.ByModel),
-		ByFolder: groups(rep.ByFolder), ByAgent: groups(rep.ByAgent), Daily: groups(rep.Daily), Tools: make([]toolJSON, 0, len(rep.Tools))}
-	for _, t := range rep.Tools {
-		out.Tools = append(out.Tools, toolJSON{t.Name, t.Server, t.Calls, t.Errors, t.ArgsChars, t.ResultChars,
-			float64(t.AvgDuration), kernel.UnixMilli(t.Last)})
-	}
+		ByFolder: groups(rep.ByFolder), ByAgent: groups(rep.ByAgent), Daily: groups(rep.Daily), Tools: tools(rep.Tools)}
 	writeJSON(w, s.log, out)
 }
 
@@ -111,6 +116,7 @@ type sessionJSON struct {
 }
 
 type sessionsJSON struct {
+	Scope    string        `json:"scope"`
 	Count    int           `json:"count"` // sessions matching the period, whatever limit cut the list to
 	Total    totalJSON     `json:"total"` // of every matching session
 	Sessions []sessionJSON `json:"sessions"`
@@ -139,19 +145,23 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 	if len(shown) > p.limit {
 		shown = shown[:p.limit]
 	}
-	out := sessionsJSON{Count: len(list.Sessions), Sessions: make([]sessionJSON, 0, len(shown)),
+	out := sessionsJSON{Scope: p.scope, Count: len(list.Sessions), Sessions: make([]sessionJSON, 0, len(shown)),
 		Total: totalJSON{list.Total.Requests, list.Total.Failed, float64(list.Total.Cost), list.Total.Unpriced}}
 	for _, x := range shown {
-		d, _ := x.Duration()
-		models := make([]sessionModelJSON, 0, len(x.Models))
-		for _, m := range x.Models {
-			models = append(models, sessionModelJSON{m.Group, m.Requests, float64(m.Cost), x.ModelShare(m)})
-		}
-		out.Sessions = append(out.Sessions, sessionJSON{x.ID.String(), x.Harness.String(), x.Title, x.Folder, x.AgentType,
-			kernel.UnixMilli(x.Start), kernel.UnixMilli(x.End), d.Milliseconds(), usage(x.Usage), models, x.SubagentCount,
-			x.PromptCount, x.AvgPromptChars()})
+		out.Sessions = append(out.Sessions, sessionSummary(x))
 	}
 	writeJSON(w, s.log, out)
+}
+
+func sessionSummary(s reporting.SessionSummary) sessionJSON {
+	d, _ := s.Duration()
+	models := make([]sessionModelJSON, 0, len(s.Models))
+	for _, m := range s.Models {
+		models = append(models, sessionModelJSON{m.Group, m.Requests, float64(m.Cost), s.ModelShare(m)})
+	}
+	return sessionJSON{s.ID.String(), s.Harness.String(), s.Title, s.Folder, s.AgentType,
+		kernel.UnixMilli(s.Start), kernel.UnixMilli(s.End), d.Milliseconds(), usage(s.Usage), models, s.SubagentCount,
+		s.PromptCount, s.AvgPromptChars()}
 }
 
 type metaJSON struct {

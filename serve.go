@@ -30,7 +30,7 @@ func runServe(args []string) error {
 	}
 	fs := flag.NewFlagSet("agent-stats serve", flag.ContinueOnError)
 	addr := fs.String("addr", "127.0.0.1:7373", "address to listen on; loopback only unless --allow-remote")
-	allowRemote := fs.Bool("allow-remote", false, "accept a non-loopback --addr and any Host header: the index holds the text of your prompts, so every machine that can reach the port can read them")
+	allowRemote := fs.Bool("allow-remote", false, "accept a non-loopback --addr and any Host header: every machine that reaches the port can read the report and session metadata")
 	dbPath := fs.String("db", defaultDB, "index database (default: agent-stats/index.db in the user cache directory)")
 	pricesPath := fs.String("prices", "", "JSON file overriding embedded prices: {\"model\": [input, output, cacheRead, cacheWrite]} in USD per token")
 	since := fs.String("since", "", "period the page opens on: 24h, 7d, 30d or 2006-01-02 (default: all)")
@@ -99,7 +99,7 @@ func runServe(args []string) error {
 		fmt.Fprintln(os.Stderr, "agent-stats: this binary has no web front, only the API answers (see README: go generate ./web, then go build -tags web .)")
 	}
 	if *allowRemote {
-		fmt.Fprintln(os.Stderr, "agent-stats: --allow-remote: every machine that can reach this port can read your prompts. Host headers are not checked.")
+		fmt.Fprintln(os.Stderr, "agent-stats: --allow-remote: every machine that reaches this port can read the report and session metadata. Host headers are not checked.")
 	}
 	fmt.Fprintf(os.Stderr, "agent-stats: serving http://%s, covering: %s (Ctrl-C to stop)\n", ln.Addr(), cov.label())
 

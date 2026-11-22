@@ -8,7 +8,7 @@ import {
   type ColumnDef,
   type RowData,
 } from "@tanstack/react-table";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 const features = tableFeatures({
   rowSortingFeature,
@@ -23,7 +23,7 @@ export type Column<Row extends RowData> = {
   /** The value rows are sorted by. */
   value: (row: Row) => string | number;
   /** How the value reads in the cell; defaults to the value. */
-  render?: (row: Row) => string;
+  render?: (row: Row) => ReactNode;
   /** Numbers read right-aligned. */
   numeric?: boolean;
   /** Long text is cut to one line, and its full text stays in the tooltip. */
@@ -105,14 +105,15 @@ export function DataTable<Row extends RowData>({ caption, columns, rows, rowKey,
             {shown.map((row) => (
               <tr key={row.id} className="border-b border-rule last:border-b-0">
                 {columns.map((c) => {
-                  const text = c.render ? c.render(row.original) : String(c.value(row.original));
+                  const content = c.render ? c.render(row.original) : String(c.value(row.original));
+                  const title = typeof content === "string" ? content : String(c.value(row.original));
                   return (
                     <td
                       key={c.id}
-                      title={c.truncate ? text : undefined}
+                      title={c.truncate ? title : undefined}
                       className={`px-3 py-1.5 ${c.numeric ? "text-right tabular-nums" : "text-left"} ${c.truncate ? "max-w-[28rem] truncate" : "whitespace-nowrap"}`}
                     >
-                      {text === "" ? <span className="text-muted">(none)</span> : text}
+                      {content === "" ? <span className="text-muted">(none)</span> : content}
                     </td>
                   );
                 })}

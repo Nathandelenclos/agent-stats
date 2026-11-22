@@ -228,3 +228,27 @@ describe("the scope of the report", () => {
     expect(asked.map((u) => u.searchParams.get("project"))).toEqual(["all"]);
   });
 });
+
+it("opens the sessions view with the report's filters", async () => {
+  // Given a usage report for the current project
+  const fetchReport = serveReports(() => report(), metaInProject("imports"));
+  const fetch = vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input).startsWith("/api/sessions?")) {
+      return new Response(JSON.stringify({ scope: "current", count: 0, total: {}, sessions: [] }), { status: 200 });
+    }
+    return fetchReport(input);
+  });
+  vi.stubGlobal("fetch", fetch);
+  const { container } = render(withQueries(testQueryClient(), <App />));
+  const sessions = () => [...container.querySelectorAll("nav button")].find((b) => b.textContent === "Sessions");
+  await eventually(() => expect(container.textContent).toContain("Usage by model"));
+
+  // When the person changes view
+  click(sessions()!);
+
+  // Then Sessions is loaded for the same period and project
+  await eventually(() => expect(container.textContent).toContain("No sessions match these filters."));
+  expect(sessions()?.getAttribute("aria-pressed")).toBe("true");
+  expect(fetch).toHaveBeenCalledWith("/api/sessions?since=7d&project=current&limit=1000", expect.any(Object));
+  window.history.replaceState(null, "", "/");
+});

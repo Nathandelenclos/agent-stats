@@ -58,13 +58,14 @@ const defaultShutdownGrace = 5 * time.Second
 
 // Server is the HTTP handler of the web interface.
 type Server struct {
-	opts       Options
-	port       string // the port listened on, which Host headers must carry
-	sync       *syncer
-	log        logf
-	now        func() time.Time
-	parseSince func(string, time.Time) (time.Time, error)
-	mux        *http.ServeMux
+	opts         Options
+	localPrompts bool
+	port         string // the port listened on, which Host headers must carry
+	sync         *syncer
+	log          logf
+	now          func() time.Time
+	parseSince   func(string, time.Time) (time.Time, error)
+	mux          *http.ServeMux
 
 	mu         sync.Mutex
 	stopped    bool           // no request starts any more
@@ -82,13 +83,16 @@ func New(o Options, addr net.Addr) *Server {
 	if o.Log != nil {
 		s.log = o.Log.Printf
 	}
-	_, s.port, _ = net.SplitHostPort(addr.String())
+	host, port, _ := net.SplitHostPort(addr.String())
+	s.port = port
+	s.localPrompts = !o.AllowRemote && isLoopbackHost(host)
 	s.sync = newSyncer(o.Sync != nil, s.now, s.log)
 	s.mux = http.NewServeMux()
 	s.mux.HandleFunc("/api/meta", s.meta)
 	s.mux.HandleFunc("/api/sync", s.syncProgress)
 	s.mux.HandleFunc("/api/report", s.report)
 	s.mux.HandleFunc("/api/sessions", s.sessions)
+	s.mux.HandleFunc("/api/sessions/{id}", s.session)
 	s.mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		problem{Type: problemNotFound, Title: "No such route", Status: http.StatusNotFound}.write(w)
 	})

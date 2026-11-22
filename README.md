@@ -156,7 +156,8 @@ harness and model, and sortable tables per harness, model, folder, agent type an
 light or dark theme (or a choice made on the page), works on a narrow screen and with the keyboard, and keeps the filters
 in its address. Each chart has its values behind it (a table, or the table of the same name below).
 Like the terminal view, it indexes the logs in the background and shows the progress; the figures refresh when it ends.
-Press Ctrl-C to stop it.
+Switch to **Sessions** to sort the most recent sessions within the same filters. Open one to see its models, tools,
+subagents and the signals of its prompts. The detail resets when the filters change. Press Ctrl-C to stop the server.
 
 Started from a project (see [Per-project view](#per-project-view)), `serve` opens on that project: the header says
 `Project: app` or `All projects`, and a toggle switches between the two. The page offers no other folder: the server
@@ -184,7 +185,8 @@ Unknown or repeated parameters are refused with `400`.
 | Route | Answer |
 |-------|--------|
 | `/api/report?since=&harness=&project=` | The `--json` report (same fields), plus `daily`: one entry per local day with activity, oldest first, `key` being `2006-01-02`. Lists are `[]` when empty, never `null`. |
-| `/api/sessions?since=&harness=&project=&limit=` | The most recent sessions (`limit` 1 to 1000, default 100) with their usage, models and subagent count, without the prompts. `count` and `total` cover every matching session, and add up to the report of the same scope. `title` is the session title, which for an untitled session is the start of its first prompt. |
+| `/api/sessions?since=&harness=&project=&limit=` | The most recent sessions (`limit` 1 to 1000, default 100) with their usage, models and subagent count, without the prompts. `scope` is the project filter applied. `count` and `total` cover every matching session, and add up to the report of the same scope. `title` is the session title, which for an untitled session is the start of its first prompt. |
+| `/api/sessions/{id}?since=&harness=&project=` | One session from the same scope and filters, with its tools, subagents and prompt signals. Encode the session ID as a single path segment. An unknown or out-of-scope session returns `404`. Excerpts are at most 2,000 characters each and are omitted with `--allow-remote`. |
 | `/api/meta` | The harness names, the name of the project the server runs in (`project`, `""` when it found none), and the period, harness and scope (`defaults.scope`: `current` or `all`) the page opens on. |
 | `/api/sync` | The background indexing: `state` (`running`, `done`, `failed`, or `disabled` with `--no-sync`), files `indexed`, and what was skipped. |
 
@@ -195,7 +197,7 @@ page open in your browser, so `serve` is restrictive by default:
 
 - It listens on `127.0.0.1` only. `--addr` refuses anything that is not a loopback address (`127.0.0.1`, `::1`,
   `localhost`), including `0.0.0.0` and an empty host, unless you pass `--allow-remote`. With `--allow-remote`, every
-  machine that can reach the port can read your prompts and nothing authenticates them: use it only on a network you
+  machine that can reach the port can read your report and session metadata and nothing authenticates them: use it only on a network you
   trust, or behind something that does the authentication. The server has no login, no TLS and no rate limit.
 - A request is answered only if its `Host` header is `localhost`, `127.0.0.1` or `[::1]` with the listening port. A web
   page that makes your browser reach the server under another name (DNS rebinding) gets `403`. `--allow-remote` lifts
@@ -210,7 +212,8 @@ page open in your browser, so `serve` is restrictive by default:
 - Query strings are bounded on every API route (256 bytes, 32 characters for a period, `limit` at most 1000); a malformed
   one, a parameter the route does not take (`/api/meta?typo=1`) or a repeated one is a `400`, never ignored. The server has read and
   write timeouts. A failure answers `500` without its cause, which goes to the server's log on stderr.
-- The page never shows the prompts. Session titles and folder paths do appear, so treat a screenshot like a report
+- Prompt excerpts appear only in session details on a loopback listener without `--allow-remote`. Session titles
+  (which can be based on the first prompt) and folder paths are visible in both modes. Treat screenshots like reports
   (see [Privacy](#privacy)).
 
 ### Building the web page

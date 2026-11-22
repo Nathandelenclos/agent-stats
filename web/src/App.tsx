@@ -2,7 +2,7 @@ import { useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ErrorBoundary } from "./shared/ErrorBoundary";
 import { useTheme, type ThemeChoice } from "./shared/theme";
-import { ApiError } from "./shared/api";
+import { describe, Failure } from "./shared/Failure";
 import {
   buildCostBy,
   buildCostOverTime,
@@ -20,6 +20,7 @@ import {
   type Meta,
   type Report as ReportData,
 } from "./features/report";
+import { Sessions, useSessions } from "./features/sessions";
 import { SyncBanner, useSyncStatus } from "./features/sync";
 
 /** Filters live in the address (?since=7d&harness=claude&project=all), so a reload or a bookmark keeps them. */
@@ -40,24 +41,6 @@ function writeFilters(f: Filters) {
   params.set("harness", f.harness);
   params.set("project", f.scope);
   window.history.replaceState(null, "", `?${params}`);
-}
-
-/** What to tell the person about a failed request. */
-function describe(error: unknown): string {
-  // The server words its own refusals for people; anything else (network, unreadable answer) gets a plain sentence.
-  return error instanceof ApiError ? error.message : "The page could not reach the agent-stats server. Check that it is still running, then try again.";
-}
-
-function Failure({ title, message, retry }: { title: string; message: string; retry: () => void }) {
-  return (
-    <div role="alert" className="rounded-lg border border-danger p-4">
-      <p className="font-semibold text-danger">{title}</p>
-      <p className="mt-1 text-sm">{message}</p>
-      <button type="button" onClick={retry} className="mt-3 min-h-9 rounded-md border border-border px-3 text-sm hover:bg-surface">
-        Try again
-      </button>
-    </div>
-  );
 }
 
 function ThemeSelect() {
@@ -168,14 +151,9 @@ function Report({ report }: { report: UseQueryResult<ReportData, unknown> }) {
   );
 }
 
-function Filtered({ meta, filters, onChange, report }: { meta: Meta; filters: Filters; onChange: (next: Filters) => void; report: UseQueryResult<ReportData, unknown> }) {
-  return (
-    <>
-      <FilterBar meta={meta} value={filters} onChange={onChange} />
-      <Report report={report} />
-    </>
-  );
-}
+type View = "Usage" | "Sessions";
+
+const views: View[] = ["Usage", "Sessions"];
 
 export function App() {
   const meta = useMeta();
@@ -183,6 +161,7 @@ export function App() {
   const queryClient = useQueryClient();
   // The filters are the person's once they change them, and what the server and the address say until then. The address is
   // read once, as it was when the page opened: the filters written to it since are not the person's choice.
+  const [view, setView] = useState<View>("Usage");
   const [chosen, setChosen] = useState<Filters>();
   const [address] = useState(() => new URLSearchParams(window.location.search));
   const initial = useMemo(() => (meta.data ? readFilters(meta.data, address) : undefined), [meta.data, address]);
@@ -190,12 +169,20 @@ export function App() {
   useEffect(() => {
     if (filters) writeFilters(filters);
   }, [filters]);
-  const report = useReport(filters);
+  const report = useReport(view === "Usage" ? filters : undefined);
+  const project = filters?.scope === "current" ? (meta.data?.project ?? "") : "";
+  const sessions = useSessions(view === "Sessions" ? filters : undefined, project);
+  const shownScope = view === "Usage" ? report.data?.scope : sessions.data?.scope;
 
   // The figures were read from a partial index while it ran, and the server may have learned its project from it: ask again when it ends.
   const syncState = sync.data?.state;
   useEffect(() => {
-    if (syncState === "done") void queryClient.invalidateQueries({ queryKey: ["meta"] }).then(() => queryClient.invalidateQueries({ queryKey: ["report"] }));
+    if (syncState === "done") {
+      void queryClient.invalidateQueries({ queryKey: ["meta"] }).then(() => Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["report"] }),
+        queryClient.invalidateQueries({ queryKey: ["sessions"] }),
+      ]));
+    }
   }, [syncState, queryClient]);
   return (
     <>
@@ -203,14 +190,14 @@ export function App() {
         href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-10 focus:rounded-md focus:bg-accent focus:px-3 focus:py-2 focus:text-accent-ink"
       >
-        Skip to the report
+        Skip to main content
       </a>
       <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-6">
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold">agent-stats</h1>
             <p className="text-sm text-muted">Usage of your coding agents, read from the session logs on this machine.</p>
-            {meta.data && report.data && <p className="mt-1 text-sm font-semibold">{scopeLabel(meta.data, report.data.scope)}</p>}
+            {meta.data && shownScope && <p className="mt-1 text-sm font-semibold">{scopeLabel(meta.data, shownScope)}</p>}
           </div>
           <ThemeSelect />
         </header>
@@ -218,7 +205,25 @@ export function App() {
         <main id="main" tabIndex={-1} className="flex flex-col gap-6">
           {meta.isPending && <p role="status">Loading…</p>}
           {meta.isError && <Failure title="The server did not answer." message={describe(meta.error)} retry={() => void meta.refetch()} />}
-          {meta.data && filters && <Filtered meta={meta.data} filters={filters} onChange={setChosen} report={report} />}
+          {meta.data && filters && (
+            <>
+              <nav aria-label="Views" className="flex gap-4 border-b border-rule">
+                {views.map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    aria-pressed={view === name}
+                    className={`min-h-10 border-b-2 px-2 text-sm ${view === name ? "border-accent font-semibold text-ink" : "border-transparent text-muted hover:text-ink"}`}
+                    onClick={() => setView(name)}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </nav>
+              <FilterBar meta={meta.data} value={filters} onChange={setChosen} />
+              {view === "Usage" ? <Report report={report} /> : <Sessions filters={filters} project={project} list={sessions} />}
+            </>
+          )}
         </main>
       </div>
     </>
