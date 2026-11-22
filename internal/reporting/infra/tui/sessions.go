@@ -110,7 +110,8 @@ func (m Model) openSelected() (Model, tea.Cmd) {
 	id := m.sessions.shown[i].ID
 	m.sessions.detail = sessionDetail{open: true, id: id}
 	m.layout()
-	return m, m.loadDetail(id)
+	detail := m.loadDetail(id) // before the return: loadDetail counts the request in m
+	return m, detail
 }
 
 func (m Model) sessionsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

@@ -189,7 +189,8 @@ func (m Model) reload() (Model, tea.Cmd) {
 	m.pending = true
 	if m.mode == sessionsMode {
 		if m.sessions.detail.open { // the session on screen may have grown too
-			return m, tea.Batch(m.loadSessions(), m.loadDetail(m.sessions.detail.id))
+			detail := m.loadDetail(m.sessions.detail.id) // before the return: loadDetail counts the request in m
+			return m, tea.Batch(m.loadSessions(), detail)
 		}
 		return m, m.loadSessions()
 	}
