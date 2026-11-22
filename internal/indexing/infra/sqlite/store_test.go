@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -422,4 +423,80 @@ func reopen(t *testing.T, path string) *SQLiteIndex {
 	}
 	t.Cleanup(func() { s.Close() })
 	return s
+}
+
+// subagentNamed returns the transcript of a subagent with the given session id, whatever its id says about its parent.
+func subagentNamed(t *testing.T, id, parent string, at time.Time) application.IndexedTranscript {
+	t.Helper()
+	tr := transcript(t, id, at)
+	tr.Session.ParentID, _ = domain.NewSessionID(kernel.Claude, parent)
+	tr.Session.AgentType = domain.Subagent
+	return tr
+}
+
+// assertEverySessionAndRequestIsListedOnce checks that the sessions views drop and double nothing.
+func assertEverySessionAndRequestIsListedOnce(t *testing.T, s *SQLiteIndex, sessions int) map[string]string {
+	t.Helper()
+	listed := listedUnder(t, s)
+	var rows, requests int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM session_overview`).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM session_requests`).Scan(&requests); err != nil {
+		t.Fatal(err)
+	}
+	if rows != sessions || len(listed) != sessions || requests != sessions { // every transcript holds one request
+		t.Errorf("%d sessions listed as %d rows with %d requests, want %d of each", len(listed), rows, requests, sessions)
+	}
+	return listed
+}
+
+func TestAVeryDeepChainOfSubagentsIsListedUnderItsTopSession(t *testing.T) {
+	// Given a session and a chain of 40 subagents, each started by the previous one
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	logs := map[string]application.IndexedTranscript{"/logs/top.jsonl": transcript(t, "top", at)}
+	parent := "top"
+	for i := 1; i <= 40; i++ {
+		name := fmt.Sprintf("s%d", i)
+		logs["/logs/"+name+".jsonl"] = subagentOf(t, parent, name, at)
+		parent += "/" + name
+	}
+	saveAll(t, s, logs)
+
+	// When the sessions are listed
+	listed := assertEverySessionAndRequestIsListedOnce(t, s, 41)
+
+	// Then the whole chain belongs to the top session, however deep
+	for id, root := range listed {
+		if root != "claude:top" {
+			t.Errorf("%s is listed under %s", id, root)
+		}
+	}
+}
+
+func TestSubagentsThatNameEachOtherAsParentAreEachListedOnce(t *testing.T) {
+	// Given two subagents that name each other as parent, a third one started by the first, and a subagent that names itself
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	saveAll(t, s, map[string]application.IndexedTranscript{
+		"/logs/a.jsonl":    subagentNamed(t, "a", "b", at),
+		"/logs/b.jsonl":    subagentNamed(t, "b", "a", at),
+		"/logs/c.jsonl":    subagentNamed(t, "c", "a", at),
+		"/logs/self.jsonl": subagentNamed(t, "self", "self", at),
+		"/logs/main.jsonl": transcript(t, "main", at),
+	})
+
+	// When the sessions are listed
+	first := assertEverySessionAndRequestIsListedOnce(t, s, 5)
+
+	// Then each session is listed under a session of the list, and the same way every time
+	for id, root := range first {
+		if _, ok := first[root]; !ok {
+			t.Errorf("%s is listed under %s, which is not listed", id, root)
+		}
+	}
+	if again := listedUnder(t, s); fmt.Sprint(again) != fmt.Sprint(first) {
+		t.Errorf("listed %v, then %v", first, again)
+	}
 }
