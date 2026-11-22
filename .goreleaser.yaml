@@ -39,6 +39,10 @@ checksum:
   name_template: checksums.txt
   algorithm: sha256
 
+# One SBOM (syft, installed by the workflow) per archive, uploaded next to it and listed in checksums.txt.
+sboms:
+  - artifacts: archive
+
 changelog:
   disable: true
 
