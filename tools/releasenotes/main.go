@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"unicode/utf8"
 )
 
 func main() {
@@ -71,7 +72,7 @@ func runSummarize(ctx context.Context, notesPath, out, apiURL string, env func(s
 		}
 		fmt.Fprintf(stdout, "::notice::AI release summary skipped: %s\n", s)
 	} else {
-		fmt.Fprintf(stdout, "::notice::AI release summary written (%d characters)\n", len(summary))
+		fmt.Fprintf(stdout, "::notice::AI release summary written (%d characters)\n", utf8.RuneCountInString(summary))
 	}
 	if err := os.WriteFile(out, []byte(summary), 0o644); err != nil {
 		fmt.Fprintln(stderr, "cannot write the summary file")
@@ -90,7 +91,7 @@ func runCompose(notesPath, summaryPath, out, repo string, stdout, stderr io.Writ
 	}
 	var summary string
 	if raw, err := os.ReadFile(summaryPath); summaryPath != "" && err == nil && strings.TrimSpace(string(raw)) != "" {
-		// The file crossed a job boundary: the publishing job does not take it on trust.
+		// The file crossed a step boundary: it is checked again before it enters the body.
 		if summary, err = validate(string(raw), repo); err != nil {
 			fmt.Fprintf(stdout, "::notice::AI release summary left out: %s\n", err)
 			summary = ""

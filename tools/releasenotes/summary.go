@@ -1,8 +1,8 @@
 // Command releasenotes writes the "Summary" that sits above the git-cliff notes of a release.
 //
 // summarize asks the OpenAI Responses API for a short summary of the commit list in the notes. compose puts that summary
-// above the notes. The release workflow runs the first in a job that only reads and alone holds the API key
-// (.github/workflows/release.yml); the job that tags, signs and publishes only runs compose and never sees the key.
+// above the notes. The release workflow runs both in a job that only reads, and only summarize holds the API key
+// (.github/workflows/release.yml); the job that tags, signs and publishes runs neither and never sees the key.
 //
 // Commit subjects come from a public repository, so they are untrusted. Only the subject lines of the notes reach the
 // API, bounded, and the reply is rejected, not repaired, unless it is plain Markdown that cannot ping, link away or
@@ -81,8 +81,8 @@ func newSummarizer(url, model, key, repo string) summarizer {
 	}
 }
 
-// commitList keeps the subject lines of the git-cliff notes (group titles and "- " items) and nothing else: no link, no
-// free text. It drops control characters and angle brackets, so that no subject can forge the <commits> delimiters,
+// commitList keeps the subject lines of the git-cliff notes (group titles and "- " items) and nothing else: not the
+// compare link of the notes, no free text. A subject may still hold a link: the reply is checked, not the input. It drops control characters and angle brackets, so that no subject can forge the <commits> delimiters,
 // and stops at the byte budget.
 func commitList(notes string) string {
 	var b strings.Builder
@@ -210,6 +210,9 @@ var (
 	blockLine = regexp.MustCompile(`(?m)^(?: {4,}|\t)|^ {0,3}(?:=+|-+)\s*$|^::`)
 	// owner/repo#123 links to another repository's issue.
 	foreignRef = regexp.MustCompile(`[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[0-9]+`)
+	// [text][ref] with its "[ref]: target" definition: a link that "](" does not show. "http:evil.example" is a link too.
+	refLink = regexp.MustCompile(`(?m)^ {0,3}\[[^\]]*\]:|\]\s?\[`)
+	scheme  = regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*:[^\s/]`)
 )
 
 // validate accepts only plain Markdown text that cannot notify anyone, load anything or send a reader elsewhere. It
@@ -241,8 +244,10 @@ func validate(text, repo string) (string, error) {
 		return bad("entity") // &#64;octocat would render as a mention
 	case blockLine.MatchString(text):
 		return bad("block")
-	case foreignRef.MatchString(text):
+	case foreignRef.MatchString(text) || refLink.MatchString(text):
 		return bad("reference")
+	case scheme.MatchString(text):
+		return bad("foreign url") // http:evil.example, javascript:..., mailto:...
 	case heading.MatchString(text):
 		return bad("heading")
 	case strings.Contains(text, "!["):
