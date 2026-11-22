@@ -2,6 +2,9 @@
 
 Thanks for your interest in agent-stats. Issues and pull requests are welcome.
 
+For local development, `make build` puts the plain Go binary in `bin/`. Run `make test` for the Go tests
+and `make clean` to remove the local binary.
+
 ## Before you open a pull request
 
 ```sh

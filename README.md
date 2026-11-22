@@ -501,7 +501,7 @@ decompressed, and a log counts until the batch it belongs to is saved. Quitting 
 To measure on your own logs without touching your index:
 
 ```sh
-AGENT_STATS_BENCH_REAL=1 go test -run '^$' -bench RealLogs -benchtime 1x -cpuprofile cpu.out .
+AGENT_STATS_BENCH_REAL=1 go test -run '^$' -bench RealLogs -benchtime 1x -cpuprofile cpu.out ./internal/command
 ```
 
 To check that the scanner and `encoding/json` read your logs alike, and as the parsers of commit 80bf4b1 did before
@@ -555,7 +555,9 @@ holds `''`. The skills are kept in `tool_call_skills`, a table of their own: a b
 with positional statements that a column more would refuse, so it keeps writing an index this build has migrated. Its
 `Skill` calls then stay `NULL` until their log is read again (delete the index to read all logs again).
 
-`web/` holds the front of the web interface and embeds its build. `main.go` wires the slices together and opens the interactive view on a terminal; `serve.go` wires `agent-stats serve`; The `infra/cli` adapters in reporting and catalog format the command-line output.
+`main.go` is the executable entry point. `internal/command` wires the slices together, opens the interactive view on a
+terminal, and runs `agent-stats serve`. The `infra/cli` adapters in reporting and catalog format the command-line output.
+`web/` holds the web front and embeds its build.
 
 ## Development
 

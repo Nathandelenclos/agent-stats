@@ -1,4 +1,5 @@
 /agent-stats
+/bin/
 /dist/
 *.db
 *.db-*

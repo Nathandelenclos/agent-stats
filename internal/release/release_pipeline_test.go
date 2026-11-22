@@ -1,4 +1,4 @@
-package main
+package release_test
 
 import (
 	"os"
@@ -49,7 +49,7 @@ func TestTheJobThatCanPublishAndSignBuildsNoFront(t *testing.T) {
 			t.Errorf("the release job runs %q, which executes third-party build tools with write and signing rights", tool)
 		}
 	}
-	goreleaser, err := os.ReadFile(".goreleaser.yaml")
+	goreleaser, err := os.ReadFile(filepath.Join("..", "..", ".goreleaser.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestTheFrontArtifactOutlivesTheWindowToRerunThePublishJob(t *testing.T) {
 
 func workflowText(t *testing.T) string {
 	t.Helper()
-	raw, err := os.ReadFile(".github/workflows/release.yml")
+	raw, err := os.ReadFile(filepath.Join("..", "..", ".github/workflows/release.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestTheSecretsContextIsReadOnlyByTheJobThatHoldsTheKey(t *testing.T) {
 	if count(caller) != 2 || !strings.Contains(caller, "HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}") {
 		t.Fatal("the release must forward only the tap deployment key to Homebrew")
 	}
-	raw, err := os.ReadFile(".github/workflows/homebrew.yml")
+	raw, err := os.ReadFile(filepath.Join("..", "..", ".github/workflows/homebrew.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -835,7 +835,7 @@ func TestTheCallerGrantsEveryPermissionTheReleaseWorkflowAsks(t *testing.T) {
 		asked[m[1]+": "+m[2]] = true
 	}
 	// When the CI job that calls it is read
-	raw, err := os.ReadFile(".github/workflows/ci.yml")
+	raw, err := os.ReadFile(filepath.Join("..", "..", ".github/workflows/ci.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
