@@ -740,7 +740,7 @@ func (d *OpenCodeDatabase) readSession(path string, h kernel.Harness, s dbSessio
 			if pr, ok := domain.NewPrompt(m.key, m.at, text); ok {
 				p.Prompts = append(p.Prompts, pr)
 			}
-		case m.Role == "assistant" || (m.Role == "compaction" && m.Status == "completed"):
+		case m.Role == "assistant" || (m.Role == "compaction" && (m.Status == "completed" || m.Status == "failed")): // a compaction in progress is not a request yet
 			req, ok, err := m.request(m.key, m.at)
 			switch {
 			case err != nil:

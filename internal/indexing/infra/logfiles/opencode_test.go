@@ -400,6 +400,57 @@ func TestACompactionOfANewerOpenCodeIsARequestOfItsOwn(t *testing.T) {
 	}
 }
 
+func TestACompactionThatFailedIsARequestWithItsUsageAndItsError(t *testing.T) {
+	for name, c := range map[string]struct {
+		data    string
+		tokens  int64
+		cost    float64
+		failure string
+	}{
+		"a compaction that failed after using the model": {`{"time":{"created":1767225641000},"status":"failed","model":{"id":"claude-test","providerID":"anthropic"},"cost":0.07,"tokens":{"input":300,"output":0,"reasoning":0,"cache":{"read":0,"write":0}},"error":{"type":"ProviderOverloaded","message":"busy"}}`, 300, 0.07, "ProviderOverloaded"},
+		"a compaction that failed with an error and no usage": {`{"time":{"created":1767225641000},"status":"failed","model":{"id":"claude-test","providerID":"anthropic"},"error":{"type":"Aborted","message":"stopped"}}`, 0, 0, "Aborted"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Given a session whose compaction failed
+			logs, db := newOpenCode(t, "events.sql")
+			writeDB(t, db, `INSERT INTO session_message VALUES ('msg_a5b', 'ses_a', 'compaction', 7, 1767225641000, 1767225650000, '`+c.data+`')`)
+
+			// When it is read
+			p := transcriptOf(t, logs, "ses_a")
+
+			// Then the failed compaction is a request of its own, with what it used and why it failed
+			var got *domain.Request
+			for i := range p.Requests {
+				if p.Requests[i].Key == "msg_a5b" {
+					got = &p.Requests[i]
+				}
+			}
+			if got == nil {
+				t.Fatalf("requests = %+v", p.Requests)
+			}
+			if got.Tokens.Counts().Input != c.tokens || got.LoggedCost.USD() != c.cost || got.Failure != c.failure {
+				t.Errorf("request = %+v", got)
+			}
+		})
+	}
+}
+
+func TestACompactionStillRunningIsNotARequest(t *testing.T) {
+	// Given a session with a compaction that has neither completed nor failed
+	logs, db := newOpenCode(t, "events.sql")
+	writeDB(t, db, `INSERT INTO session_message VALUES ('msg_a5c', 'ses_a', 'compaction', 7, 1767225641000, 1767225650000, '{"time":{"created":1767225641000},"status":"running","model":{"id":"claude-test","providerID":"anthropic"}}')`)
+
+	// When it is read
+	p := transcriptOf(t, logs, "ses_a")
+
+	// Then it is not a request
+	for _, r := range p.Requests {
+		if r.Key == "msg_a5c" {
+			t.Errorf("request = %+v", r)
+		}
+	}
+}
+
 func TestANewerOpenCodeTakesToolCallsFromTheirPartsAndFromTheMessageThatHoldsOne(t *testing.T) {
 	// Given a session of a newer OpenCode whose first answer has its tool calls apart from it, and whose second holds its tool call itself
 	logs, _ := newOpenCode(t, "events.sql")
