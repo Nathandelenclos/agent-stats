@@ -1,13 +1,11 @@
-package main
+package e2e
 
 import (
-	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // catalogHome copies the fixture configuration and logs of testdata/catalog into a temp home, with the project at
@@ -16,11 +14,11 @@ func catalogHome(t *testing.T) (home, project string) {
 	t.Helper()
 	dir := t.TempDir()
 	home = filepath.Join(dir, "home")
-	if err := os.CopyFS(home, os.DirFS("testdata/catalog/home")); err != nil {
+	if err := os.CopyFS(home, os.DirFS("../testdata/catalog/home")); err != nil {
 		t.Fatal(err)
 	}
 	project = filepath.Join(home, "work", "app")
-	if err := os.CopyFS(project, os.DirFS("testdata/catalog/project")); err != nil {
+	if err := os.CopyFS(project, os.DirFS("../testdata/catalog/project")); err != nil {
 		t.Fatal(err)
 	}
 	list := filepath.Join(home, ".claude", "plugins", "installed_plugins.json")
@@ -31,20 +29,19 @@ func catalogHome(t *testing.T) (home, project string) {
 	if err := os.WriteFile(list, []byte(strings.ReplaceAll(string(b), "@HOME@", home)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HOME", home)
-	t.Setenv("CLAUDE_CONFIG_DIR", "")
-	t.Setenv("CODEX_HOME", "")
+	fixtureEnv(t, home)
+	t.Setenv("TZ", "UTC")
 	return home, project
 }
 
 // catalogOutput runs the subcommand and returns what it printed on stdout and stderr.
 func catalogOutput(t *testing.T, args ...string) (stdout, stderr string) {
 	t.Helper()
-	var out, errOut bytes.Buffer
-	if err := runCatalog(args, &out, &errOut); err != nil {
-		t.Fatalf("catalog %v: %v\n%s", args, err, errOut.String())
+	stdout, stderr, err := runCLI(t, "", append([]string{"catalog"}, args...)...)
+	if err != nil {
+		t.Fatalf("catalog %v: %v\n%s", args, err, stderr)
 	}
-	return out.String(), errOut.String()
+	return stdout, stderr
 }
 
 // catalogCases are the ways the catalogue is asked for on the fixture home; each has an approved output.
@@ -64,9 +61,6 @@ var catalogCases = []struct {
 // ask for a catalogue of that index without reading the logs again. Dates print in the local zone, so it is UTC.
 func indexedCatalogHome(t *testing.T) []string {
 	t.Helper()
-	local := time.Local
-	time.Local = time.UTC
-	t.Cleanup(func() { time.Local = local })
 	_, project := catalogHome(t)
 	db := filepath.Join(t.TempDir(), "index.db")
 	base := []string{"--db", db, "--project", project, "--all"}
@@ -90,7 +84,7 @@ func TestCatalogPrintsTheApprovedOutputForEachWayOfAskingForIt(t *testing.T) {
 			}
 
 			// Then it prints the approved output
-			path := filepath.Join("testdata", "catalog.approved", c.name+".txt")
+			path := filepath.Join("..", "testdata", "catalog.approved", c.name+".txt")
 			approved, err := os.ReadFile(path)
 			if err != nil || string(approved) != received {
 				if werr := os.WriteFile(strings.TrimSuffix(path, ".txt")+".received.txt", []byte(received), 0o644); werr != nil {
@@ -217,6 +211,18 @@ func TestCatalogShowsHostileLoggedNamesEscaped(t *testing.T) {
 	}
 }
 
+type jsonEntry struct {
+	Harness   string `json:"harness"`
+	Kind      string `json:"kind"`
+	Name      string `json:"name"`
+	Installed bool   `json:"installed"`
+	Uses      *int64 `json:"uses"`
+}
+
+type jsonCatalog struct {
+	Entries []jsonEntry `json:"entries"`
+}
+
 // catalogWithARefusedSkillCall prints, as JSON, the catalogue of the fixture home plus a log with a Skill call that
 // names a skill no harness could have (an escape sequence).
 func catalogWithARefusedSkillCall(t *testing.T) jsonCatalog {
@@ -279,12 +285,12 @@ func TestCatalogRejectsWhatItDoesNotUnderstand(t *testing.T) {
 		"unknown flag":    {"--nope"},
 	} {
 		// Given invalid arguments, when the subcommand runs, then it fails instead of printing a partial catalogue
-		var out, errOut bytes.Buffer
-		if err := runCatalog(append([]string{"--db", db, "--no-sync"}, args...), &out, &errOut); err == nil {
+		out, _, err := runCLI(t, "", append([]string{"catalog", "--db", db, "--no-sync"}, args...)...)
+		if err == nil {
 			t.Errorf("%s: accepted", name)
 		}
-		if out.Len() != 0 {
-			t.Errorf("%s: printed %q", name, out.String())
+		if out != "" {
+			t.Errorf("%s: printed %q", name, out)
 		}
 	}
 }

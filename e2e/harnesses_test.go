@@ -1,10 +1,9 @@
-package main
+package e2e
 
 import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,7 +13,6 @@ import (
 	indexing "github.com/Nathandelenclos/agent-stats/internal/indexing/application"
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/infra/logfiles"
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/infra/sqlite"
-	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	pricing "github.com/Nathandelenclos/agent-stats/internal/pricing/domain"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 	reportingdomain "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
@@ -26,14 +24,15 @@ import (
 func moreHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	if err := os.CopyFS(home, os.DirFS("testdata/home-more")); err != nil {
+	fixtureEnv(t, home)
+	if err := os.CopyFS(home, os.DirFS("../testdata/home-more")); err != nil {
 		t.Fatal(err)
 	}
 	for path, script := range map[string]string{
 		".local/share/opencode/opencode.db": "events.sql",
 		".local/share/kilo/kilo.db":         "messages.sql",
 	} {
-		raw, err := os.ReadFile(filepath.Join("testdata", "databases", script))
+		raw, err := os.ReadFile(filepath.Join("..", "testdata", "databases", script))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -86,36 +85,12 @@ func TestNewHarnessesReportApproved(t *testing.T) {
 	if len(rep.Errors) > 0 || rep.Indexed != 11 {
 		t.Fatalf("index: %+v", rep)
 	}
-	usage, err := usagedb.OpenReadOnly(dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer usage.Close()
-	got := map[string]jsonReport{}
-	for _, h := range []kernel.Harness{{}, kernel.Gemini, kernel.OpenCode, kernel.Kilo} {
-		r, err := reporting.BuildReport{Queries: usage}.Run(context.Background(), reporting.Query{Harness: h})
-		if err != nil {
-			t.Fatal(err)
-		}
-		name := h.String()
-		if h.IsZero() {
-			name = "all"
-		}
-		got[name] = toJSON(r)
-	}
-	received, err := json.MarshalIndent(got, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	received = append(received, '\n')
-	approved, err := os.ReadFile("testdata/report-more.approved.json")
-	if err != nil || !bytes.Equal(approved, received) {
-		if werr := os.WriteFile("testdata/report-more.received.json", received, 0o644); werr != nil {
-			t.Fatal(werr)
-		}
-		t.Fatalf("report differs from testdata/report-more.approved.json (%v); see testdata/report-more.received.json", err)
-	}
-	os.Remove("testdata/report-more.received.json")
+	approveReports(t, dbPath, "report-more", map[string][]string{
+		"all":      nil,
+		"gemini":   {"--harness", "gemini"},
+		"opencode": {"--harness", "opencode"},
+		"kilo":     {"--harness", "kilo"},
+	})
 }
 
 func TestNothingIsReadAgainWhenNothingChangedInTheDatabases(t *testing.T) {

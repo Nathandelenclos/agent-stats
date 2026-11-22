@@ -1,4 +1,4 @@
-package main
+package e2e
 
 import (
 	"context"
@@ -250,7 +250,7 @@ func TestAnIndexALaterBuildGaveANewColumnToEveryTableIsStillWrittenByThisBuild(t
 // aClaudeLogOnDisk copies a Claude log into a directory of its own and returns the directory and the log.
 func aClaudeLogOnDisk(t *testing.T) (dir, log string) {
 	t.Helper()
-	raw, err := os.ReadFile("testdata/home/.claude/projects/-repo/abc.jsonl")
+	raw, err := os.ReadFile("../testdata/home/.claude/projects/-repo/abc.jsonl")
 	if err != nil {
 		t.Fatal(err)
 	}
