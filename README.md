@@ -36,6 +36,8 @@ A first run over about 2 000 logs (3.3 GB) takes 3 s on a 10-core machine, a run
 Logs are read and parsed by several workers (three quarters of `GOMAXPROCS`) and saved by one writer, 64 logs per
 transaction, in the order they were listed. A scanner reads each log line in a fraction of the time `encoding/json`
 needs; it hands back to `encoding/json` any line that is not in the shape it knows, so the results are the same.
+Logs are read ahead of the writer within 512 MiB of log text: a compressed log counts for what it holds once
+decompressed, and a log counts until the batch it belongs to is saved. Quitting the interface stops the indexer.
 
 To measure on your own logs without touching your index:
 
@@ -43,7 +45,8 @@ To measure on your own logs without touching your index:
 AGENT_STATS_BENCH_REAL=1 go test -run '^$' -bench RealLogs -benchtime 1x -cpuprofile cpu.out .
 ```
 
-To check that the scanner and `encoding/json` read your logs alike (about 30 s):
+To check that the scanner and `encoding/json` read your logs alike, and as the parsers of commit 80bf4b1 did before
+the scanner (about 1 min):
 
 ```sh
 AGENT_STATS_CORPUS=$HOME go test ./internal/indexing/infra/logfiles -run RealLogs -v
