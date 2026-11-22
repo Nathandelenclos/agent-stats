@@ -166,3 +166,22 @@ func TestCatalogCanListOnlyWhatIsUnusedWhileCountingEverything(t *testing.T) {
 		t.Errorf("tally: %+v", got)
 	}
 }
+
+func TestCatalogCountsOnlyTheUsageOfTheProjectAsked(t *testing.T) {
+	// Given skills installed in a harness, and a project to look at
+	inv, act := twoHarnesses(t)
+	app, err := kernel.NewProject("/work/app")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// When the catalogue is built for that project
+	if _, err := (BuildCatalog{Inventory: inv, Activity: act}).Run(Query{Project: app}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Then the logs are asked about the sessions of that project only
+	if act.filter.Project != app {
+		t.Errorf("activity asked for %+v", act.filter)
+	}
+}

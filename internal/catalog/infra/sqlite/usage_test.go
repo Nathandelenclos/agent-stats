@@ -29,6 +29,10 @@ func publishedIndex(t *testing.T) string {
 		{`INSERT INTO usage_tool_calls VALUES (?, 'review', 'grace', '', 'claude'), (?, 'review', 'grace', '', 'claude'), (?, 'Read', '', '', 'claude'), (?, 'get_issue', 'github', '', 'codex'),
 			(?, 'Skill', '', 'grace-review', 'claude'), (?, 'Skill', '', 'grace-review', 'claude')`, []any{ms(1), ms(3), ms(2), ms(2), ms(2), ms(4)}},
 		{`INSERT INTO usage_requests VALUES (?, 'Explore', 'claude'), (?, 'main', 'claude'), (?, 'Explore', 'claude')`, []any{ms(1), ms(1), ms(4)}},
+		// the folders are what the project filter reads; these stand-in rows do not tell them
+		{`ALTER TABLE usage_tool_calls ADD COLUMN folder TEXT`, nil},
+		{`ALTER TABLE usage_requests ADD COLUMN folder TEXT`, nil},
+		{`CREATE TABLE usage_folders (folder TEXT)`, nil},
 	} {
 		if _, err := db.Exec(q.sql, q.args...); err != nil {
 			t.Fatal(err)
@@ -61,7 +65,7 @@ func withSkillCall(t *testing.T, path string, skill any) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if _, err := db.Exec(`INSERT INTO usage_tool_calls VALUES (?, 'Skill', '', ?, 'claude')`, time.Date(2026, 1, 4, 0, 0, 0, 0, time.UTC).UnixMilli(), skill); err != nil {
+	if _, err := db.Exec(`INSERT INTO usage_tool_calls (ts, name, server, skill, harness) VALUES (?, 'Skill', '', ?, 'claude')`, time.Date(2026, 1, 4, 0, 0, 0, 0, time.UTC).UnixMilli(), skill); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -225,7 +229,7 @@ func TestUnknownHarnessInTheIndexIsRefused(t *testing.T) {
 	// Given a row naming a harness no slice knows
 	path := publishedIndex(t)
 	db, _ := sql.Open("sqlite", path)
-	if _, err := db.Exec(`INSERT INTO usage_tool_calls VALUES (1, 'x', '', '', 'vim')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO usage_tool_calls (ts, name, server, skill, harness) VALUES (1, 'x', '', '', 'vim')`); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()

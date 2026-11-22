@@ -32,10 +32,12 @@ type ActivityReader interface {
 	Activity(domain.Filter) (domain.Activity, error)
 }
 
-// Query asks for the catalogue of activity since a time (zero: all) and optionally one harness (empty: all).
+// Query asks for the catalogue of activity since a time (zero: all), optionally one harness (empty: all) and
+// optionally the sessions of one project (zero: every project).
 type Query struct {
 	Since   time.Time
 	Harness kernel.Harness
+	Project kernel.Project
 	// UnusedOnly keeps in Entries only what is installed, enabled and never used; Tally still counts everything.
 	UnusedOnly bool
 }
@@ -70,7 +72,7 @@ func (uc BuildCatalog) Run(q Query) (Catalog, error) {
 		items = append(items, in.Items...)
 		c.Skipped = append(c.Skipped, in.Skipped...)
 	}
-	act, err := uc.Activity.Activity(domain.Filter{Since: q.Since, Harness: q.Harness})
+	act, err := uc.Activity.Activity(domain.Filter{Since: q.Since, Harness: q.Harness, Project: q.Project})
 	if err != nil {
 		return Catalog{}, err
 	}

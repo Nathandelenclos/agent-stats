@@ -15,6 +15,7 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/catalog/application"
 	"github.com/Nathandelenclos/agent-stats/internal/catalog/domain"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	"github.com/Nathandelenclos/agent-stats/internal/platform/projectscope"
 )
 
 // Usage reads activity from the SQLite index.
@@ -43,8 +44,8 @@ func OpenReadOnly(path string) (*Usage, error) {
 // Close closes the database.
 func (u *Usage) Close() error { return u.db.Close() }
 
-// where turns a filter into SQL conditions on the harness and timestamp columns; every value is a bound parameter.
-func where(f domain.Filter, extra ...string) (string, []any) {
+// where turns a filter into SQL conditions on the harness, timestamp and folder columns; every value is a bound parameter.
+func where(q querier, f domain.Filter, extra ...string) (string, []any, error) {
 	conds := extra
 	var args []any
 	if !f.Since.IsZero() {
@@ -53,10 +54,17 @@ func where(f domain.Filter, extra ...string) (string, []any) {
 	if !f.Harness.IsZero() {
 		conds, args = append(conds, "harness = ?"), append(args, f.Harness.String())
 	}
-	if len(conds) == 0 {
-		return "", nil
+	cond, projectArgs, err := projectscope.Condition(q, f.Project, "folder")
+	if err != nil {
+		return "", nil, err
 	}
-	return " WHERE " + strings.Join(conds, " AND "), args
+	if cond != "" {
+		conds, args = append(conds, cond), append(args, projectArgs...)
+	}
+	if len(conds) == 0 {
+		return "", nil, nil
+	}
+	return " WHERE " + strings.Join(conds, " AND "), args, nil
 }
 
 // Activity reads tool calls, agent types and skill loads in one read transaction, so that indexing committing meanwhile cannot
@@ -100,7 +108,10 @@ func harnessOf(name string) (kernel.Harness, error) {
 }
 
 func toolActivity(q querier, f domain.Filter) ([]domain.ToolActivity, error) {
-	cond, args := where(f)
+	cond, args, err := where(q, f)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := q.Query(`SELECT harness, name, server, COUNT(*), MAX(ts) FROM usage_tool_calls`+cond+` GROUP BY 1, 2, 3`, args...)
 	if err != nil {
 		return nil, err
@@ -124,7 +135,10 @@ func toolActivity(q querier, f domain.Filter) ([]domain.ToolActivity, error) {
 }
 
 func agentActivity(q querier, f domain.Filter) ([]domain.AgentActivity, error) {
-	cond, args := where(f)
+	cond, args, err := where(q, f)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := q.Query(`SELECT harness, agent_type, COUNT(*), MAX(ts) FROM usage_requests`+cond+` GROUP BY 1, 2`, args...)
 	if err != nil {
 		return nil, err
@@ -160,7 +174,10 @@ func unnamedSkillCalls(q querier, f domain.Filter) ([]domain.SkillActivity, erro
 }
 
 func skillCalls(q querier, f domain.Filter, conds ...string) ([]domain.SkillActivity, error) {
-	cond, args := where(f, conds...)
+	cond, args, err := where(q, f, conds...)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := q.Query(`SELECT harness, skill, COUNT(*), MAX(ts) FROM usage_tool_calls`+cond+` GROUP BY 1, 2`, args...)
 	if err != nil {
 		return nil, err
@@ -185,7 +202,10 @@ func skillCalls(q querier, f domain.Filter, conds ...string) ([]domain.SkillActi
 
 // pendingSkillLoads flags the harnesses with a Skill call whose skill is NULL: its log is not read again yet.
 func pendingSkillLoads(q querier, f domain.Filter) (map[kernel.Harness]bool, error) {
-	cond, args := where(f, "name = 'Skill'", "server = ''", "skill IS NULL")
+	cond, args, err := where(q, f, "name = 'Skill'", "server = ''", "skill IS NULL")
+	if err != nil {
+		return nil, err
+	}
 	rows, err := q.Query(`SELECT DISTINCT harness FROM usage_tool_calls`+cond, args...)
 	if err != nil {
 		return nil, err

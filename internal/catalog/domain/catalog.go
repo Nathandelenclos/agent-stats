@@ -112,10 +112,12 @@ func (i Item) identity() [5]string {
 	return [5]string{i.Harness.String(), i.Kind.name, i.Name.s, i.Scope.name, i.Origin.s}
 }
 
-// Filter restricts activity to what happened since a time (zero: all) and optionally one harness (empty: all).
+// Filter restricts activity to what happened since a time (zero: all), optionally one harness (empty: all) and
+// optionally the sessions of one project (zero: every project).
 type Filter struct {
 	Since   time.Time
 	Harness kernel.Harness
+	Project kernel.Project
 }
 
 // ToolActivity is the logged calls of one tool; Server is its MCP server, empty for a built-in tool.
