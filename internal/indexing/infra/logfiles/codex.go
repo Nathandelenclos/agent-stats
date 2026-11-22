@@ -32,48 +32,74 @@ func (d *codexDuration) duration() domain.Duration {
 	return millis(d.Secs*1000 + d.Nanos/1e6)
 }
 
+// textLen is a JSON string of which only the length of the decoded text is kept.
+type textLen int
+
+func (n *textLen) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+	*n = textLen(len(s))
+	return nil
+}
+
+type codexInfo struct {
+	Total *codexUsage `json:"total_token_usage"`
+	Last  *codexUsage `json:"last_token_usage"`
+}
+
+type codexSettings struct {
+	Model string `json:"model"`
+}
+
+type codexContent struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type codexItemLog struct {
+	Type      string          `json:"type"`
+	ID        string          `json:"id"`
+	Server    string          `json:"server"`
+	Tool      string          `json:"tool"`
+	Kind      string          `json:"kind"`
+	Arguments size            `json:"arguments"`
+	Result    size            `json:"result"`
+	Error     json.RawMessage `json:"error"`
+	Status    string          `json:"status"`
+	Command   size            `json:"command"`
+	Output    textLen         `json:"aggregated_output"`
+	ExitCode  *int            `json:"exit_code"`
+	Duration  *codexDuration  `json:"duration"`
+	Changes   size            `json:"changes"`
+	Query     string          `json:"query"`
+	Path      string          `json:"path"`
+	Content   []codexContent  `json:"content"`
+}
+
 type codexPayload struct {
-	Type         string      `json:"type"`
-	ID           string      `json:"id"`
-	Cwd          string      `json:"cwd"`
-	ThreadSource string      `json:"thread_source"`
-	ForkedFrom   string      `json:"forked_from_id"`
-	Model        string      `json:"model"`
-	Name         string      `json:"name"`
-	Arguments    size        `json:"arguments"`
-	CallID       string      `json:"call_id"`
-	Output       size        `json:"output"`
-	ResponseID   string      `json:"response_id"`
-	Usage        *codexUsage `json:"usage"`
-	Settings     *struct {
-		Model string `json:"model"`
-	} `json:"thread_settings"`
-	Info *struct {
-		Total *codexUsage `json:"total_token_usage"`
-		Last  *codexUsage `json:"last_token_usage"`
-	} `json:"info"`
-	Item *struct {
-		Type      string          `json:"type"`
-		ID        string          `json:"id"`
-		Server    string          `json:"server"`
-		Tool      string          `json:"tool"`
-		Kind      string          `json:"kind"`
-		Arguments size            `json:"arguments"`
-		Result    size            `json:"result"`
-		Error     json.RawMessage `json:"error"`
-		Status    string          `json:"status"`
-		Command   size            `json:"command"`
-		Output    string          `json:"aggregated_output"`
-		ExitCode  *int            `json:"exit_code"`
-		Duration  *codexDuration  `json:"duration"`
-		Changes   size            `json:"changes"`
-		Query     string          `json:"query"`
-		Path      string          `json:"path"`
-		Content   []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-	} `json:"item"`
+	Type         string         `json:"type"`
+	ID           string         `json:"id"`
+	Cwd          string         `json:"cwd"`
+	ThreadSource string         `json:"thread_source"`
+	ForkedFrom   string         `json:"forked_from_id"`
+	Model        string         `json:"model"`
+	Name         string         `json:"name"`
+	Arguments    size           `json:"arguments"`
+	CallID       string         `json:"call_id"`
+	Output       size           `json:"output"`
+	ResponseID   string         `json:"response_id"`
+	Usage        *codexUsage    `json:"usage"`
+	Settings     *codexSettings `json:"thread_settings"`
+	Info         *codexInfo     `json:"info"`
+	Item         *codexItemLog  `json:"item"`
+}
+
+type codexLine struct {
+	Type      string       `json:"type"`
+	Timestamp string       `json:"timestamp"`
+	Payload   codexPayload `json:"payload"`
 }
 
 // ParseCodex reads a Codex rollout (~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl[.zst]).
@@ -88,12 +114,8 @@ func ParseCodex(path string, r io.Reader) (domain.Transcript, error) {
 
 	oversized, err := eachLine(r, func(line []byte) {
 		ordinal++
-		var l struct {
-			Type      string       `json:"type"`
-			Timestamp string       `json:"timestamp"`
-			Payload   codexPayload `json:"payload"`
-		}
-		if json.Unmarshal(line, &l) != nil {
+		l, ok := decodeLine(line, scanCodexLine)
+		if !ok {
 			p.SkippedLines++
 			return
 		}
@@ -212,7 +234,7 @@ func codexItem(p *domain.Transcript, ts time.Time, pl *codexPayload) {
 		}
 		return
 	case "CommandExecution":
-		t.Name, t.ArgsChars, t.ResultChars = "shell", int(it.Command), len(it.Output)
+		t.Name, t.ArgsChars, t.ResultChars = "shell", int(it.Command), int(it.Output)
 		t.IsError = t.IsError || (it.ExitCode != nil && *it.ExitCode != 0)
 	case "McpToolCall":
 		t.Name, t.Server, t.ArgsChars, t.ResultChars = it.Tool, it.Server, int(it.Arguments), int(it.Result)

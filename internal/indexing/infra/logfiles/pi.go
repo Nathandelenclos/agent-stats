@@ -19,10 +19,13 @@ type piBlock struct {
 	Arguments size   `json:"arguments"`
 }
 
-// piContent is a message's content: a list of blocks, decoded in place, and its size in bytes.
+// piContent is a message's content: a list of blocks, and its size in bytes.
+// Decoded by encoding/json the blocks are there at once; the scanner leaves them in raw, to be decoded by
+// blocks() for the messages that need them (the bulk of a log is tool results, which only need the size).
 type piContent struct {
 	Blocks []piBlock
 	Size   int
+	raw    []byte // the content as written, until blocks() decodes it; points into the line being parsed
 }
 
 func (c *piContent) UnmarshalJSON(b []byte) error {
@@ -31,39 +34,51 @@ func (c *piContent) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// blocks returns the content's blocks, decoding them the first time.
+func (c *piContent) blocks() []piBlock {
+	if c.raw != nil {
+		c.Blocks, c.raw = decodePiBlocks(c.raw), nil
+	}
+	return c.Blocks
+}
+
+type piCost struct {
+	Total float64 `json:"total"`
+}
+
 type piUsageLog struct {
-	Input      int64 `json:"input"`
-	Output     int64 `json:"output"`
-	CacheRead  int64 `json:"cacheRead"`
-	CacheWrite int64 `json:"cacheWrite"`
-	Reasoning  int64 `json:"reasoningTokens"`
-	Cost       *struct {
-		Total float64 `json:"total"`
-	} `json:"cost"`
+	Input      int64   `json:"input"`
+	Output     int64   `json:"output"`
+	CacheRead  int64   `json:"cacheRead"`
+	CacheWrite int64   `json:"cacheWrite"`
+	Reasoning  int64   `json:"reasoningTokens"`
+	Cost       *piCost `json:"cost"`
+}
+
+type piMessage struct {
+	Role         string      `json:"role"`
+	Content      piContent   `json:"content"`
+	Provider     string      `json:"provider"`
+	Model        string      `json:"model"`
+	StopReason   string      `json:"stopReason"`
+	ErrorMessage string      `json:"errorMessage"`
+	Duration     float64     `json:"duration"`
+	TTFT         float64     `json:"ttft"`
+	ToolCallID   string      `json:"toolCallId"`
+	IsError      bool        `json:"isError"`
+	Usage        *piUsageLog `json:"usage"`
 }
 
 type piLine struct {
-	Type      string `json:"type"`
-	ID        string `json:"id"`
-	Timestamp string `json:"timestamp"`
-	Cwd       string `json:"cwd"`
-	Title     string `json:"title"`
-	Model     string `json:"model"`
-	Provider  string `json:"provider"`
-	ModelID   string `json:"modelId"`
-	Message   *struct {
-		Role         string      `json:"role"`
-		Content      piContent   `json:"content"`
-		Provider     string      `json:"provider"`
-		Model        string      `json:"model"`
-		StopReason   string      `json:"stopReason"`
-		ErrorMessage string      `json:"errorMessage"`
-		Duration     float64     `json:"duration"`
-		TTFT         float64     `json:"ttft"`
-		ToolCallID   string      `json:"toolCallId"`
-		IsError      bool        `json:"isError"`
-		Usage        *piUsageLog `json:"usage"`
-	} `json:"message"`
+	Type      string     `json:"type"`
+	ID        string     `json:"id"`
+	Timestamp string     `json:"timestamp"`
+	Cwd       string     `json:"cwd"`
+	Title     string     `json:"title"`
+	Model     string     `json:"model"`
+	Provider  string     `json:"provider"`
+	ModelID   string     `json:"modelId"`
+	Message   *piMessage `json:"message"`
 }
 
 // sessionDir matches pi/OMP session file and directory names: "<ISO time>_<uuid>".
@@ -102,8 +117,8 @@ func ParsePi(harness kernel.Harness) Parser {
 		var provider, model string
 		toolIndex := map[string]int{}
 		oversized, err := eachLine(r, func(line []byte) {
-			var l piLine
-			if json.Unmarshal(line, &l) != nil {
+			l, ok := decodeLine(line, scanPiLine)
+			if !ok {
 				p.SkippedLines++
 				return
 			}
@@ -132,11 +147,10 @@ func ParsePi(harness kernel.Harness) Parser {
 					return
 				}
 				p.Session.Span(ts)
-				blocks := m.Content.Blocks
 				switch m.Role {
 				case "user":
 					var parts []string
-					for _, b := range blocks {
+					for _, b := range m.Content.blocks() {
 						if b.Type == "text" {
 							parts = append(parts, b.Text)
 						}
@@ -158,7 +172,7 @@ func ParsePi(harness kernel.Harness) Parser {
 					} else {
 						p.SkippedLines++
 					}
-					for _, b := range blocks {
+					for _, b := range m.Content.blocks() {
 						if b.Type != "toolCall" {
 							continue
 						}
