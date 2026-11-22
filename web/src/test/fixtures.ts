@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { Meta, Report, Tool, Usage, UsageGroup } from "../features/report/types";
+import type { Meta, Report, Tool, Usage, UsageGroup } from "../features/report";
 
 export const usage = (over: Partial<Usage> = {}): Usage => ({
   requests: 10, failed: 1, input: 1000, output: 500, cacheRead: 3000, cacheWrite: 0, cost: 1.5, unpriced: 0,
