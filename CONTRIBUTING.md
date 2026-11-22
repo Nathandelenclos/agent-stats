@@ -54,7 +54,8 @@ with GoReleaser and publishes a GitHub release with generated notes.
 The workflows assume these settings, which live on GitHub and not in the repository:
 
 - Pull requests are **squash-merged only**, with the pull request title as the commit message.
-- `main` is protected: pull request required, and the `ci` and `pr-title` checks must pass.
+- `main` is protected: pull request required, and the `Go checks` and `Conventional Commit title` checks must pass
+  (GitHub names a required check after its job, not its workflow).
 - A tag ruleset on `v*` blocks updating and deleting tags, with an empty bypass list. A second, separate ruleset limits
   tag creation to maintainers and to the release workflow (GitHub Actions in its bypass list, otherwise the workflow
   cannot push its own tag). A release tag is never moved or re-created.
