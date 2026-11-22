@@ -186,46 +186,87 @@ func TestMissingHarnessesAreNotErrors(t *testing.T) {
 	}
 }
 
-func TestHostileFilesAreSkippedNotFollowedNorEchoed(t *testing.T) {
-	// Given a Claude home with: skills named with escape sequences and newlines, a SKILL.md that is a FIFO, a skills
-	// entry that is a FIFO, a settings file over the size bound, malformed JSON holding a secret, and a symlink loop
+func TestItemNamesAThemTerminalCouldMisreadAreNotListed(t *testing.T) {
+	// Given skills whose directory names hold an escape sequence and a newline
 	r := fixtureRoots(t)
 	skills := filepath.Join(r.ClaudeDir, "skills")
 	mustMkdir(t, filepath.Join(skills, "bad\x1b[31mname"))
-	mustWrite(t, filepath.Join(skills, "bad\x1b[31mname", "SKILL.md"), "---\nname: ok\n---\n")
+	mustWrite(t, filepath.Join(skills, "bad\x1b[31mname", "SKILL.md"), "plain\n")
 	mustMkdir(t, filepath.Join(skills, "new\nline"))
 	mustWrite(t, filepath.Join(skills, "new\nline", "SKILL.md"), "plain\n")
-	mustMkdir(t, filepath.Join(skills, "fifo-skill"))
-	mustFifo(t, filepath.Join(skills, "fifo-skill", "SKILL.md"))
-	mustFifo(t, filepath.Join(skills, "fifo-entry"))
-	if err := os.Symlink(filepath.Join(skills, "loop"), filepath.Join(skills, "loop")); err != nil {
-		t.Fatal(err)
-	}
-	huge := filepath.Join(r.ClaudeDir, "settings.json")
-	mustWrite(t, huge, `{"enabledPlugins":{"x":true},"pad":"`+strings.Repeat("a", maxConfigBytes)+`"}`)
-	mustWrite(t, r.ClaudeJSON, `{"mcpServers": {"a": {"env": {"K": "SECRET-IN-MALFORMED"}} oops`)
 
-	// When the inventory is read (it must not hang on the FIFOs)
+	// When the inventory is read
 	in := installed(t, r, kernel.Claude)
 
-	// Then the hostile names are dropped (an unprintable one is noted), the FIFO is refused, the oversized and
-	// malformed files are noted without their content, and the rest is still listed
+	// Then neither is listed, a note says names were unusable, and the notes hold no control character
 	for _, it := range in.Items {
 		if strings.ContainsAny(it.Name.String(), "\x1b\n") {
 			t.Errorf("unprintable name listed: %q", it.Name)
 		}
 	}
 	notes := strings.Join(in.Skipped, "\n")
-	for _, want := range []string{"fifo-skill/SKILL.md: not a regular file", "settings.json: too large", ".claude.json: malformed"} {
-		if !strings.Contains(notes, want) {
-			t.Errorf("missing note %q in:\n%s", want, notes)
-		}
+	if !strings.Contains(notes, "an item name is not usable") || strings.Contains(notes, "\x1b") {
+		t.Errorf("notes: %q", notes)
 	}
-	if strings.Contains(notes, "SECRET") || strings.Contains(notes, "\x1b") {
-		t.Errorf("a note echoes configuration or control characters: %q", notes)
+}
+
+func TestAFifoInPlaceOfAFileIsRefusedWithoutHanging(t *testing.T) {
+	// Given a SKILL.md and a skills entry that are FIFOs, which would block a reader forever
+	r := fixtureRoots(t)
+	skills := filepath.Join(r.ClaudeDir, "skills")
+	mustMkdir(t, filepath.Join(skills, "fifo-skill"))
+	mustFifo(t, filepath.Join(skills, "fifo-skill", "SKILL.md"))
+	mustFifo(t, filepath.Join(skills, "fifo-entry"))
+
+	// When the inventory is read
+	in := installed(t, r, kernel.Claude)
+
+	// Then it returns, the FIFO skill file is refused, and the other skills are still listed
+	if notes := strings.Join(in.Skipped, "\n"); !strings.Contains(notes, "fifo-skill/SKILL.md: not a regular file") {
+		t.Errorf("notes: %s", notes)
 	}
 	if !slices.Contains(describe(in), "skill:review-notes@user") {
-		t.Error("the good skill vanished with the bad ones")
+		t.Error("the good skill vanished with the FIFO")
+	}
+}
+
+func TestAConfigurationOverTheSizeBoundIsLeftOut(t *testing.T) {
+	// Given a settings file larger than any configuration should be
+	r := fixtureRoots(t)
+	mustWrite(t, filepath.Join(r.ClaudeDir, "settings.json"), `{"enabledPlugins":{"x":true},"pad":"`+strings.Repeat("a", maxConfigBytes)+`"}`)
+
+	// When the inventory is read, then it is noted as too large
+	if notes := strings.Join(installed(t, r, kernel.Claude).Skipped, "\n"); !strings.Contains(notes, "settings.json: too large") {
+		t.Errorf("notes: %s", notes)
+	}
+}
+
+func TestMalformedConfigurationIsNotedWithoutItsContent(t *testing.T) {
+	// Given a global file that is not valid JSON and holds a credential
+	r := fixtureRoots(t)
+	mustWrite(t, r.ClaudeJSON, `{"mcpServers": {"a": {"env": {"K": "SECRET-IN-MALFORMED"}} oops`)
+
+	// When the inventory is read
+	in := installed(t, r, kernel.Claude)
+
+	// Then it is noted as malformed, and the note does not echo the file
+	notes := strings.Join(in.Skipped, "\n")
+	if !strings.Contains(notes, ".claude.json: malformed") || strings.Contains(notes, "SECRET") {
+		t.Errorf("notes: %s", notes)
+	}
+}
+
+func TestASymbolicLinkLoopDoesNotStopTheInventory(t *testing.T) {
+	// Given a skills entry that is a symbolic link to itself
+	r := fixtureRoots(t)
+	loop := filepath.Join(r.ClaudeDir, "skills", "loop")
+	if err := os.Symlink(loop, loop); err != nil {
+		t.Fatal(err)
+	}
+
+	// When the inventory is read, then the real skills are still listed
+	if !slices.Contains(describe(installed(t, r, kernel.Claude)), "skill:review-notes@user") {
+		t.Error("the good skill vanished with the loop")
 	}
 }
 

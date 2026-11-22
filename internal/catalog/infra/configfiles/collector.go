@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/Nathandelenclos/agent-stats/internal/catalog/domain"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
@@ -22,8 +23,14 @@ type collector struct {
 	skipped []string
 }
 
-// show writes a path for display, the home directory as "~".
+// show writes a path for display, the home directory as "~" and characters a terminal could misread as "?".
 func (c *collector) show(path string) string {
+	path = strings.Map(func(r rune) rune {
+		if unicode.IsPrint(r) {
+			return r
+		}
+		return '?'
+	}, path)
 	if c.home != "" {
 		if rel, err := filepath.Rel(c.home, path); err == nil && within(path, c.home) {
 			return filepath.Join("~", rel)
