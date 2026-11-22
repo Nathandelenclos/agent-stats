@@ -256,12 +256,15 @@ func TestGeminiConversationsWithHostileContentAreBoundedAndCounted(t *testing.T)
 
 func TestGeminiRefusesAConversationItCannotName(t *testing.T) {
 	for name, doc := range map[string]string{
-		"no id":           `{"projectHash":"h","messages":[]}`,
-		"hostile id":      `{"sessionId":"../../etc/passwd","projectHash":"h","messages":[]}`,
-		"control id":      `{"sessionId":"a\u001bb","projectHash":"h","messages":[]}`,
-		"not an object":   `[1,2]`,
-		"truncated":       `{"sessionId":"s","messages":[{"id":"a"`,
-		"messages a list": `{"sessionId":"s","messages":7}`,
+		"no id":                        `{"projectHash":"h","messages":[]}`,
+		"hostile id":                   `{"sessionId":"../../etc/passwd","projectHash":"h","messages":[]}`,
+		"control id":                   `{"sessionId":"a\u001bb","projectHash":"h","messages":[]}`,
+		"not an object":                `[1,2]`,
+		"truncated":                    `{"sessionId":"s","messages":[{"id":"a"`,
+		"cut after the messages":       `{"sessionId":"s","projectHash":"h","messages":[]`,
+		"cut after a value":            `{"sessionId":"s","projectHash":"h","messages":[],"kind":"main"`,
+		"something after the document": `{"sessionId":"s","projectHash":"h","messages":[]} {}`,
+		"messages a list":              `{"sessionId":"s","messages":7}`,
 	} {
 		_, err := ParseGemini("/h/.gemini/tmp/demo/chats/session-x.json", strings.NewReader(doc))
 		var syntax *json.SyntaxError

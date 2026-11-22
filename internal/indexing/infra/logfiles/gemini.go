@@ -269,7 +269,7 @@ func (c *geminiConversation) replay(line []byte) {
 }
 
 // readDocument reads a JSON document {"sessionId":…,"messages":[…]}. A message that is not usable is skipped
-// and counted; a document that is not JSON is an error.
+// and counted; a document that is not JSON, that is cut short or that has something after it is an error.
 func (c *geminiConversation) readDocument(r io.Reader) error {
 	dec := json.NewDecoder(r)
 	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
@@ -307,6 +307,13 @@ func (c *geminiConversation) readDocument(r io.Reader) error {
 			return err
 		}
 		header[key.(string)] = raw
+	}
+	// A document is complete when its object is closed and nothing follows: a file cut short ends before the brace.
+	if t, err := dec.Token(); err != nil || t != json.Delim('}') {
+		return errors.New("truncated document")
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return errors.New("content after the document")
 	}
 	// A header value of the wrong type is ignored, like a message that cannot be used is skipped.
 	var m geminiMetadata

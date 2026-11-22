@@ -188,3 +188,38 @@ func TestAPromptTypedWhileKiloCodeRunsIsInTheReportOfItsSession(t *testing.T) {
 		t.Errorf("prompts of the session = %+v, %v", detail.Prompts, err)
 	}
 }
+
+func TestAConversationCutShortDoesNotReplaceTheSessionIndexedWhole(t *testing.T) {
+	// Given a home that was indexed once, with a Gemini CLI conversation of two answers
+	home := moreHome(t)
+	dbPath := filepath.Join(t.TempDir(), "index.db")
+	moreIndex(t, home, dbPath)
+	chat := filepath.Join(home, ".gemini/tmp/demo-app/chats/session-2026-02-01T10-00-11111111.json")
+	raw, err := os.ReadFile(chat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := func() (n int) {
+		db, err := sql.Open("sqlite", dbPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		if err := db.QueryRow(`SELECT COUNT(*) FROM requests WHERE session_id = 'gemini:11111111-aaaa-bbbb-cccc-000000000001'`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	whole := requests()
+
+	// When the file is cut short, with only its last closing brace missing, and the logs are indexed again
+	if err := os.WriteFile(chat, bytes.TrimRight(raw, "}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rep, _ := moreIndex(t, home, dbPath)
+
+	// Then the conversation is reported as unreadable and the session keeps what was indexed of it
+	if rep.Indexed != 0 || len(rep.Errors) != 1 || whole != 2 || requests() != whole {
+		t.Errorf("report %+v, requests %d then %d", rep, whole, requests())
+	}
+}
