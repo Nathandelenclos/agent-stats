@@ -1,0 +1,6 @@
+{"ts":1773200230000,"dur":0,"sid":"chat-1","type":"session_start","name":"session_start","spanId":"start","status":"ok"}
+{"ts":1773200230410,"dur":183,"sid":"chat-1","type":"llm_request","name":"chat:test-model","spanId":"llm-1","status":"ok","attrs":{"model":"test-model","inputTokens":42,"outputTokens":8,"ttft":40}}
+{"ts":1773200230410,"dur":183,"sid":"chat-1","type":"llm_request","name":"chat:test-model","spanId":"llm-1","status":"ok","attrs":{"model":"test-model","inputTokens":42,"outputTokens":8,"ttft":40}}
+{"ts":1773200230600,"dur":22,"sid":"chat-1","type":"llm_request","name":"chat:test-model","spanId":"llm-2","status":"error","attrs":{"model":"test-model"}}
+{"ts":1773200230500,"dur":6,"sid":"chat-1","type":"tool_call","name":"read_file","spanId":"tool-1","status":"ok","attrs":{"args":"{\"path\":\"demo\"}","result":"contents"}}
+{"ts":1773200230500,"dur":1,"sid":"different","type":"llm_request","name":"chat:unrelated","spanId":"unrelated","status":"ok"}

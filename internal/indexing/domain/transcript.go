@@ -145,10 +145,12 @@ type Request struct {
 	Tokens   kernel.Tokens
 	// LoggedCost is the cost the harness wrote itself; zero when it wrote none or wrote 0.
 	LoggedCost kernel.Cost
-	Duration   Duration
-	TTFT       Duration
-	StopReason string // as the harness names it
-	Failure    string // why the request failed; empty when it did not
+	// NoEstimatedCost marks a request whose token usage is too incomplete to price.
+	NoEstimatedCost bool
+	Duration        Duration
+	TTFT            Duration
+	StopReason      string // as the harness names it
+	Failure         string // why the request failed; empty when it did not
 }
 
 // Failed reports whether the request ended in an error.
@@ -160,6 +162,9 @@ func (r Request) Failed() bool { return r.Failure != "" }
 func (r Request) Cost(listed kernel.Cost, known bool) (cost kernel.Cost, priced bool) {
 	if !r.LoggedCost.IsZero() {
 		return r.LoggedCost, true
+	}
+	if r.NoEstimatedCost {
+		return kernel.Cost{}, false
 	}
 	return listed, known
 }

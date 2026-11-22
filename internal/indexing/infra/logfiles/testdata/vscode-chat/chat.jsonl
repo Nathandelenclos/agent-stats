@@ -1,0 +1,7 @@
+{"kind":0,"v":{"version":3,"sessionId":"chat-1","creationDate":1773200230000,"requests":[{"requestId":"replacement","timestamp":1773200230100,"message":{"text":"Discarded prompt"},"agent":{"extensionId":{"value":"GitHub.copilot-chat"}}}]}}
+{"kind":2,"k":["requests"],"i":0,"v":[{"requestId":"turn-1","timestamp":1773200230200,"message":{"text":"Draft prompt"},"agent":{"extensionId":{"value":"GitHub.copilot-chat"}},"response":[],"promptTokens":777,"completionTokens":222,"elapsedMs":999},{"requestId":"turn-2","timestamp":1773200230300,"message":{"text":"Another participant"},"agent":{"id":"diagram","extensionId":{"value":"demo.diagram"}}},{"requestId":"turn-3","timestamp":1773200230400,"message":{"text":"CLI hosted in editor"},"agent":{"id":"github.copilot.cli","extensionId":{"value":"GitHub.copilot-chat"}},"agentHostMetadata":{"sessionId":"another-harness"}}]}
+{"kind":1,"k":["requests",0,"message","text"],"v":"Check the fixture"}
+{"kind":2,"k":["requests",0,"response"],"v":[{"value":"A response"},{"kind":"toolInvocationSerialized","toolId":"read_file","toolCallId":"ui-tool","isComplete":true}]}
+{"kind":1,"k":["customTitle"],"v":"Temporary title"}
+{"kind":3,"k":["customTitle"]}
+{"kind":1,"k":["requests",99999999],"v":{}}

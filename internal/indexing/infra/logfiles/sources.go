@@ -38,7 +38,7 @@ func DefaultSources(home string) []Source {
 	}
 	data := envOr("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 	openCodeData, kiloData := filepath.Join(data, "opencode"), filepath.Join(data, "kilo")
-	return []Source{
+	sources := []Source{
 		{Harness: kernel.Claude, Root: filepath.Join(claude, "projects"), Match: jsonl, Parse: ParseClaude},
 		{Harness: kernel.Codex, Root: filepath.Join(codex, "sessions"), Match: rollout, Parse: ParseCodex},
 		{Harness: kernel.Codex, Root: filepath.Join(codex, "archived_sessions"), Match: rollout, Parse: ParseCodex},
@@ -48,6 +48,7 @@ func DefaultSources(home string) []Source {
 		{Harness: kernel.Kilo, Root: kiloData, Database: &OpenCodeDatabase{Prefix: "kilo", Fallback: "opencode", Override: os.Getenv("KILO_DB")}},
 		GeminiSource(filepath.Join(envOr("GEMINI_CLI_HOME", home), ".gemini", "tmp")),
 	}
+	return append(sources, vscodeChatSources(codeUserDir(home))...)
 }
 
 // GeminiSource reads the conversations of Gemini CLI under root, the "tmp" directory of its home.
