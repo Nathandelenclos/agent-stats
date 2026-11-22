@@ -121,7 +121,7 @@ func TestLoggedDurationBounds(t *testing.T) {
 		math.Inf(1): 0,
 		float64(8 * 24 * time.Hour / time.Millisecond): 0,
 	} {
-		if got := LoggedDuration(ms); got != want {
+		if got := LoggedDuration(ms).Value(); got != want {
 			t.Errorf("LoggedDuration(%v) = %v, want %v", ms, got, want)
 		}
 	}
@@ -140,8 +140,19 @@ func TestElapsedBounds(t *testing.T) {
 		"over a week":   {t0, t0.Add(8 * 24 * time.Hour), 0},
 		"year 9999":     {t0, time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC), 0},
 	} {
-		if got := Elapsed(c.start, c.end); got != c.want {
+		if got := Elapsed(c.start, c.end).Value(); got != c.want {
 			t.Errorf("%s: Elapsed = %v, want %v", name, got, c.want)
+		}
+	}
+}
+
+func TestNewDurationKeepsOnlyBoundedValues(t *testing.T) {
+	if d := NewDuration(time.Second); !d.Known() || d.Value() != time.Second {
+		t.Errorf("1s = %v %v", d.Value(), d.Known())
+	}
+	for _, bad := range []time.Duration{0, -time.Second, MaxLoggedDuration + 1} {
+		if d := NewDuration(bad); d.Known() || d != (Duration{}) {
+			t.Errorf("NewDuration(%v) kept", bad)
 		}
 	}
 }

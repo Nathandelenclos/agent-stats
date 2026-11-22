@@ -93,31 +93,45 @@ func (s *Session) Span(t time.Time) {
 	}
 }
 
-// MaxLoggedDuration bounds a duration a log states in milliseconds (longest seen on real logs: about 83 hours,
+// MaxLoggedDuration bounds a duration read from a log (longest seen on real logs: about 83 hours,
 // a tool call left waiting over a weekend).
 const MaxLoggedDuration = 7 * 24 * time.Hour
 
-// LoggedDuration converts a duration a log states in milliseconds; 0 (unknown) when it is negative,
-// not finite or over MaxLoggedDuration.
-func LoggedDuration(ms float64) time.Duration {
-	if !(ms > 0) || ms > float64(MaxLoggedDuration/time.Millisecond) {
-		return 0
+// Duration is how long a request or tool call took, as its log states it. The zero value means unknown.
+type Duration struct {
+	d time.Duration
+}
+
+// NewDuration keeps d when it is positive and at most MaxLoggedDuration; otherwise the duration is unknown.
+func NewDuration(d time.Duration) Duration {
+	if d <= 0 || d > MaxLoggedDuration {
+		return Duration{}
 	}
-	return time.Duration(math.Round(ms * float64(time.Millisecond)))
+	return Duration{d}
+}
+
+// LoggedDuration reads a duration a log states in (possibly fractional) milliseconds.
+func LoggedDuration(ms float64) Duration {
+	if !(math.Abs(ms) < 1e12) { // NaN, infinite, or too large to convert to nanoseconds
+		return Duration{}
+	}
+	return NewDuration(time.Duration(math.Round(ms * float64(time.Millisecond))))
 }
 
 // Elapsed is the time from start to end at millisecond precision, as two log timestamps state it;
-// 0 (unknown) when either is missing, or the gap is negative or over MaxLoggedDuration.
-func Elapsed(start, end time.Time) time.Duration {
+// unknown when either is missing.
+func Elapsed(start, end time.Time) Duration {
 	if start.IsZero() || end.IsZero() {
-		return 0
+		return Duration{}
 	}
-	ms := end.UnixMilli() - start.UnixMilli()
-	if ms <= 0 || ms > int64(MaxLoggedDuration/time.Millisecond) {
-		return 0
-	}
-	return time.Duration(ms) * time.Millisecond
+	return NewDuration(end.Truncate(time.Millisecond).Sub(start.Truncate(time.Millisecond)))
 }
+
+// Known reports whether the log stated a usable duration.
+func (d Duration) Known() bool { return d.d > 0 }
+
+// Value is the duration, 0 when unknown.
+func (d Duration) Value() time.Duration { return d.d }
 
 // UnspecifiedFailure is the failure of a request whose log says it failed without saying why.
 const UnspecifiedFailure = "error"
@@ -131,8 +145,8 @@ type Request struct {
 	Tokens   kernel.Tokens
 	// LoggedCost is the cost the harness wrote itself; zero when it wrote none or wrote 0.
 	LoggedCost kernel.Cost
-	Duration   time.Duration // 0 when unknown
-	TTFT       time.Duration
+	Duration   Duration
+	TTFT       Duration
 	StopReason string // as the harness names it
 	Failure    string // why the request failed; empty when it did not
 }
@@ -159,7 +173,7 @@ type ToolCall struct {
 	ArgsChars   int
 	ResultChars int
 	IsError     bool
-	Duration    time.Duration
+	Duration    Duration
 }
 
 // Prompt is one message typed by a human (or sent by a parent agent to a subagent).

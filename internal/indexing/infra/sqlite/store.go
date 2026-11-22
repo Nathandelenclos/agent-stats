@@ -11,6 +11,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/application"
+	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 )
 
@@ -204,9 +205,9 @@ func nullStr(s string) any {
 }
 
 // nullMillis stores a duration in milliseconds, NULL when unknown.
-func nullMillis(d time.Duration) any {
-	if d <= 0 {
+func nullMillis(d domain.Duration) any {
+	if !d.Known() {
 		return nil
 	}
-	return float64(d) / float64(time.Millisecond)
+	return float64(d.Value()) / float64(time.Millisecond)
 }

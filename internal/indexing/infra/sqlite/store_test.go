@@ -36,7 +36,7 @@ func transcript(t *testing.T, native string, at time.Time) application.IndexedTr
 		Transcript: domain.Transcript{
 			Session: domain.Session{ID: sessionID, Harness: kernel.Claude, AgentType: domain.MainAgent, Folder: hostile, Start: at, End: at},
 			Requests: []domain.Request{{Key: "m1", At: at, Model: hostile, Provider: "anthropic",
-				Tokens: tokens, Duration: 1500 * time.Millisecond}},
+				Tokens: tokens, Duration: domain.NewDuration(1500 * time.Millisecond)}},
 			Tools:   []domain.ToolCall{{Key: "t1", At: at, Name: hostile, Server: "grace", IsError: true}},
 			Prompts: []domain.Prompt{{Key: "p1", At: at, Text: hostile}},
 		},

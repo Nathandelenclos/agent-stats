@@ -25,9 +25,9 @@ type codexDuration struct {
 	Nanos float64 `json:"nanos"`
 }
 
-func (d *codexDuration) duration() time.Duration {
+func (d *codexDuration) duration() domain.Duration {
 	if d == nil {
-		return 0
+		return domain.Duration{}
 	}
 	return millis(d.Secs*1000 + d.Nanos/1e6)
 }

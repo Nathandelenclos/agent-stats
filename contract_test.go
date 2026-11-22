@@ -31,7 +31,7 @@ func TestIndexReadModelContract(t *testing.T) {
 	err = w.Save(indexing.LogFile{Path: "/logs/s1.jsonl", Harness: kernel.Claude}, indexing.IndexedTranscript{
 		Transcript: domain.Transcript{
 			Session:  domain.Session{ID: id, Harness: kernel.Claude, AgentType: domain.MainAgent, Folder: hostile, Start: at, End: at},
-			Requests: []domain.Request{{Key: "m1", At: at, Model: hostile, Tokens: tokens, Duration: 1500 * time.Millisecond, Failure: "boom"}},
+			Requests: []domain.Request{{Key: "m1", At: at, Model: hostile, Tokens: tokens, Duration: domain.NewDuration(1500 * time.Millisecond), Failure: "boom"}},
 			Tools:    []domain.ToolCall{{Key: "t1", At: at, Name: hostile, Server: "grace", IsError: true}},
 		},
 		Costs: []indexing.PricedCost{{Cost: cost, Priced: true}},

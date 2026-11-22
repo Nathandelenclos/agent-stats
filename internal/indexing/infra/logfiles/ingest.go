@@ -119,9 +119,9 @@ func parseTS(s string) time.Time {
 }
 
 // between is the time from start to end, see domain.Elapsed.
-func between(start, end time.Time) time.Duration { return domain.Elapsed(start, end) }
+func between(start, end time.Time) domain.Duration { return domain.Elapsed(start, end) }
 
 // millis converts a duration logged in (possibly fractional) milliseconds.
-func millis(ms float64) time.Duration {
+func millis(ms float64) domain.Duration {
 	return domain.LoggedDuration(ms)
 }

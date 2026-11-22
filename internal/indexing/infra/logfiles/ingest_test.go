@@ -50,7 +50,7 @@ func TestClaude(t *testing.T) {
 	if c := r.Tokens.Counts(); c.Input != 5 || c.Output != 7 || c.CacheRead != 100 || c.CacheWrite != 20 || r.StopReason != "tool_use" {
 		t.Errorf("request = %+v", r)
 	}
-	if r.TTFT != time.Second || r.Duration != 3*time.Second {
+	if r.TTFT.Value() != time.Second || r.Duration.Value() != 3*time.Second {
 		t.Errorf("ttft %v duration %v, want 1s and 3s", r.TTFT, r.Duration)
 	}
 	if e := p.Requests[1]; e.Failure != "overloaded" || e.Model != "claude-x" {
@@ -59,7 +59,7 @@ func TestClaude(t *testing.T) {
 	if len(p.Tools) != 1 {
 		t.Fatalf("tools = %+v", p.Tools)
 	}
-	if tc := p.Tools[0]; tc.Name != "review" || tc.Server != "grace" || !tc.IsError || tc.ResultChars != len(`"boom"`) || tc.Duration != 2*time.Second {
+	if tc := p.Tools[0]; tc.Name != "review" || tc.Server != "grace" || !tc.IsError || tc.ResultChars != len(`"boom"`) || tc.Duration.Value() != 2*time.Second {
 		t.Errorf("tool = %+v", tc)
 	}
 }
@@ -111,13 +111,13 @@ func TestCodex(t *testing.T) {
 	if len(p.Tools) != 3 || names["exec_command"].Name != "" {
 		t.Errorf("want wait, shell and get_issue, got %+v", p.Tools)
 	}
-	if sh := names["shell"]; !sh.IsError || sh.Duration != 1500*time.Millisecond || sh.ResultChars != 4 {
+	if sh := names["shell"]; !sh.IsError || sh.Duration.Value() != 1500*time.Millisecond || sh.ResultChars != 4 {
 		t.Errorf("shell = %+v", sh)
 	}
 	if m := names["get_issue"]; m.Server != "github" || m.IsError {
 		t.Errorf("mcp = %+v", m)
 	}
-	if w := names["wait"]; w.ResultChars != len(`"done"`) || w.Duration != time.Second {
+	if w := names["wait"]; w.ResultChars != len(`"done"`) || w.Duration.Value() != time.Second {
 		t.Errorf("wait = %+v", w)
 	}
 }
@@ -153,7 +153,7 @@ func TestPi(t *testing.T) {
 	if len(p.Requests) != 2 {
 		t.Fatalf("requests = %+v", p.Requests)
 	}
-	if r := p.Requests[0]; r.Model != "claude-x" || r.Provider != "anthropic" || r.LoggedCost.USD() != 0.5 || r.Duration != 1200*time.Millisecond || r.TTFT != 300*time.Millisecond || r.Tokens.Counts().CacheWrite != 6 {
+	if r := p.Requests[0]; r.Model != "claude-x" || r.Provider != "anthropic" || r.LoggedCost.USD() != 0.5 || r.Duration.Value() != 1200*time.Millisecond || r.TTFT.Value() != 300*time.Millisecond || r.Tokens.Counts().CacheWrite != 6 {
 		t.Errorf("request = %+v", r)
 	}
 	if p.Requests[1].Failure != "429" {
