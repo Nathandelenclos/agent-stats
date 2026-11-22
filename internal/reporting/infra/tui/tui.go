@@ -39,6 +39,11 @@ type Options struct {
 	// Project means there is none to switch to: the views cover every project and the key does nothing.
 	Project    kernel.Project
 	Restricted bool
+	// Detect, when set, finds the project of the working folder again each time an indexing ends: a folder that no session
+	// had worked in may have been given sessions by it. A project found where there was none becomes the scope the views
+	// restrict to; a failure leaves the scope as it is. It runs off the interface's loop, and is left nil when the user
+	// named the scope (--all, --project), which detection must not change.
+	Detect func() (kernel.Project, error)
 }
 
 // Run shows the interface until the user quits, then waits for a sync still running to stop.

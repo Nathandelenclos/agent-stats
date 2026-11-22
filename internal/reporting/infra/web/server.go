@@ -40,6 +40,11 @@ type Options struct {
 	// the server's to decide, never a request's.
 	Project    kernel.Project
 	Restricted bool
+	// Detect, when set, finds the project of the folder the server runs in again each time the indexing ends, before the
+	// page is told it did: a folder that no session had worked in may have been given sessions by it. A project found where
+	// there was none becomes the one the page opens on, and a failure is logged and leaves the scope as it is. It is left
+	// nil when the scope was named (--all, --project), which detection must not change.
+	Detect func() (kernel.Project, error)
 	// AllowRemote lifts the Host header allowlist: the server is meant to be reached under other names than loopback.
 	AllowRemote bool
 	// ShutdownGrace is the time the requests in flight get to end when the server stops; 5 s when zero.
@@ -61,14 +66,16 @@ type Server struct {
 	parseSince func(string, time.Time) (time.Time, error)
 	mux        *http.ServeMux
 
-	mu       sync.Mutex
-	stopped  bool           // no request starts any more
-	inflight sync.WaitGroup // the requests being answered
+	mu         sync.Mutex
+	stopped    bool           // no request starts any more
+	inflight   sync.WaitGroup // the requests being answered
+	project    kernel.Project // the project of Options, as detection last found it
+	restricted bool
 }
 
 // New builds the handler for a server listening on addr. It does not start the indexing: Serve does.
 func New(o Options, addr net.Addr) *Server {
-	s := &Server{opts: o, now: o.Now, parseSince: o.ParseSince, log: func(string, ...any) {}}
+	s := &Server{opts: o, now: o.Now, parseSince: o.ParseSince, log: func(string, ...any) {}, project: o.Project, restricted: o.Restricted}
 	if s.now == nil {
 		s.now = time.Now
 	}
@@ -87,6 +94,36 @@ func New(o Options, addr net.Addr) *Server {
 	})
 	s.mux.HandleFunc("/", s.static)
 	return s
+}
+
+// coverage is the project the server runs in and whether the page opens on it, as detection last found them.
+func (s *Server) coverage() (kernel.Project, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.project, s.restricted
+}
+
+// indexing is the indexing the server runs: Options.Sync, followed by a new detection of the project when the scope was
+// not named. The detection runs inside it, so that the page sees the indexing end only once the scope is decided.
+func (s *Server) indexing() Sync {
+	if s.opts.Sync == nil || s.opts.Detect == nil {
+		return s.opts.Sync
+	}
+	return func(ctx context.Context, progress func(int)) (string, error) {
+		note, err := s.opts.Sync(ctx, progress)
+		if ctx.Err() != nil { // the server is stopping
+			return note, err
+		}
+		found, derr := s.opts.Detect()
+		if derr != nil {
+			s.log("detecting the project: %v", derr)
+			return note, err
+		}
+		s.mu.Lock()
+		s.project, s.restricted = kernel.Redetect(s.project, s.restricted, found)
+		s.mu.Unlock()
+		return note, err
+	}
 }
 
 // contentSecurityPolicy lets the page load its own scripts, styles and data and nothing else: no inline script,
@@ -222,7 +259,7 @@ func Serve(ctx context.Context, ln net.Listener, o Options) error {
 	go func() {
 		defer close(indexed)
 		if o.Sync != nil {
-			s.sync.run(ctx, o.Sync)
+			s.sync.run(ctx, s.indexing())
 		}
 	}()
 	defer func() { cancel(); <-indexed }()

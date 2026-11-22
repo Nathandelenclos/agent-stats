@@ -37,6 +37,7 @@ func ValidateSince(v string, now time.Time, parse func(string, time.Time) (time.
 // params are the validated query parameters of a request.
 type params struct {
 	query reporting.Query
+	scope string // the scope the project of the query stands for: scopeCurrent or scopeAll
 	limit int
 }
 
@@ -57,7 +58,7 @@ const (
 // defaultScope is the scope the page opens on: the project of the folder the server runs in, unless it was started
 // for every project or no project was detected.
 func (s *Server) defaultScope() string {
-	if s.opts.Restricted && !s.opts.Project.IsZero() {
+	if project, restricted := s.coverage(); restricted && !project.IsZero() {
 		return scopeCurrent
 	}
 	return scopeAll
@@ -65,11 +66,12 @@ func (s *Server) defaultScope() string {
 
 // scopeProject is the project a scope restricts a query to: the zero Project for every project.
 func (s *Server) scopeProject(scope string) (kernel.Project, *problem) {
+	project, _ := s.coverage()
 	switch {
 	case scope == scopeAll:
 		return kernel.Project{}, nil
-	case scope == scopeCurrent && !s.opts.Project.IsZero():
-		return s.opts.Project, nil
+	case scope == scopeCurrent && !project.IsZero():
+		return project, nil
 	case scope == scopeCurrent:
 		pr := invalidParameter(paramProject, "no project was detected: use all")
 		return kernel.Project{}, &pr
@@ -126,7 +128,7 @@ func (s *Server) parseParams(r *http.Request, accepts ...string) (params, *probl
 	if bad != nil {
 		return p, bad
 	}
-	p.query.Project = project
+	p.query.Project, p.scope = project, scope
 	if v := values.Get(paramLimit); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 || n > maxLimit {

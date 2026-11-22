@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -236,5 +237,72 @@ func TestTheCurrentProjectIsRefusedWhenNoneWasDetected(t *testing.T) {
 	p := wantProblem(t, rec, http.StatusBadRequest, problemInvalidParameter)
 	if p.Parameter != "project" || len(r.idx.filters) != 0 {
 		t.Errorf("parameter %q, index asked %d times", p.Parameter, len(r.idx.filters))
+	}
+}
+
+func TestTheProjectFoundWhenIndexingEndsIsTheOneTheMetaNamesAndThePageOpensOn(t *testing.T) {
+	// Given a server started where no project was found, because the index was empty, and detection that finds the app
+	// once the indexing has read its logs
+	var found kernel.Project
+	var stateWhenDetecting string
+	var r *rig
+	r = newRig(t, func(o *Options) {
+		o.Sync = func(context.Context, func(int)) (string, error) { found = appProject(t); return "", nil }
+		o.Detect = func() (kernel.Project, error) {
+			stateWhenDetecting = r.handler.sync.snapshot().State
+			return found, nil
+		}
+	})
+	if before := decode[metaJSON](t, r.get("/api/meta")); before.Project != "" || before.Defaults.Scope != "all" {
+		t.Fatalf("meta before = %+v", before)
+	}
+
+	// When the indexing ends
+	r.handler.sync.run(context.Background(), r.handler.indexing())
+
+	// Then the meta names the project and the page opens on it, and the project can be asked for
+	got := decode[metaJSON](t, r.get("/api/meta"))
+	if got.Project != "app" || got.Defaults.Scope != "current" {
+		t.Errorf("meta after = %+v", got)
+	}
+	if rec := r.get("/api/report?project=current"); rec.Code != http.StatusOK {
+		t.Errorf("current: status %d, %s", rec.Code, rec.Body)
+	}
+	// and the page, which watches the indexing, is told it ended only once the scope was decided
+	if stateWhenDetecting != syncRunning || r.handler.sync.snapshot().State != syncDone {
+		t.Errorf("detection ran while the indexing was %q, which is now %q", stateWhenDetecting, r.handler.sync.snapshot().State)
+	}
+}
+
+func TestADetectionThatFailsLeavesTheScopeOfTheServerAsItWas(t *testing.T) {
+	// Given a server started in the app project whose detection cannot read the index
+	r, _ := scopedRig(t, false)
+	r.handler.opts.Sync = func(context.Context, func(int)) (string, error) { return "", nil }
+	r.handler.opts.Detect = func() (kernel.Project, error) { return kernel.Project{}, errors.New("boom") }
+
+	// When the indexing ends
+	r.handler.sync.run(context.Background(), r.handler.indexing())
+
+	// Then the page still opens on the app, and the failure is logged, not shown
+	if got := decode[metaJSON](t, r.get("/api/meta")); got.Project != "app" || got.Defaults.Scope != "current" {
+		t.Errorf("meta = %+v", got)
+	}
+	if len(r.logLines) != 1 || !strings.Contains(r.logLines[0], "boom") {
+		t.Errorf("log = %q", r.logLines)
+	}
+}
+
+func TestTheReportSaysWhichScopeItCovers(t *testing.T) {
+	// Given a server started in a project
+	r, _ := scopedRig(t, false)
+
+	for query, want := range map[string]string{"": "current", "?project=current": "current", "?project=all": "all"} {
+		// When the report is asked with that scope, or none
+		got := decode[reportJSON](t, r.get("/api/report"+query))
+
+		// Then it says which scope its figures are of, so that a page showing it can name it
+		if got.Scope != want {
+			t.Errorf("report%s: scope = %q, want %q", query, got.Scope, want)
+		}
 	}
 }

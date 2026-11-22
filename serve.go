@@ -85,7 +85,8 @@ func runServe(args []string) error {
 		return err
 	}
 	defer usage.Close()
-	cov, err := coverageOf(*all, *projectDir, reporting.DetectProject{Queries: usage, Home: homeProject()}.Run)
+	detect := reporting.DetectProject{Queries: usage, Home: homeProject()}.Run
+	cov, err := coverageOf(*all, *projectDir, detect)
 	if err != nil {
 		return err
 	}
@@ -115,6 +116,7 @@ func runServe(args []string) error {
 		Harness:     only,
 		Project:     cov.project,
 		Restricted:  cov.restricted,
+		Detect:      redetection(*all, *projectDir, detect),
 		AllowRemote: *allowRemote,
 		Log:         log.New(os.Stderr, "agent-stats: ", log.LstdFlags),
 	})

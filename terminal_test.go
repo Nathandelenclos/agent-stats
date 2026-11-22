@@ -26,6 +26,12 @@ type session struct {
 // as in `agent-stats </dev/null`, while stdout stays the terminal.
 func onATerminal(t *testing.T, noStdin bool, args ...string) *session {
 	t.Helper()
+	return onATerminalIn(t, "", noStdin, args...)
+}
+
+// onATerminalIn is onATerminal with the program started in the folder dir (the test's own folder when empty).
+func onATerminalIn(t *testing.T, dir string, noStdin bool, args ...string) *session {
+	t.Helper()
 	if runtime.GOOS != "darwin" {
 		t.Skip("the pseudo-terminal is opened with the BSD script(1)")
 	}
@@ -33,19 +39,20 @@ func onATerminal(t *testing.T, noStdin bool, args ...string) *session {
 	if err != nil {
 		t.Skip("script(1) is not installed")
 	}
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "agent-stats")
+	work := t.TempDir()
+	bin := filepath.Join(work, "agent-stats")
 	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
 	// --no-sync: the test must not read the logs of whoever runs it
-	args = append([]string{"--no-sync", "--db", filepath.Join(dir, "index.db")}, args...)
+	args = append([]string{"--no-sync", "--db", filepath.Join(work, "index.db")}, args...)
 	run := `exec "$0" "$@"`
 	if noStdin {
 		run += ` </dev/null`
 	}
 	s := &session{done: make(chan error, 1)}
 	s.cmd = exec.Command(script, append([]string{"-q", "/dev/null", "sh", "-c", run, bin}, args...)...)
+	s.cmd.Dir = dir
 	for _, kv := range os.Environ() { // CI, NO_COLOR and CLICOLOR* would switch the colours off, TERM must allow them
 		if !hasAnyPrefix(kv, "CI=", "TERM=", "NO_COLOR=", "CLICOLOR=", "CLICOLOR_FORCE=") {
 			s.cmd.Env = append(s.cmd.Env, kv)

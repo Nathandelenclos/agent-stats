@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -201,5 +203,69 @@ func TestASessionOpenedInAProjectIsDescribedAsThatProjectListsIt(t *testing.T) {
 		if len(sessions.askedIn) != 1 || sessions.askedIn[0] != c.want {
 			t.Errorf("%s: described in %v", name, sessions.askedIn)
 		}
+	}
+}
+
+// indexed is a Sync that has nothing to wait for.
+func indexed(context.Context, func(int)) (string, error) { return "", nil }
+
+// afterIndexing delivers the end of an indexing to the interface, then what it asks for next, and returns the interface
+// once the report that follows has arrived.
+func afterIndexing(t *testing.T, m Model) Model {
+	t.Helper()
+	next, cmd := m.Update(syncDoneMsg{})
+	next, cmd = next.Update(cmd()) // the project found by detection, which asks for the report again
+	return answer(t, next.(Model), cmd)
+}
+
+func TestTheProjectFoundWhenIndexingEndsBecomesTheScopeOfTheViews(t *testing.T) {
+	// Given the interface opened on an empty index, so that it found no project, and detection that finds the app once its logs are indexed
+	reports := &fakeReports{report: sampleReport()}
+	found := kernel.Project{}
+	m := startWith(t, reports, Options{Sync: indexed, Detect: func() (kernel.Project, error) { return found, nil }})
+	m = send(t, m, tea.WindowSizeMsg{Width: 200, Height: 30})
+	found = appProject(t)
+
+	// When the indexing is done
+	m = afterIndexing(t, m)
+
+	// Then the report is asked again for that project, which the title names and key a can switch away from
+	if got := reports.queries[len(reports.queries)-1].Project; got != appProject(t) {
+		t.Errorf("the report was asked for %v", got)
+	}
+	if view := m.View(); !strings.Contains(view, "project: app") || !strings.Contains(m.help(), "a all projects") {
+		t.Errorf("view:\n%s\nhelp: %s", view, m.help())
+	}
+}
+
+func TestTheScopeTheUserChoseSurvivesTheEndOfAnIndexing(t *testing.T) {
+	// Given the interface on a project that the user switched to every project, with indexing on
+	reports := &fakeReports{report: sampleReport()}
+	m := startWith(t, reports, Options{Project: appProject(t), Restricted: true, Sync: indexed,
+		Detect: func() (kernel.Project, error) { return appProject(t), nil }})
+	m, cmd := pressCmd(t, m, "a")
+	m = answer(t, m, cmd)
+
+	// When an indexing ends, which finds the same project again
+	m = afterIndexing(t, m)
+
+	// Then the views still cover every project
+	if got := reports.queries[len(reports.queries)-1].Project; !got.IsZero() || !strings.Contains(m.View(), "all projects") {
+		t.Errorf("the report was asked for %v:\n%s", got, m.View())
+	}
+}
+
+func TestADetectionThatFailsDoesNotStopTheReportFromRefreshing(t *testing.T) {
+	// Given detection that cannot read the index
+	reports := &fakeReports{report: sampleReport()}
+	m := startWith(t, reports, Options{Sync: indexed, Detect: func() (kernel.Project, error) { return kernel.Project{}, errors.New("boom") }})
+	asked := len(reports.queries)
+
+	// When an indexing ends
+	m = afterIndexing(t, m)
+
+	// Then the report is asked again, for every project
+	if len(reports.queries) != asked+1 || !strings.Contains(m.View(), "all projects") {
+		t.Errorf("%d reports asked, was %d:\n%s", len(reports.queries), asked, m.View())
 	}
 }

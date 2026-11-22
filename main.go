@@ -136,7 +136,8 @@ func run() error {
 		return err
 	}
 	defer usage.Close()
-	cov, err := coverageOf(*all, *projectDir, reporting.DetectProject{Queries: usage, Home: homeProject()}.Run)
+	detect := reporting.DetectProject{Queries: usage, Home: homeProject()}.Run
+	cov, err := coverageOf(*all, *projectDir, detect)
 	if err != nil {
 		return err
 	}
@@ -144,7 +145,7 @@ func run() error {
 		sessions := usage.Sessions()
 		o := tui.Options{Reports: reporting.BuildReport{Queries: usage}, Harness: only, SinceLabel: *since, Since: from,
 			Sessions: reporting.ListSessions{Queries: sessions}, Session: reporting.ShowSession{Queries: sessions},
-			Project: cov.project, Restricted: cov.restricted}
+			Project: cov.project, Restricted: cov.restricted, Detect: redetection(*all, *projectDir, detect)}
 		if indexLogs != nil {
 			o.Sync = tuiSync(indexLogs)
 		}

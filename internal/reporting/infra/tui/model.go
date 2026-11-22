@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -84,12 +85,19 @@ type syncDoneMsg struct {
 	err  error
 }
 
+// scopeMsg carries the project detection found after an indexing; err is its failure.
+type scopeMsg struct {
+	project kernel.Project
+	err     error
+}
+
 // Model is the Bubble Tea model of the interface.
 type Model struct {
 	reports reporting.BuildReport
 	lister  reporting.ListSessions // without queries, the sessions mode is off
 	shower  reporting.ShowSession
-	sync    Sync // nil when indexing is off
+	sync    Sync                           // nil when indexing is off
+	detect  func() (kernel.Project, error) // nil when the scope is not for detection to change
 	syncs   *syncRuns
 	now     func() time.Time
 
@@ -125,7 +133,7 @@ type Model struct {
 // New returns the model for o. Its Init asks for the first report.
 func New(o Options) Model {
 	t := table.New(table.WithFocused(true))
-	m := Model{reports: o.Reports, lister: o.Sessions, shower: o.Session, sessions: newSessionsState(), sync: o.Sync, syncs: newSyncRuns(), syncing: o.Sync != nil, spinner: spinner.New(spinner.WithSpinner(spinner.MiniDot)), now: time.Now, table: t, width: 80, height: 24, periods: periods}
+	m := Model{reports: o.Reports, lister: o.Sessions, shower: o.Session, sessions: newSessionsState(), sync: o.Sync, detect: o.Detect, syncs: newSyncRuns(), syncing: o.Sync != nil, spinner: spinner.New(spinner.WithSpinner(spinner.MiniDot)), now: time.Now, table: t, width: 80, height: 24, periods: periods}
 	m.period = len(periods) - 1 // all
 	if o.SinceLabel != "" {
 		m.period = -1
@@ -330,7 +338,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.listen(msg.events)
 	case syncDoneMsg:
 		m.syncing, m.syncNote, m.syncErr = false, msg.note, msg.err
-		return m.reload() // the index changed: show it
+		if m.detect == nil || errors.Is(msg.err, context.Canceled) {
+			return m.reload() // the index changed: show it
+		}
+		detect := m.detect
+		return m, func() tea.Msg { // the index may now hold sessions of the working folder: look again before showing it
+			p, err := detect()
+			return scopeMsg{p, err}
+		}
+	case scopeMsg:
+		if msg.err == nil {
+			m.project, m.restricted = kernel.Redetect(m.project, m.restricted, msg.project)
+		}
+		return m.reload()
 	case spinner.TickMsg:
 		if !m.syncing {
 			return m, nil // stops the animation

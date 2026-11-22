@@ -56,6 +56,7 @@ type toolJSON struct {
 
 // reportJSON is the usage report of the command line's --json, with the usage per local day added.
 type reportJSON struct {
+	Scope     string      `json:"scope"` // what the figures cover: "current" (the project of the server) or "all"
 	Total     usageJSON   `json:"total"`
 	ByHarness []groupJSON `json:"byHarness"`
 	ByModel   []groupJSON `json:"byModel"`
@@ -77,7 +78,7 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, "building the report", err)
 		return
 	}
-	out := reportJSON{Total: usage(rep.Total), ByHarness: groups(rep.ByHarness), ByModel: groups(rep.ByModel),
+	out := reportJSON{Scope: p.scope, Total: usage(rep.Total), ByHarness: groups(rep.ByHarness), ByModel: groups(rep.ByModel),
 		ByFolder: groups(rep.ByFolder), ByAgent: groups(rep.ByAgent), Daily: groups(rep.Daily), Tools: make([]toolJSON, 0, len(rep.Tools))}
 	for _, t := range rep.Tools {
 		out.Tools = append(out.Tools, toolJSON{t.Name, t.Server, t.Calls, t.Errors, t.ArgsChars, t.ResultChars,
@@ -174,8 +175,8 @@ func (s *Server) meta(w http.ResponseWriter, r *http.Request) {
 		m.Harnesses = append(m.Harnesses, h.String())
 	}
 	m.Defaults.Since, m.Defaults.Harness, m.Defaults.Scope = s.opts.Since, s.opts.Harness.String(), s.defaultScope()
-	if !s.opts.Project.IsZero() {
-		m.Project = s.opts.Project.Name()
+	if project, _ := s.coverage(); !project.IsZero() {
+		m.Project = project.Name()
 	}
 	writeJSON(w, s.log, m)
 }

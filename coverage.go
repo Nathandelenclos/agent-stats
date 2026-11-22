@@ -95,6 +95,16 @@ func givenProject(dir string) (kernel.Project, error) {
 	return projectfolders.Of(dir)
 }
 
+// redetection is how the views of a long run find the project of the working folder again once the index has grown, which an
+// empty index could not tell at first. It is nil when the user named the scope (--all, --project): detection must not
+// change that.
+func redetection(all bool, dir string, detect func(kernel.Project) (kernel.Project, error)) func() (kernel.Project, error) {
+	if all || dir != "" {
+		return nil
+	}
+	return func() (kernel.Project, error) { return detect(workingProject()) }
+}
+
 // coverageOf decides what a run covers from the flags --all and --project (dir, empty when absent).
 func coverageOf(all bool, dir string, detect func(kernel.Project) (kernel.Project, error)) (coverage, error) {
 	given, err := givenProject(dir)
