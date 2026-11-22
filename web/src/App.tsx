@@ -17,6 +17,7 @@ import {
   useReport,
   type Filters,
   type Meta,
+  type Report as ReportData,
 } from "./features/report";
 import { SyncBanner, useSyncStatus, type SyncStatus } from "./features/sync";
 
@@ -83,6 +84,31 @@ function Section({ id, title, children }: { id: string; title: string; children:
   );
 }
 
+/** One zone of the report. A failure while drawing it stays in it, and changing the filters tries it again. */
+function Zone({ name, resetKey, children }: { name: string; resetKey: string; children: ReactNode }) {
+  return (
+    <ErrorBoundary
+      key={resetKey}
+      fallback={(retry) => <Failure title={`${name} could not be drawn.`} message="The rest of the page is not affected." retry={retry} />}
+    >
+      {children}
+    </ErrorBoundary>
+  );
+}
+
+// The series are built inside the zone that draws them, so that a failure while building one stays in that zone.
+function DailyCostChart({ daily }: { daily: ReportData["daily"] }) {
+  const model = buildCostOverTime(daily);
+  return model && <CostOverTime model={model} />;
+}
+
+/** A cost-by chart, on the cost scale it shares with the other one. */
+function CostByChart({ title, tableName, groups, peers }: { title: string; tableName: string; groups: ReportData["byHarness"]; peers: ReportData["byHarness"][] }) {
+  const model = buildCostBy(groups, 10);
+  const domainMax = sharedDomainMax(model, ...peers.map((g) => buildCostBy(g, 10)));
+  return <CostBy title={title} tableName={tableName} model={model} domainMax={domainMax} />;
+}
+
 function Report({ filters, syncState }: { filters: Filters; syncState: SyncStatus["state"] | undefined }) {
   const report = useReport(filters);
   const queryClient = useQueryClient();
@@ -97,41 +123,33 @@ function Report({ filters, syncState }: { filters: Filters; syncState: SyncStatu
     return <Failure title="The report could not be loaded." message={describe(report.error)} retry={() => void report.refetch()} />;
   }
   const r = report.data;
-  if (r.total.requests === 0) return <Totals total={r.total} />; // nothing to chart or tabulate
-  const costOverTime = buildCostOverTime(r.daily);
-  const byHarness = buildCostBy(r.byHarness, 10);
-  const byModel = buildCostBy(r.byModel, 10);
-  const domainMax = sharedDomainMax(byHarness, byModel);
+  const resetKey = `${filters.since}\u0000${filters.harness}`;
+  const zone = (name: string, children: ReactNode) => <Zone name={name} resetKey={resetKey}>{children}</Zone>;
+  if (r.total.requests === 0) return zone("The totals", <Totals total={r.total} />); // nothing to chart or tabulate
   return (
     <div aria-busy={report.isFetching} className="flex flex-col gap-8">
-      <Totals total={r.total} />
+      {zone("The totals", <Totals total={r.total} />)}
       <Section id="charts" title="Cost">
-        <ErrorBoundary fallback={(retry) => <Failure title="The charts could not be drawn." message="The tables below still hold the figures." retry={retry} />}>
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {costOverTime && (
-              <div className="lg:col-span-2">
-                <CostOverTime model={costOverTime} />
-              </div>
-            )}
-            <CostBy title="Cost by harness" tableName="Harness" model={byHarness} domainMax={domainMax} />
-            <CostBy title="Cost by model" tableName="Model" model={byModel} domainMax={domainMax} />
-          </div>
-        </ErrorBoundary>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="lg:col-span-2">{zone("The cost over time chart", <DailyCostChart daily={r.daily} />)}</div>
+          {zone("The cost by harness chart", <CostByChart title="Cost by harness" tableName="Harness" groups={r.byHarness} peers={[r.byModel]} />)}
+          {zone("The cost by model chart", <CostByChart title="Cost by model" tableName="Model" groups={r.byModel} peers={[r.byHarness]} />)}
+        </div>
       </Section>
       <Section id="by-harness" title="Harness">
-        <UsageTable caption="Usage by harness" label="Harness" groups={r.byHarness} />
+        {zone("The harness table", <UsageTable caption="Usage by harness" label="Harness" groups={r.byHarness} />)}
       </Section>
       <Section id="by-model" title="Model">
-        <UsageTable caption="Usage by model" label="Model" groups={r.byModel} />
+        {zone("The model table", <UsageTable caption="Usage by model" label="Model" groups={r.byModel} />)}
       </Section>
       <Section id="by-folder" title="Folder">
-        <UsageTable caption="Usage by folder" label="Folder" groups={r.byFolder} />
+        {zone("The folder table", <UsageTable caption="Usage by folder" label="Folder" groups={r.byFolder} />)}
       </Section>
       <Section id="by-agent" title="Agent">
-        <UsageTable caption="Usage by agent type" label="Agent type" groups={r.byAgentType} />
+        {zone("The agent table", <UsageTable caption="Usage by agent type" label="Agent type" groups={r.byAgentType} />)}
       </Section>
       <Section id="tools" title="Tools">
-        <ToolsTable tools={r.tools} />
+        {zone("The tools table", <ToolsTable tools={r.tools} />)}
       </Section>
     </div>
   );
