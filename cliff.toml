@@ -36,7 +36,8 @@ commit_parsers = [
 ]
 # A commit carrying a BREAKING CHANGE footer is kept even if its type is skipped above.
 protect_breaking_commits = true
-tag_pattern = "v[0-9]+\\.[0-9]+\\.[0-9]+"
+# Anchored: v1.2.3-rc1 is not a release tag.
+tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
 sort_commits = "oldest"
 
 [bump]
