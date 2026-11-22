@@ -103,19 +103,36 @@ func TestCatalogApproved(t *testing.T) {
 	}
 }
 
-func TestCatalogOutputNeverCarriesSecretsOrControlCharacters(t *testing.T) {
-	// Given fixture configurations holding fake credentials in MCP env, headers, URLs and package sources
+// outputsOfEveryCase prints the catalogue every way of asking, stdout and stderr together.
+func outputsOfEveryCase(t *testing.T) map[string]string {
+	t.Helper()
 	base := indexedCatalogHome(t)
+	out := map[string]string{}
 	for _, c := range catalogCases {
-		// When the catalogue is printed any way
-		out, errOut := catalogOutput(t, append(append([]string{}, base...), c.args...)...)
+		stdout, stderr := catalogOutput(t, append(append([]string{}, base...), c.args...)...)
+		out[c.name] = stdout + stderr
+	}
+	return out
+}
 
-		// Then no credential and no control character other than line breaks reaches the output
-		if strings.Contains(out+errOut, "SECRET") {
-			t.Errorf("%s: a secret reached the output", c.name)
+func TestCatalogOutputNeverCarriesACredential(t *testing.T) {
+	// Given fixture configurations holding fake credentials in MCP env, headers, URLs and package sources
+	// When the catalogue is printed any way
+	for name, out := range outputsOfEveryCase(t) {
+		// Then no credential reaches the output
+		if strings.Contains(out, "SECRET") {
+			t.Errorf("%s: a credential reached the output", name)
 		}
-		if strings.ContainsFunc(strings.ReplaceAll(out+errOut, "\n", ""), func(r rune) bool { return r < ' ' || r == 0x7f }) {
-			t.Errorf("%s: control characters in the output", c.name)
+	}
+}
+
+func TestCatalogOutputNeverCarriesControlCharacters(t *testing.T) {
+	// Given fixture configurations and logs, indexed
+	// When the catalogue is printed any way
+	for name, out := range outputsOfEveryCase(t) {
+		// Then no control character other than line breaks reaches the output
+		if strings.ContainsFunc(strings.ReplaceAll(out, "\n", ""), func(r rune) bool { return r < ' ' || r == 0x7f }) {
+			t.Errorf("%s: control characters in the output", name)
 		}
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Nathandelenclos/agent-stats/internal/catalog/application"
+	"github.com/Nathandelenclos/agent-stats/internal/catalog/domain"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 )
 
@@ -108,19 +109,41 @@ func TestClaudeInventoryNeverReadsASecret(t *testing.T) {
 	}
 }
 
-func TestPluginThatEscapesItsDirectoryOrIsOffIsNotRead(t *testing.T) {
-	// Given a plugin whose install path is /etc, one switched off, and one installed for another project
+// hasItemNamed reports whether any item of the inventory has that name.
+func hasItemNamed(in application.Installed, name string) bool {
+	return slices.ContainsFunc(in.Items, func(it domain.Item) bool { return it.Name.String() == name })
+}
+
+func TestPluginThatEscapesItsDirectoryIsListedButNotRead(t *testing.T) {
+	// Given a plugin whose install path is /etc, outside the plugins directory
 	in := installed(t, fixtureRoots(t), kernel.Claude)
 
-	// Then the plugin is listed but its contents are not (nor the disabled one's), the escape is noted, and the plugin
-	// of another project is left out
-	for _, it := range in.Items {
-		if it.Name.String() == "hidden" || it.Name.String() == "off:hidden" || it.Name.String() == "elsewhere@market" {
-			t.Errorf("unexpected item %+v", it)
-		}
+	// Then the plugin is listed, and the escape is noted
+	if !slices.Contains(describe(in), "plugin:escape@market@user") {
+		t.Error("the escaping plugin is not listed")
 	}
 	if !slices.ContainsFunc(in.Skipped, func(s string) bool { return strings.HasSuffix(s, "/etc: points outside its directory") }) {
 		t.Errorf("skipped: %q", in.Skipped)
+	}
+}
+
+func TestDisabledPluginIsListedWithoutItsContents(t *testing.T) {
+	// Given a plugin that the settings turn off, which has a skill on disk
+	in := installed(t, fixtureRoots(t), kernel.Claude)
+
+	// Then it is listed as disabled and its skill is not
+	if !slices.Contains(describe(in), "plugin:off@market@user(off)") || hasItemNamed(in, "off:hidden") {
+		t.Errorf("items: %q", describe(in))
+	}
+}
+
+func TestPluginInstalledForAnotherProjectIsLeftOut(t *testing.T) {
+	// Given a plugin installed for a project other than the one read
+	in := installed(t, fixtureRoots(t), kernel.Claude)
+
+	// Then it is not listed
+	if hasItemNamed(in, "elsewhere@market") {
+		t.Errorf("items: %q", describe(in))
 	}
 }
 
@@ -137,16 +160,21 @@ func TestCodexInventoryReadsTablesAndSkipsMultilineStrings(t *testing.T) {
 		"skill:codex-skill@user", "skill:shared-skill@user")
 }
 
-func TestOhMyPiAndPiInventories(t *testing.T) {
-	// Given oh-my-pi's mcp.json, skills and agents, and pi's settings with credentialed package sources
-	r := fixtureRoots(t)
+func TestOhMyPiInventory(t *testing.T) {
+	// Given oh-my-pi's mcp.json, skills and agents, and a project .mcp.json
+	// When its inventory is read
+	omp := installed(t, fixtureRoots(t), kernel.OMP)
 
-	// When both are inventoried
-	omp, pi := installed(t, r, kernel.OMP), installed(t, r, kernel.Pi)
-
-	// Then oh-my-pi lists its server, skills (own and shared), agent, and the project's .mcp.json
+	// Then it lists its server, skills (own and shared), agent, and the project's server
 	expect(t, describe(omp), "mcp:omp-docs@user", "mcp:project-server@project", "skill:omp-skill@user", "skill:shared-skill@user", "agent:worker@user")
-	// And pi lists its shared skill and its packages, whose URLs lost their credentials, query and fragment
+}
+
+func TestPiInventoryListsPackagesWithoutTheirCredentials(t *testing.T) {
+	// Given pi's settings with package sources that carry credentials, query strings and fragments
+	// When its inventory is read
+	pi := installed(t, fixtureRoots(t), kernel.Pi)
+
+	// Then it lists the shared skill and the packages, whose sources lost what was secret
 	expect(t, describe(pi), "skill:shared-skill@user", "plugin:pi-extras@user",
 		"plugin:git+https://git.example.test/org/pkg.git@user", "plugin:git:https://git.example.test/org/other.git@user", "plugin:git:git.example.test/org/third.git@user", "plugin:npm:@org/pkg@user")
 }
