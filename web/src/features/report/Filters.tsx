@@ -2,9 +2,13 @@ import { useId } from "react";
 import type { Filters, Meta, Scope } from "./types";
 
 const presets = [
+  { value: "1h", label: "Last hour" },
   { value: "24h", label: "Last 24 hours" },
+  { value: "2d", label: "Last 2 days" },
+  { value: "3d", label: "Last 3 days" },
   { value: "7d", label: "Last 7 days" },
   { value: "30d", label: "Last 30 days" },
+  { value: "90d", label: "Last 90 days" },
   { value: "", label: "All time" },
 ];
 

@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
@@ -82,6 +83,7 @@ type reportJSON struct {
 	ByFolder   []groupJSON `json:"byFolder"`
 	ByAgent    []groupJSON `json:"byAgentType"`
 	Tools      []toolJSON  `json:"tools"`
+	Hourly     []groupJSON `json:"hourly,omitempty"`
 	Daily      []groupJSON `json:"daily"` // key: the local day, 2006-01-02, oldest first
 }
 
@@ -92,13 +94,15 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request) {
 		bad.write(w)
 		return
 	}
-	rep, err := s.opts.Reports.Run(r.Context(), p.query)
+	build := s.opts.Reports
+	build.IncludeHourly = !p.query.Since.IsZero() && s.now().Sub(p.query.Since) <= 73*time.Hour
+	rep, err := build.Run(r.Context(), p.query)
 	if err != nil {
 		s.fail(w, "building the report", err)
 		return
 	}
 	out := reportJSON{Scope: p.scope, Total: usage(rep.Total), ByHarness: groups(rep.ByHarness), ByProvider: groups(rep.ByProvider), ByModel: groups(rep.ByModel),
-		ByFolder: groups(rep.ByFolder), ByAgent: groups(rep.ByAgent), Daily: groups(rep.Daily), Tools: tools(rep.Tools)}
+		ByFolder: groups(rep.ByFolder), ByAgent: groups(rep.ByAgent), Daily: groups(rep.Daily), Hourly: groups(rep.Hourly), Tools: tools(rep.Tools)}
 	writeJSON(w, s.log, out)
 }
 

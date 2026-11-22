@@ -152,6 +152,7 @@ var groupColumns = map[report.Dimension]string{
 	report.ByModel:     "model",
 	report.ByFolder:    "COALESCE(folder, '')",
 	report.ByAgentType: "agent_type",
+	report.ByHour:      "CAST(r.ts / 3600000 * 3600000 AS TEXT)",
 	report.ByDay:       "strftime('%Y-%m-%d', r.ts / 1000, 'unixepoch', 'localtime')",
 }
 
@@ -198,8 +199,8 @@ func (r reader) UsageBy(f report.Filter, d report.Dimension) ([]report.UsageGrou
 		return nil, err
 	}
 	order := "SUM(r.cost) DESC, COUNT(*) DESC"
-	if d == report.ByDay {
-		order = "1"
+	if d == report.ByDay || d == report.ByHour {
+		order = "MIN(r.ts)"
 		if cond == "" {
 			cond = " WHERE r.ts > 0" // a request with an unknown time (0) has no day
 		} else {

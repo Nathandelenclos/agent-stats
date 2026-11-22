@@ -79,7 +79,7 @@ export function Overview({
 }) {
   if (report.isPending) return <p role="status">Loading the overview…</p>;
   if (report.isError) return <Failure title="The overview could not be loaded." message={describe(report.error)} retry={() => void report.refetch()} />;
-  const { total, daily, byHarness, tools } = report.data;
+  const { total, daily, hourly, byHarness, tools } = report.data;
   const known = total.requests - total.unpriced;
   const canExplore = report.isPlaceholderData ? undefined : explore;
   const entries = catalog.data?.entries ?? [];
@@ -96,7 +96,7 @@ export function Overview({
     </dl>
 
     <div className={`dashboard-chart-grid${inspector ? " dashboard-chart-grid-active" : ""}`}>
-      <ActivityChart daily={daily} metric={metric} onMetric={setMetric} selectedDay={selectedDay}
+      <ActivityChart daily={daily} hourly={hourly} metric={metric} onMetric={setMetric} selectedDay={selectedDay}
         onDay={canExplore ? (day) => canExplore({ kind: "day", value: day }) : undefined} />
       {inspector}
     </div>

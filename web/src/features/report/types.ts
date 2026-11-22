@@ -47,6 +47,7 @@ export interface Report {
   tools: Tool[];
   /** One group per local day with activity, oldest first; key is 2006-01-02. */
   daily: UsageGroup[];
+  hourly?: UsageGroup[];
 }
 
 /** The projects a report covers: the one the server runs in, or every one. The server alone knows which folder "current" is. */

@@ -362,3 +362,31 @@ func TestErrorSignaturesGroupTransientIDsAndPreserveStatusCodes(t *testing.T) {
 		t.Fatalf("error groups = %+v", groups)
 	}
 }
+
+func TestUsageByHourKeepsSeparateAbsoluteHours(t *testing.T) {
+	at := time.UnixMilli(t0 + 12_000)
+	path := indexed(t, at)
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`INSERT INTO usage_requests
+		(ts, model, input, output, cache_read, cache_write, cost, priced, harness, agent_type)
+		VALUES (?, 'm', 0, 1, 0, 0, 0, 1, 'claude', 'main'),
+		(0, 'm', 0, 1, 0, 0, 0, 1, 'claude', 'main')`, at.Add(time.Hour).UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	u, err := OpenReadOnly(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer u.Close()
+	rows, err := u.UsageBy(report.Filter{}, report.ByHour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].Group != "1767261600000" || rows[1].Group != "1767265200000" {
+		t.Fatalf("hourly buckets = %+v", rows)
+	}
+}

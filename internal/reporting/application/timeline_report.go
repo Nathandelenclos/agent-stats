@@ -10,13 +10,15 @@ import (
 type TimelineReport struct {
 	Report
 	ByProvider []UsageGroup
+	Hourly     []UsageGroup // Group is the hour start in Unix milliseconds.
 	Daily      []UsageGroup // Group is the day, as 2006-01-02
 }
 
 // BuildTimelineReport summarises indexed usage and when it happened for the web, terminal and static daily report.
 // The regular CLI summary keeps BuildReport and does not pay for per-day grouping.
 type BuildTimelineReport struct {
-	Queries UsageQueries
+	Queries       UsageQueries
+	IncludeHourly bool
 }
 
 // Run builds the report for the activity q asks for, its days included, all from one state of the index; it gives up
@@ -30,6 +32,11 @@ func (uc BuildTimelineReport) Run(ctx context.Context, q Query) (TimelineReport,
 		}
 		if r.ByProvider, err = u.UsageBy(f, domain.ByProvider); err != nil {
 			return err
+		}
+		if uc.IncludeHourly {
+			if r.Hourly, err = u.UsageBy(f, domain.ByHour); err != nil {
+				return err
+			}
 		}
 		r.Daily, err = u.UsageBy(f, domain.ByDay)
 		return err

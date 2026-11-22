@@ -15,7 +15,7 @@ describe("FilterBar", () => {
     const { container } = render(<FilterBar meta={meta("7d")} value={filters()} onChange={() => {}} />);
 
     // Then the periods are the presets and the harnesses are the server's
-    expect(optionValues(selectLabelled(container, "Period"))).toEqual(["24h", "7d", "30d", ""]);
+    expect(optionValues(selectLabelled(container, "Period"))).toEqual(["1h", "24h", "2d", "3d", "7d", "30d", "90d", ""]);
     expect(optionValues(selectLabelled(container, "Harness"))).toEqual(["", "claude", "codex"]);
   });
 
@@ -27,12 +27,12 @@ describe("FilterBar", () => {
     const { container } = render(<FilterBar meta={launched} value={filters()} onChange={() => {}} />);
 
     // Then 12h is still there to go back to
-    expect(optionValues(selectLabelled(container, "Period"))).toEqual(["12h", "24h", "7d", "30d", ""]);
+    expect(optionValues(selectLabelled(container, "Period"))).toEqual(["12h", "1h", "24h", "2d", "3d", "7d", "30d", "90d", ""]);
   });
 
   it("does not list the launch period twice when it is the one selected", () => {
     const { container } = render(<FilterBar meta={meta("12h")} value={filters({ since: "12h" })} onChange={() => {}} />);
-    expect(optionValues(selectLabelled(container, "Period"))).toEqual(["12h", "24h", "7d", "30d", ""]);
+    expect(optionValues(selectLabelled(container, "Period"))).toEqual(["12h", "1h", "24h", "2d", "3d", "7d", "30d", "90d", ""]);
   });
 
   it("offers no choice of projects when the server found no project", () => {

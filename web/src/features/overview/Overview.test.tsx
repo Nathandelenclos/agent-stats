@@ -112,3 +112,14 @@ it("opens the exact MCP catalog entry and shows tool calls without a dollar tota
     expect.any(Object),
   );
 });
+
+it("shows hourly values and fills empty hours in a short period", async () => {
+  const first = 1_797_600_600_000;
+  serveReports(() => report({ hourly: [group(String(first)), group(String(first + 7_200_000))] }));
+  const { container } = render(withQueries(testQueryClient(), <App />));
+  const details = () => container.querySelector(".dashboard-daily");
+  await eventually(() => expect(details()?.textContent).toContain("Hourly values"));
+  const rows = details()?.querySelectorAll("tbody tr");
+  expect(rows).toHaveLength(3);
+  expect(rows?.[1]?.textContent).toContain("$0.00");
+});
