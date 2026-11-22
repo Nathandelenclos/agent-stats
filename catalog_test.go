@@ -64,8 +64,9 @@ var catalogCases = []struct {
 // ask for a catalogue of that index without reading the logs again. Dates print in the local zone, so it is UTC.
 func indexedCatalogHome(t *testing.T) []string {
 	t.Helper()
+	local := time.Local
 	time.Local = time.UTC
-	t.Cleanup(func() { time.Local = time.Now().Location() })
+	t.Cleanup(func() { time.Local = local })
 	_, project := catalogHome(t)
 	db := filepath.Join(t.TempDir(), "index.db")
 	base := []string{"--db", db, "--project", project}

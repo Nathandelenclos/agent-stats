@@ -45,10 +45,11 @@ skill  omp-skill       user     ?     ?
 skill  shared-skill    user     ?     ?
 agent  worker          user     ?     ?
 
-pi · 5 installed, 0 never used
+pi · 6 installed, 0 never used
 KIND    ITEM                                        SCOPE  USES  LAST USED
 skill   shared-skill                                user   ?     ?
 plugin  git+https://git.example.test/org/pkg.git    user   ?     ?
+plugin  git:git.example.test/org/third.git          user   ?     ?
 plugin  git:https://git.example.test/org/other.git  user   ?     ?
 plugin  npm:@org/pkg                                user   ?     ?
 plugin  pi-extras                                   user   ?     ?

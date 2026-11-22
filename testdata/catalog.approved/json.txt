@@ -483,6 +483,18 @@
     {
       "harness": "pi",
       "kind": "plugin",
+      "name": "git:git.example.test/org/third.git",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.pi/agent/settings.json",
+      "installed": true,
+      "enabled": true,
+      "uses": null,
+      "lastTs": 0
+    },
+    {
+      "harness": "pi",
+      "kind": "plugin",
       "name": "git:https://git.example.test/org/other.git",
       "scope": "user",
       "origin": "",

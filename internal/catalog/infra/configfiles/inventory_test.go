@@ -148,7 +148,7 @@ func TestOhMyPiAndPiInventories(t *testing.T) {
 	expect(t, describe(omp), "mcp:omp-docs@user", "mcp:project-server@project", "skill:omp-skill@user", "skill:shared-skill@user", "agent:worker@user")
 	// And pi lists its shared skill and its packages, whose URLs lost their credentials, query and fragment
 	expect(t, describe(pi), "skill:shared-skill@user", "plugin:pi-extras@user",
-		"plugin:git+https://git.example.test/org/pkg.git@user", "plugin:git:https://git.example.test/org/other.git@user", "plugin:npm:@org/pkg@user")
+		"plugin:git+https://git.example.test/org/pkg.git@user", "plugin:git:https://git.example.test/org/other.git@user", "plugin:git:git.example.test/org/third.git@user", "plugin:npm:@org/pkg@user")
 }
 
 func TestHomeIsNotAProject(t *testing.T) {
@@ -283,6 +283,14 @@ func TestPackageSourcesLoseTheirCredentials(t *testing.T) {
 		"https://h/a@b":                    "https://h/a@b",
 		"git+ssh://git@h/org/pkg#ref":      "git+ssh://h/org/pkg",
 		"https://a:b@h/x https://c:d@i/y":  "https://h/x https://i/y",
+		"git:user:TOKEN@github.com/org/r":  "git:github.com/org/r",
+		"git:github.com/org/r?token=T":     "git:github.com/org/r",
+		"git@github.com:org/repo":          "github.com:org/repo",
+		"user:TOKEN@host:org/repo#ref":     "host:org/repo",
+		"HTTPS://u:p@h/x":                  "HTTPS://h/x",
+		"pkg@1.2.3":                        "pkg@1.2.3",
+		"npm:pkg@1.2.3":                    "npm:pkg@1.2.3",
+		"@org/pkg@1.2.3":                   "@org/pkg@1.2.3",
 	} {
 		// Given a package source, when its credentials are dropped, then only what is safe to show remains
 		if got := withoutCredentials(in); got != want {

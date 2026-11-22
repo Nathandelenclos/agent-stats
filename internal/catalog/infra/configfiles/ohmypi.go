@@ -3,6 +3,7 @@ package configfiles
 import (
 	"encoding/json"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/Nathandelenclos/agent-stats/internal/catalog/domain"
@@ -64,17 +65,42 @@ func (c *collector) piPackages(path string, scope domain.Scope) {
 	}
 }
 
-// withoutCredentials drops what a package source may carry that is secret: the user and password after any "://"
-// (also in an opaque form such as "git:https://user:token@host/repo"), and everything from the first "?" or "#" on
-// (query and fragment). A source without "://" (an npm name, a path) is kept as is.
+// userinfo matches "user@" or "user:secret@" at the start of a string; scpLike matches such a prefix of "user@host:path".
+var (
+	userinfo = regexp.MustCompile(`^[^\s/@:]+(?::[^\s/@]*)?@`)
+	scpLike  = regexp.MustCompile(`^[^\s/@:]+(?::[^\s/@]*)?@[^\s/@:]+:`)
+)
+
+// withoutCredentials drops what a package source may carry that is secret: the user and password of a URL after any
+// "://" (also in an opaque form such as "git:https://user:token@host/repo"), of "git:user:token@host/path" and of
+// "user@host:path", and everything from the first "?" or "#" of a remote source (query and fragment). An npm name
+// or a path is kept as is. A token written inside a path is not a credential form and is not recognised.
 func withoutCredentials(src string) string {
+	switch rest, isGit := strings.CutPrefix(src, "git:"); {
+	case strings.Contains(src, "://"):
+		src = stripURLUserinfo(src)
+	case isGit:
+		src = "git:" + userinfo.ReplaceAllString(rest, "")
+	case scpLike.MatchString(src):
+		src = userinfo.ReplaceAllString(src, "")
+	default:
+		return src
+	}
+	if i := strings.IndexAny(src, "?#"); i >= 0 {
+		src = src[:i]
+	}
+	return src
+}
+
+// stripURLUserinfo removes the user and password of every "scheme://user:secret@host" in src.
+func stripURLUserinfo(src string) string {
 	for from := 0; ; {
 		i := strings.Index(src[from:], "://")
 		if i < 0 {
-			break
+			return src
 		}
 		start := from + i + len("://")
-		end := start + len(src[start:])
+		end := len(src)
 		if j := strings.IndexAny(src[start:], "/?#"); j >= 0 {
 			end = start + j
 		}
@@ -84,10 +110,4 @@ func withoutCredentials(src string) string {
 		}
 		from = end
 	}
-	if i := strings.Index(src, "://"); i >= 0 {
-		if j := strings.IndexAny(src[i:], "?#"); j >= 0 {
-			src = src[:i+j]
-		}
-	}
-	return src
 }
