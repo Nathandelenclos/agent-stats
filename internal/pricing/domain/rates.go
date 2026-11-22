@@ -53,7 +53,7 @@ type PriceList map[string]Rates
 
 var dateSuffix = regexp.MustCompile(`-\d{8}$`)
 
-// dottedVersion is a version written with a dot, which the price table writes with a dash for Claude models.
+// dottedVersion is a version written with a dot ("4.5"), as some gateways write the versions of Claude models.
 var dottedVersion = regexp.MustCompile(`(\d)\.(\d)`)
 
 // Lookup finds rates for a model, tolerating provider prefixes ("openai-codex/gpt-6"), date suffixes and, for Claude

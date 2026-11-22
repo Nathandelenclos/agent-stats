@@ -171,7 +171,7 @@ CREATE VIEW usage_tool_calls AS
 // for the reason recordSkills is one: a build from before it writes files with positional statements that a column
 // more would refuse. A log this build saved has size and mtime 0 in files and its revision here. A row with another
 // size or mtime was written by an earlier build, which saw a file of that size and modification time, and its
-// revision is those two as "<size>:<mtime>", how the readers of files give theirs: nothing is read again for it.
+// revision is those two as application.FileRevision makes it, how the readers of files give theirs: nothing is read again for it.
 const recordRevisions = `
 CREATE TABLE file_revisions (path TEXT PRIMARY KEY, revision TEXT NOT NULL) WITHOUT ROWID;
 `
@@ -285,8 +285,7 @@ func (s *SQLiteIndex) Close() error { return s.db.Close() }
 
 // IndexedFiles returns every log file indexed so far, with its revision at that point.
 func (s *SQLiteIndex) IndexedFiles() (map[string]application.LogFile, error) {
-	rows, err := s.db.Query(`SELECT f.path, f.harness,
-			CASE WHEN f.size = 0 AND f.mtime = 0 THEN COALESCE(r.revision, '') ELSE f.size || ':' || f.mtime END
+	rows, err := s.db.Query(`SELECT f.path, f.harness, f.size, f.mtime, COALESCE(r.revision, '')
 		FROM files f LEFT JOIN file_revisions r ON r.path = f.path`)
 	if err != nil {
 		return nil, err
@@ -296,8 +295,12 @@ func (s *SQLiteIndex) IndexedFiles() (map[string]application.LogFile, error) {
 	for rows.Next() {
 		var f application.LogFile
 		var harness string
-		if err := rows.Scan(&f.Path, &harness, &f.Revision); err != nil {
+		var size, mtime int64
+		if err := rows.Scan(&f.Path, &harness, &size, &mtime, &f.Revision); err != nil {
 			return nil, err
+		}
+		if size != 0 || mtime != 0 { // written by a build from before revisions, which kept the size and time of the file
+			f.Revision = application.FileRevision(size, mtime)
 		}
 		if f.Harness, err = kernel.ParseHarness(harness); err != nil {
 			return nil, err

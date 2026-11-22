@@ -39,8 +39,8 @@ func TestLookupStripsProviderAndDate(t *testing.T) {
 }
 
 func TestLookupFindsAClaudeModelWrittenWithADottedVersion(t *testing.T) {
-	// Given a list that knows claude-sonnet-4-5, and a model that is named claude-sonnet-4.5 by a gateway
-	dashed, dotted := rates(t, RatesPerToken{Input: 0.1}), rates(t, RatesPerToken{Input: 0.2})
+	// Given a list that knows claude-sonnet-4-5, and a model that a gateway names claude-sonnet-4.5
+	dashed := rates(t, RatesPerToken{Input: 0.1})
 	l := PriceList{"claude-sonnet-4-5": dashed}
 
 	// When its price is looked up, with or without a provider and a date
@@ -50,15 +50,31 @@ func TestLookupFindsAClaudeModelWrittenWithADottedVersion(t *testing.T) {
 			t.Errorf("%s: %v %v", m, r, ok)
 		}
 	}
+}
 
-	// And a name the list holds as written wins over the dashed one
-	l["claude-sonnet-4.5"] = dotted
-	if r, ok := l.Lookup("claude-sonnet-4.5"); !ok || r != dotted {
-		t.Errorf("exact name: %v %v", r, ok)
+func TestAModelNamedAsWrittenIsPricedBeforeItsDashedVariant(t *testing.T) {
+	// Given a list that knows both claude-sonnet-4.5 and claude-sonnet-4-5, at different prices
+	dashed, dotted := rates(t, RatesPerToken{Input: 0.1}), rates(t, RatesPerToken{Input: 0.2})
+	l := PriceList{"claude-sonnet-4-5": dashed, "claude-sonnet-4.5": dotted}
+
+	// When the price of claude-sonnet-4.5 is looked up
+	r, ok := l.Lookup("claude-sonnet-4.5")
+
+	// Then it is the price of that name
+	if !ok || r != dotted {
+		t.Errorf("price = %v %v", r, ok)
 	}
+}
 
-	// And the versions of the models of other makers are not rewritten
-	if _, ok := (PriceList{"gemini-2-5-pro": dashed}).Lookup("gemini-2.5-pro"); ok {
+func TestTheDottedVersionOfAModelOfAnotherMakerIsNotRewritten(t *testing.T) {
+	// Given a list that knows gemini-2-5-pro
+	l := PriceList{"gemini-2-5-pro": rates(t, RatesPerToken{Input: 0.1})}
+
+	// When the price of gemini-2.5-pro is looked up
+	_, ok := l.Lookup("gemini-2.5-pro")
+
+	// Then it is not found
+	if ok {
 		t.Error("a dotted version of another maker was found as dashed")
 	}
 }

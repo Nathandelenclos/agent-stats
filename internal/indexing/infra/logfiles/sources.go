@@ -137,10 +137,9 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 	return files, problems, nil
 }
 
-// fileRevision is the revision of a log that is a file: its size and modification time, as the index has kept them
-// from before it had revisions.
+// fileRevision is the revision of a log that is a file, see application.FileRevision.
 func fileRevision(info fs.FileInfo) string {
-	return fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
+	return application.FileRevision(info.Size(), info.ModTime().UnixNano())
 }
 
 // besideRevision is what the source says of the files a log depends on, for its revision.

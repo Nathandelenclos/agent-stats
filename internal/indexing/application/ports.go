@@ -2,6 +2,8 @@
 package application
 
 import (
+	"fmt"
+
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 )
@@ -19,6 +21,13 @@ type LogFile struct {
 	// compressed log, which the file understates tenfold. It only paces the readers ahead of the writer and is not
 	// part of the revision.
 	WeightBytes int64
+}
+
+// FileRevision is the revision of a log that is a file: its size and its modification time in nanoseconds since the
+// epoch. The readers of files give it, and the index gives it to a log an earlier version indexed, which it knows by
+// those two: this is the only place that says how they make a revision.
+func FileRevision(size, modTimeNanos int64) string {
+	return fmt.Sprintf("%d:%d", size, modTimeNanos)
 }
 
 // SessionLogs finds and reads the session logs that harnesses write.

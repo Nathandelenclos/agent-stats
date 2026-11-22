@@ -17,6 +17,7 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	pricing "github.com/Nathandelenclos/agent-stats/internal/pricing/domain"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
+	reportingdomain "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 	usagedb "github.com/Nathandelenclos/agent-stats/internal/reporting/infra/sqlite"
 )
 
@@ -191,28 +192,38 @@ func TestAPromptTypedWhileKiloCodeRunsIsInTheReportOfItsSession(t *testing.T) {
 	}
 }
 
+// sessionShown is the report of one session as the usage report shows it.
+func sessionShown(t *testing.T, dbPath, session string) reportingdomain.SessionDetail {
+	t.Helper()
+	usage, err := usagedb.OpenReadOnly(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer usage.Close()
+	id, err := reporting.NewSessionID(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail, err := reporting.ShowSession{Queries: usage.Sessions()}.Run(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return detail
+}
+
+const geminiSession = "gemini:11111111-aaaa-bbbb-cccc-000000000001"
+
 func TestAConversationCutShortDoesNotReplaceTheSessionIndexedWhole(t *testing.T) {
 	// Given a home that was indexed once, with a Gemini CLI conversation of two answers
 	home := moreHome(t)
 	dbPath := filepath.Join(t.TempDir(), "index.db")
 	moreIndex(t, home, dbPath)
+	whole := sessionShown(t, dbPath, geminiSession).Requests
 	chat := filepath.Join(home, ".gemini/tmp/demo-app/chats/session-2026-02-01T10-00-11111111.json")
 	raw, err := os.ReadFile(chat)
 	if err != nil {
 		t.Fatal(err)
 	}
-	requests := func() (n int) {
-		db, err := sql.Open("sqlite", dbPath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer db.Close()
-		if err := db.QueryRow(`SELECT COUNT(*) FROM requests WHERE session_id = 'gemini:11111111-aaaa-bbbb-cccc-000000000001'`).Scan(&n); err != nil {
-			t.Fatal(err)
-		}
-		return n
-	}
-	whole := requests()
 
 	// When the file is cut short, with only its last closing brace missing, and the logs are indexed again
 	if err := os.WriteFile(chat, bytes.TrimRight(raw, "}\n"), 0o600); err != nil {
@@ -220,35 +231,25 @@ func TestAConversationCutShortDoesNotReplaceTheSessionIndexedWhole(t *testing.T)
 	}
 	rep, _ := moreIndex(t, home, dbPath)
 
-	// Then the conversation is reported as unreadable and the session keeps what was indexed of it
-	if rep.Indexed != 0 || len(rep.Errors) != 1 || whole != 2 || requests() != whole {
-		t.Errorf("report %+v, requests %d then %d", rep, whole, requests())
+	// Then the conversation is reported as unreadable and the session still shows what it showed
+	if shown := sessionShown(t, dbPath, geminiSession); rep.Indexed != 0 || len(rep.Errors) != 1 || whole == 0 || shown.Requests != whole {
+		t.Errorf("report %+v, requests %d then %d", rep, whole, shown.Requests)
 	}
 }
 
 func TestTwoGeminiFilesOfOneSessionGiveTheSameSessionWhateverTheOrderTheyAppearIn(t *testing.T) {
-	// Given a Gemini CLI conversation, and a second file of the same session that stops earlier and names it otherwise
+	// Given a Gemini CLI conversation, and a second file of the same session that stops earlier and words its prompt otherwise
 	earlier := `{"sessionId":"11111111-aaaa-bbbb-cccc-000000000001","projectHash":"h","startTime":"2026-02-01T10:00:00.000Z","messages":[
 {"id":"m1","timestamp":"2026-02-01T10:00:01.000Z","type":"user","content":"An earlier way to say it"}]}`
-	sessionOf := func(dbPath string) string {
-		db, err := sql.Open("sqlite", dbPath)
-		if err != nil {
-			t.Fatal(err)
+	shown := func(dbPath string) string {
+		s := sessionShown(t, dbPath, geminiSession)
+		prompts := make([]string, len(s.Prompts))
+		for i, p := range s.Prompts {
+			prompts[i] = p.Text
 		}
-		defer db.Close()
-		var title string
-		var end int64
-		if err := db.QueryRow(`SELECT title, ended_at FROM sessions WHERE id = 'gemini:11111111-aaaa-bbbb-cccc-000000000001'`).Scan(&title, &end); err != nil {
-			t.Fatal(err)
-		}
-		var prompts string
-		if err := db.QueryRow(`SELECT group_concat(text, '|') FROM prompts WHERE session_id = 'gemini:11111111-aaaa-bbbb-cccc-000000000001'`).Scan(&prompts); err != nil {
-			t.Fatal(err)
-		}
-		return title + "@" + fmt.Sprint(end) + " " + prompts
+		return fmt.Sprint(s.Title, " ", s.End.UnixMilli(), " ", prompts)
 	}
-	chats := ".gemini/tmp/demo-app/chats/"
-	extra := chats + "session-2026-01-31T09-00-11111111.json"
+	extra := ".gemini/tmp/demo-app/chats/session-2026-01-31T09-00-11111111.json"
 
 	// When both files are indexed together, and when the second appears after the first was indexed
 	fresh := moreHome(t)
@@ -266,7 +267,7 @@ func TestTwoGeminiFilesOfOneSessionGiveTheSameSessionWhateverTheOrderTheyAppearI
 	moreIndex(t, updated, updatedDB)
 
 	// Then the session and its prompts are those of the file that goes on, in both indexes
-	if a, b := sessionOf(freshDB), sessionOf(updatedDB); a != b || !strings.HasPrefix(a, "Add a cache to the loader@") {
+	if a, b := shown(freshDB), shown(updatedDB); a != b || !strings.HasPrefix(a, "Add a cache to the loader ") {
 		t.Errorf("fresh index: %s, updated index: %s", a, b)
 	}
 }

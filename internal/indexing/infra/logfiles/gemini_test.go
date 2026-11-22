@@ -107,87 +107,108 @@ func TestAnAnswerThatIsSaidAgainCountsOnceWithItsNewUsage(t *testing.T) {
 }
 
 func TestAPromptThatWasRemovedIsNotCounted(t *testing.T) {
+	// Given a journal with two prompts, the second of which is removed afterwards
 	log := journal(conversationStart,
 		`{"id":"u1","timestamp":"2026-02-02T10:00:01.000Z","type":"user","content":[{"text":"first"}]}`,
 		`{"id":"u2","timestamp":"2026-02-02T10:00:03.000Z","type":"user","content":[{"text":"second"}]}`,
 		`{"$patch":{"removeIds":["u2"]}}`)
 
+	// When it is read
 	p := parse(t, ParseGemini, "/h/.gemini/tmp/demo/chats/session-2.jsonl", log)
 
+	// Then only the first prompt is counted
 	if len(p.Prompts) != 1 || p.Prompts[0].Text != "first" {
 		t.Errorf("prompts = %+v", p.Prompts)
 	}
 }
 
 func TestRewindingToAMessageDropsItAndWhatCameAfter(t *testing.T) {
+	// Given a journal with three prompts, rewound to the second
 	log := journal(conversationStart,
 		`{"id":"u1","timestamp":"2026-02-02T10:00:01.000Z","type":"user","content":[{"text":"first"}]}`,
 		`{"id":"u2","timestamp":"2026-02-02T10:00:03.000Z","type":"user","content":[{"text":"second"}]}`,
 		`{"id":"u3","timestamp":"2026-02-02T10:00:05.000Z","type":"user","content":[{"text":"third"}]}`,
 		`{"$rewindTo":"u2"}`)
 
+	// When it is read
 	p := parse(t, ParseGemini, "/h/.gemini/tmp/demo/chats/session-2.jsonl", log)
 
+	// Then only the first prompt is counted
 	if len(p.Prompts) != 1 || p.Prompts[0].Text != "first" {
 		t.Errorf("prompts = %+v", p.Prompts)
 	}
 }
 
 func TestAnEditedPromptIsCountedAsItNowReads(t *testing.T) {
+	// Given a journal with a prompt that is edited afterwards
 	log := journal(conversationStart,
 		`{"id":"u1","timestamp":"2026-02-02T10:00:01.000Z","type":"user","content":[{"text":"first"}]}`,
 		`{"$patch":{"updates":[{"id":"u1","content":[{"text":"first, edited"}]}]}}`)
 
+	// When it is read
 	p := parse(t, ParseGemini, "/h/.gemini/tmp/demo/chats/session-2.jsonl", log)
 
+	// Then the prompt is the edited one
 	if len(p.Prompts) != 1 || p.Prompts[0].Text != "first, edited" {
 		t.Errorf("prompts = %+v", p.Prompts)
 	}
 }
 
 func TestAnEditedToolResultIsMeasuredAsItNowStands(t *testing.T) {
+	// Given a journal in which the result of a tool call is replaced afterwards
 	log := journal(conversationStart, answerToReplace,
 		`{"$patch":{"id":"a1","toolCalls":[{"id":"c1","result":[{"big":"0123456789"}]}]}}`)
 
+	// When it is read
 	p := parse(t, ParseGemini, "/h/.gemini/tmp/demo/chats/session-2.jsonl", log)
 
+	// Then the result is measured as it now is
 	if len(p.Tools) != 1 || p.Tools[0].ResultChars != len(`[{"big":"0123456789"}]`) {
 		t.Errorf("tools = %+v", p.Tools)
 	}
 }
 
 func TestMessagesAreCountedInTheOrderTheJournalGivesThem(t *testing.T) {
+	// Given a journal with two answers, put in the other order afterwards
 	log := journal(conversationStart, answerToReplace,
 		`{"id":"a2","timestamp":"2026-02-02T10:00:04.000Z","type":"gemini","content":"y","model":"m","tokens":{"input":20,"output":2,"cached":0,"thoughts":0,"tool":0,"total":22}}`,
 		`{"$patch":{"orderIds":["a2","a1"]}}`)
 
+	// When it is read
 	p := parse(t, ParseGemini, "/h/.gemini/tmp/demo/chats/session-2.jsonl", log)
 
+	// Then the requests come in that order
 	if len(p.Requests) != 2 || p.Requests[0].Key != "a2" || p.Requests[1].Key != "a1" {
 		t.Errorf("requests = %+v", p.Requests)
 	}
 }
 
 func TestRewindingToAMessageThatIsNotThereEmptiesTheConversation(t *testing.T) {
+	// Given a journal rewound to a message that does not exist, then continued with a prompt
 	log := journal(
 		`{"sessionId":"s-3","projectHash":"h"}`,
 		`{"id":"u1","timestamp":"2026-02-02T10:00:01.000Z","type":"user","content":"hello"}`,
 		`{"$rewindTo":"nowhere"}`,
 		`{"id":"u2","timestamp":"2026-02-02T10:00:02.000Z","type":"user","content":"again"}`,
 	)
+	// When it is read
 	p := parse(t, ParseGemini, "/h/.gemini/tmp/demo/chats/session-3.jsonl", log)
+	// Then only the prompt written after the rewind is counted
 	if len(p.Prompts) != 1 || p.Prompts[0].Text != "again" {
 		t.Errorf("prompts = %+v", p.Prompts)
 	}
 }
 
 func TestARestatedConversationReplacesTheOneBeforeItAndKeepsWhatItSaysOfItself(t *testing.T) {
+	// Given a journal that restates its messages and its kind after a first prompt
 	log := journal(
 		`{"sessionId":"s-4","projectHash":"h","startTime":"2026-02-02T10:00:00.000Z"}`,
 		`{"id":"u1","timestamp":"2026-02-02T10:00:01.000Z","type":"user","content":"old"}`,
 		`{"$set":{"messages":[{"id":"u9","timestamp":"2026-02-02T10:00:02.000Z","type":"user","content":"new"}],"kind":"subagent"}}`,
 	)
+	// When it is read
 	p := parse(t, ParseGemini, "/h/.gemini/tmp/demo/chats/session-4.jsonl", log)
+	// Then the restated prompt replaces the first, and the session is the one named at the start, now a subagent
 	if len(p.Prompts) != 1 || p.Prompts[0].Text != "new" || p.Session.AgentType != domain.Subagent || p.Session.ID.String() != "gemini:s-4" {
 		t.Errorf("transcript = %+v", p)
 	}
@@ -315,6 +336,7 @@ func TestGeminiConversationsWithHostileContentAreBoundedAndCounted(t *testing.T)
 }
 
 func TestGeminiRefusesAConversationItCannotName(t *testing.T) {
+	// Given conversations with no usable id, or that are not whole documents
 	for name, doc := range map[string]string{
 		"no id":                        `{"projectHash":"h","messages":[]}`,
 		"hostile id":                   `{"sessionId":"../../etc/passwd","projectHash":"h","messages":[]}`,
@@ -326,7 +348,9 @@ func TestGeminiRefusesAConversationItCannotName(t *testing.T) {
 		"something after the document": `{"sessionId":"s","projectHash":"h","messages":[]} {}`,
 		"messages a list":              `{"sessionId":"s","messages":7}`,
 	} {
+		// When each is read
 		_, err := ParseGemini("/h/.gemini/tmp/demo/chats/session-x.json", strings.NewReader(doc))
+		// Then each is refused as unreadable, with nothing of the decoder in the error
 		var syntax *json.SyntaxError
 		if !errors.Is(err, ErrConversationUnreadable) || errors.As(err, &syntax) {
 			t.Errorf("%s: err = %v, want ErrConversationUnreadable and nothing of the decoder's", name, err)
@@ -335,6 +359,7 @@ func TestGeminiRefusesAConversationItCannotName(t *testing.T) {
 }
 
 func TestGeminiJournalSkipsMalformedLinesAndCountsThem(t *testing.T) {
+	// Given a journal with lines that are not usable
 	log := journal(
 		`{"sessionId":"s-7","projectHash":"h"}`,
 		`{"id":"u1","timestamp":"2026-02-02T10:00:01.000Z","type":"user","content":"kept"}`,
@@ -343,19 +368,23 @@ func TestGeminiJournalSkipsMalformedLinesAndCountsThem(t *testing.T) {
 		`{"$patch":7}`,
 		`{"$set":{"messages":"nope"}}`,
 	)
+	// When it is read
 	p := parse(t, ParseGemini, "/h/.gemini/tmp/demo/chats/session-7.jsonl", log)
+	// Then the lines that are not usable are skipped and counted, the others are kept
 	if len(p.Prompts) != 1 || p.SkippedLines != 4 {
 		t.Errorf("prompts = %+v, skipped %d", p.Prompts, p.SkippedLines)
 	}
 }
 
 func TestGeminiConversationLargerThanTheBoundIsRefused(t *testing.T) {
+	// Given a limit on the size of a conversation, and conversations over it, as a document and as a journal
 	defer func(n int64) { maxGeminiBytes = n }(maxGeminiBytes)
 	maxGeminiBytes = 200
 	for path, doc := range map[string]string{
 		"/h/.gemini/tmp/p/chats/session-1.json":  geminiDocument,
 		"/h/.gemini/tmp/p/chats/session-1.jsonl": journal(`{"sessionId":"s","projectHash":"h"}`, geminiDocument),
 	} {
+		// When each is read, then it is refused as too large
 		if _, err := ParseGemini(path, strings.NewReader(doc)); !errors.Is(err, ErrLogTooLarge) {
 			t.Errorf("%s: err = %v, want ErrLogTooLarge", path, err)
 		}
@@ -363,6 +392,7 @@ func TestGeminiConversationLargerThanTheBoundIsRefused(t *testing.T) {
 }
 
 func TestOnlyConversationFilesInAChatsDirectoryAreGeminiLogs(t *testing.T) {
+	// Given files in the places Gemini CLI keeps its conversations and in the ones it keeps other things
 	for path, want := range map[string]bool{
 		"/h/.gemini/tmp/p/chats/session-1.json":        true,
 		"/h/.gemini/tmp/p/chats/session-1.jsonl":       true,
@@ -372,6 +402,7 @@ func TestOnlyConversationFilesInAChatsDirectoryAreGeminiLogs(t *testing.T) {
 		"/h/.gemini/tmp/p/chats/session-1.jsonl.tmp-9": false,
 		"/h/.gemini/tmp/p/chats/a/b/c.json":            false,
 	} {
+		// When each is asked about, then only the conversations are logs
 		if got := IsGeminiConversation(path); got != want {
 			t.Errorf("%s: %v, want %v", path, got, want)
 		}

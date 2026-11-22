@@ -283,10 +283,10 @@ var forkedTitle = regexp.MustCompile(`\(fork #[0-9]+\)$`)
 
 var sessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$`)
 
-// stats is what a table holds of one session: how many rows, the sum of the times they were updated and how many bytes of data.
-type stats struct{ rows, updated, bytes int64 }
+// stats is what a table holds of one session: how many rows, the sum of the times they were updated (not a time itself) and how many bytes of data.
+type stats struct{ rows, updateTimes, bytes int64 }
 
-func (s stats) String() string { return fmt.Sprintf("%d.%d.%d", s.rows, s.updated, s.bytes) }
+func (s stats) String() string { return fmt.Sprintf("%d.%d.%d", s.rows, s.updateTimes, s.bytes) }
 
 // tableStats counts, per session, the rows of a table of messages or of parts. The bytes of data catch what the
 // count misses: a part that goes from running to error keeps its row. The times are summed, not maximised: a row
@@ -295,11 +295,11 @@ func (s stats) String() string { return fmt.Sprintf("%d.%d.%d", s.rows, s.update
 // ponytail: this reads the data of every row at each listing; keep a fingerprint per session in the index if a
 // database ever makes that slow.
 func tableStats(ctx context.Context, db *sql.DB, table string, stamped bool) (map[string]stats, error) {
-	updated := "0"
+	updateTimes := "0"
 	if stamped {
-		updated = "SUM(MIN(MAX(time_updated, 0), 4102444800000))"
+		updateTimes = "SUM(MIN(MAX(time_updated, 0), 4102444800000))"
 	}
-	rows, err := db.QueryContext(ctx, `SELECT `+bounded("session_id", 200, "session_id")+` AS sid, COUNT(*), `+updated+`, COALESCE(SUM(length(CAST(data AS BLOB))), 0) FROM `+table+` GROUP BY sid`) // table is one of the names of the schema, never a value of the database
+	rows, err := db.QueryContext(ctx, `SELECT `+bounded("session_id", 200, "session_id")+` AS sid, COUNT(*), `+updateTimes+`, COALESCE(SUM(length(CAST(data AS BLOB))), 0) FROM `+table+` GROUP BY sid`) // table is one of the names of the schema, never a value of the database
 	if err != nil {
 		return nil, err
 	}
@@ -308,7 +308,7 @@ func tableStats(ctx context.Context, db *sql.DB, table string, stamped bool) (ma
 	for rows.Next() {
 		var id sql.NullString
 		var s stats
-		if err := rows.Scan(&id, &s.rows, &s.updated, &s.bytes); err != nil {
+		if err := rows.Scan(&id, &s.rows, &s.updateTimes, &s.bytes); err != nil {
 			return nil, err
 		}
 		if id.Valid {
@@ -337,7 +337,7 @@ func kindStatsOf(ctx context.Context, db *sql.DB, s dbSchema, events bool) (k ki
 }
 
 // revision says when a session changed, from what its tables hold of it: when the session was updated, and for
-// its messages and for its parts the number of rows, the last update and the bytes of data. The size and
+// its messages and for its parts the number of rows, the sum of their update times and the bytes of data. The size and
 // modification time of the database file would not do, as they change whenever any session is written, and every
 // session would be read again. Reading through SQLite also takes the -wal file into account.
 // weight is the bytes of data the session holds.

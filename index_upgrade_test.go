@@ -3,12 +3,18 @@ package main
 import (
 	"context"
 	"database/sql"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	indexing "github.com/Nathandelenclos/agent-stats/internal/indexing/application"
+	"github.com/Nathandelenclos/agent-stats/internal/indexing/infra/logfiles"
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/infra/sqlite"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	pricing "github.com/Nathandelenclos/agent-stats/internal/pricing/domain"
 	report "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 	usagedb "github.com/Nathandelenclos/agent-stats/internal/reporting/infra/sqlite"
 )
@@ -241,36 +247,83 @@ func TestAnIndexALaterBuildGaveANewColumnToEveryTableIsStillWrittenByThisBuild(t
 	}
 }
 
-func TestALogTheBuildBeforeRevisionsIndexedIsNotReadAgainWhileItsFileIsTheSame(t *testing.T) {
-	// Given an index main wrote, where a log was indexed when its file had size 1 and modification time 1
-	path, db := indexAsMainMadeItBeforeItsMigrations(t)
-	mainWritesALog(t, db, "claude", "/logs/claude.jsonl", "Read", "")
+// aClaudeLogOnDisk copies a Claude log into a directory of its own and returns the directory and the log.
+func aClaudeLogOnDisk(t *testing.T) (dir, log string) {
+	t.Helper()
+	raw, err := os.ReadFile("testdata/home/.claude/projects/-repo/abc.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir = t.TempDir()
+	log = filepath.Join(dir, "abc.jsonl")
+	if err := os.WriteFile(log, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dir, log
+}
 
-	// When this build opens it and lists what it knows
-	known, err := openIndex(t, path).IndexedFiles()
+// indexClaudeLogs indexes the Claude logs under dir into the index and says what the run read.
+func indexClaudeLogs(t *testing.T, w *sqlite.SQLiteIndex, dir string) indexing.IndexReport {
+	t.Helper()
+	logs := logfiles.NewFileSessionLogs([]logfiles.Source{{Harness: kernel.Claude, Root: dir,
+		Match: func(p string) bool { return strings.HasSuffix(p, ".jsonl") }, Parse: logfiles.ParseClaude}})
+	rep, err := indexing.IndexSessions{Logs: logs, Store: w, Prices: pricing.PriceList{}}.Run(nil)
+	if err != nil || len(rep.Errors) > 0 {
+		t.Fatalf("index: %+v, %v", rep, err)
+	}
+	return rep
+}
 
-	// Then the log is known by the revision a file reader gives that file: its size and modification time
-	if err != nil || known["/logs/claude.jsonl"].Revision != "1:1" {
-		t.Errorf("known = %+v, %v", known, err)
+// mainRecordsTheFile is what main writes when it has indexed a log: the size and the modification time its file had.
+func mainRecordsTheFile(t *testing.T, db *sql.DB, log string) {
+	t.Helper()
+	info, err := os.Stat(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(mainIndexInserts["files"], log, "claude", info.Size(), info.ModTime().UnixNano()); err != nil {
+		t.Fatal(err)
 	}
 }
 
-func TestALogRevisionIsKeptAsTheReaderGaveItAndMainRewritingTheLogReplacesIt(t *testing.T) {
-	// Given a log this build indexed under an opaque revision
+func TestALogAnEarlierVersionIndexedIsNotReadAgainWhileItsFileIsUnchanged(t *testing.T) {
+	// Given an index an earlier version wrote, which indexed a Claude log
+	dir, log := aClaudeLogOnDisk(t)
+	path, db := indexAsMainMadeItBeforeItsMigrations(t)
+	mainRecordsTheFile(t, db, log)
+
+	// When this version indexes the logs, the file being as the earlier version saw it
+	rep := indexClaudeLogs(t, openIndex(t, path), dir)
+
+	// Then the log is not read again
+	if rep.Scanned != 1 || rep.Indexed != 0 {
+		t.Errorf("report = %+v", rep)
+	}
+}
+
+func TestALogAnEarlierVersionIndexedAfterThisOneDidIsNotReadAgainWhileItsFileIsUnchanged(t *testing.T) {
+	// Given a Claude log this version indexed, then grew, and an earlier version indexed in its new state
+	dir, log := aClaudeLogOnDisk(t)
 	path, db := indexAsMainMadeItBeforeItsMigrations(t)
 	w := openIndex(t, path)
-	saveLogHolding(t, w, "/logs/claude.jsonl", nil, nil)
-	known, err := w.IndexedFiles()
-	if err != nil || known["/logs/claude.jsonl"].Revision != "1" {
-		t.Fatalf("known = %+v, %v", known, err)
+	if rep := indexClaudeLogs(t, w, dir); rep.Indexed != 1 {
+		t.Fatalf("first run: %+v", rep)
 	}
+	f, err := os.OpenFile(log, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("\n"); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	mainRecordsTheFile(t, db, log)
 
-	// When main, which knows nothing of revisions, indexes that log again
-	mainWritesALog(t, db, "claude", "/logs/claude.jsonl", "Read", "")
+	// When this version indexes the logs again
+	rep := indexClaudeLogs(t, w, dir)
 
-	// Then the log is known by the size and modification time main saw, not by the revision of before
-	known, err = w.IndexedFiles()
-	if err != nil || known["/logs/claude.jsonl"].Revision != "1:1" {
-		t.Errorf("known = %+v, %v", known, err)
+	// Then the log is not read again: the file was already read as it now is
+	if rep.Indexed != 0 {
+		t.Errorf("report = %+v", rep)
 	}
 }

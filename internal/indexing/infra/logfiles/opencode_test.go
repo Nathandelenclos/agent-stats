@@ -385,7 +385,7 @@ func TestAMessageCopiedIntoAForkIsHistoryEvenWhenItWasStampedWhenTheForkWasMade(
 	}
 }
 
-func TestARowIsBoundedByItsBytesWhateverItsLengthInCharacters(t *testing.T) {
+func TestAMessageIsBoundedByItsBytesWhateverItsLengthInCharacters(t *testing.T) {
 	// Given a limit of 100 bytes for a row, and a message of 95 characters that weigh 135 bytes
 	defer func(limit int) { maxDBRowBytes = limit }(maxDBRowBytes)
 	maxDBRowBytes = 100
@@ -487,20 +487,26 @@ func TestANewerOpenCodeGivesTheTimeToFirstTokenAndTheDurationOfTheStream(t *test
 }
 
 func TestAFailedAnswerOfANewerOpenCodeIsAFailedRequestWithoutATimeToFirstToken(t *testing.T) {
+	// Given a session of a newer OpenCode with an answer that failed
 	logs, _ := newOpenCode(t, "events.sql")
 
+	// When it is read
 	p := transcriptOf(t, logs, "ses_a")
 
+	// Then the answer is a failed request, with no time to first token and the duration of its stream
 	if a4 := p.Requests[1]; a4.Failure != "ProviderOverloaded" || a4.TTFT.Known() || a4.Duration.Value() != 5*time.Second {
 		t.Errorf("a4 = %+v", a4)
 	}
 }
 
 func TestACompactionOfANewerOpenCodeIsARequestOfItsOwn(t *testing.T) {
+	// Given a session of a newer OpenCode with a compaction that used the model
 	logs, _ := newOpenCode(t, "events.sql")
 
+	// When it is read
 	p := transcriptOf(t, logs, "ses_a")
 
+	// Then the compaction is a request of its own, with its usage and its cost
 	if len(p.Requests) != 3 {
 		t.Fatalf("requests = %+v", p.Requests)
 	}
@@ -584,10 +590,13 @@ func TestANewerOpenCodeTakesToolCallsFromTheirPartsAndFromTheMessageThatHoldsOne
 }
 
 func TestASessionOfANewerOpenCodeWithAParentIsASubagentOfIt(t *testing.T) {
+	// Given a session of a newer OpenCode that names a parent
 	logs, _ := newOpenCode(t, "events.sql")
 
+	// When it is read
 	sub := transcriptOf(t, logs, "ses_b")
 
+	// Then it is a subagent of that session, named after its first prompt
 	if sub.Session.ParentID.String() != "opencode:ses_a" || sub.Session.AgentType != domain.Subagent || sub.Session.Title != "Find the callers" ||
 		len(sub.Requests) != 1 || sub.Requests[0].TTFT.Value() != 500*time.Millisecond {
 		t.Errorf("subagent = %+v", sub)
@@ -595,10 +604,13 @@ func TestASessionOfANewerOpenCodeWithAParentIsASubagentOfIt(t *testing.T) {
 }
 
 func TestAForkedSessionOfANewerOpenCodeIsNotASubagentAndCountsOnlyWhatWasSaidSinceTheFork(t *testing.T) {
+	// Given a session of a newer OpenCode forked from another one, which holds a copy of the first messages
 	logs, _ := newOpenCode(t, "events.sql")
 
+	// When it is read
 	fork := transcriptOf(t, logs, "ses_c")
 
+	// Then it is a conversation of its own, and counts only what was said since the fork
 	if !fork.Session.ParentID.IsZero() || fork.Session.AgentType != domain.MainAgent {
 		t.Errorf("a fork is not a subagent: %+v", fork.Session)
 	}
@@ -697,6 +709,7 @@ func TestReadingADatabaseNeverChangesIt(t *testing.T) {
 }
 
 func TestDatabasesThatCannotBeUsedAreReportedAndYieldNoSession(t *testing.T) {
+	// Given a file that is not a database, a database of another schema, a pipe and a database that is not there
 	root := t.TempDir()
 	notADB := filepath.Join(root, "garbage.db")
 	if err := os.WriteFile(notADB, []byte("this is not a database, but it is long enough to be mistaken for the header of one"), 0o600); err != nil {
@@ -886,19 +899,25 @@ func databasesRead(t *testing.T, root string, d *OpenCodeDatabase) []string {
 }
 
 func TestOpenCodeReadsItsDatabaseAndItsChannelsButNotTheirCompanionFiles(t *testing.T) {
+	// Given a data directory with the databases of two channels of OpenCode, beside files that are not databases
+	// When the databases of OpenCode are looked for, then those of the channels are found and the other files are not
 	if got := databasesRead(t, dataDirectory(t), &OpenCodeDatabase{Prefix: "opencode"}); !slices.Equal(got, []string{"opencode-beta.db", "opencode-dev.db", "opencode.db"}) {
 		t.Errorf("read %v", got)
 	}
 }
 
 func TestKiloReadsTheChannelsItNamesItselfAndOneNamedTheOldWayOnlyWhereItHasNoneOfItsOwn(t *testing.T) {
+	// Given the same data directory, read for Kilo Code
+	// When the databases of Kilo Code are looked for, then its own are found, and one named the old way only where it has none of its own
 	if got := databasesRead(t, dataDirectory(t), &OpenCodeDatabase{Prefix: "kilo", Fallback: "opencode"}); !slices.Equal(got, []string{"kilo-beta.db", "kilo.db", "opencode-dev.db"}) {
 		t.Errorf("read %v", got)
 	}
 }
 
 func TestADatabaseTheUserNamesReplacesTheSearchWhetherItsPathIsRelativeOrAbsolute(t *testing.T) {
+	// Given a data directory with several databases, and a user who names one of them
 	root := dataDirectory(t)
+	// When the databases are looked for, then only the named one is read, whether its path is relative or absolute
 	if got := databasesRead(t, root, &OpenCodeDatabase{Prefix: "opencode", Override: "other.db"}); !slices.Equal(got, []string{"other.db"}) {
 		t.Errorf("relative path: read %v", got)
 	}
@@ -908,6 +927,8 @@ func TestADatabaseTheUserNamesReplacesTheSearchWhetherItsPathIsRelativeOrAbsolut
 }
 
 func TestADataDirectoryThatIsNotThereHoldsNoSession(t *testing.T) {
+	// Given a harness that has no data directory yet
+	// When its logs are listed, then there are none and nothing is wrong
 	files, _, err := harnessLogs(kernel.OpenCode, filepath.Join(t.TempDir(), "absent"), &OpenCodeDatabase{Prefix: "opencode"}).List()
 	if err != nil || len(files) != 0 {
 		t.Errorf("files %v, err %v", files, err)
