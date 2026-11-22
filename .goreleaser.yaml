@@ -46,6 +46,8 @@ sboms:
 changelog:
   disable: true
 
-# The GitHub release is created by this run, after the workflow pushed the tag; notes come from git-cliff.
+# The release is created as a draft after the workflow pushed the tag; the workflow publishes it once the
+# build provenance is attested. A draft left by a failed run is replaced by the next one.
 release:
-  draft: false
+  draft: true
+  replace_existing_draft: true
