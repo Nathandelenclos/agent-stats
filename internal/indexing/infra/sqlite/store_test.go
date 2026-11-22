@@ -373,3 +373,53 @@ func TestAnIndexFromANewerVersionIsLeftAlone(t *testing.T) {
 		t.Errorf("version = %d, %v", version, err)
 	}
 }
+
+func TestCodexLogsIndexedBeforeTheEndTimeFixAreReadAgainOnce(t *testing.T) {
+	// Given an index built before the Codex end times were fixed, holding a Codex log and a Claude log
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	codex := application.LogFile{Path: "/logs/codex.jsonl", Harness: kernel.Codex, Size: 5, ModTime: time.Unix(0, 1)}
+	claude := application.LogFile{Path: "/logs/claude.jsonl", Harness: kernel.Claude, Size: 7, ModTime: time.Unix(0, 2)}
+	for _, f := range []application.LogFile{codex, claude} {
+		if err := s.Save(f, transcript(t, filepath.Base(f.Path), at)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.db.Exec(`PRAGMA user_version = 0`); err != nil {
+		t.Fatal(err)
+	}
+	path := pathOf(t, s)
+	s.Close()
+
+	// When the index is opened by a build with the fix
+	s = reopen(t, path)
+
+	// Then the Codex log is no longer known, so the next sync reads it again, and the Claude log is kept
+	known, err := s.IndexedFiles()
+	if err != nil || len(known) != 1 || known[claude.Path].Size != 7 {
+		t.Fatalf("indexed files = %+v, %v", known, err)
+	}
+	var sessions int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&sessions); err != nil || sessions != 2 {
+		t.Errorf("sessions = %d, %v: what was indexed stays until the log is read again", sessions, err)
+	}
+
+	// And once it is read again, opening the index does not forget it a second time
+	if err := s.Save(codex, transcript(t, "codex.jsonl", at)); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	if known, err := reopen(t, path).IndexedFiles(); err != nil || len(known) != 2 {
+		t.Errorf("indexed files = %+v, %v", known, err)
+	}
+}
+
+func reopen(t *testing.T, path string) *SQLiteIndex {
+	t.Helper()
+	s, err := Open(Options{Path: path, User: "me@host"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return s
+}

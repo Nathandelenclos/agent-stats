@@ -72,6 +72,11 @@ CREATE VIEW IF NOT EXISTS session_prompts AS
 // migrations: it is migrated when opened, never twice.
 const schemaVersion = 1
 
+// forgetCodexLogs makes the next sync read every Codex log again: a Codex session indexed before its end was
+// taken from its last tool call or prompt ended too late, and an unchanged log is not read twice.
+// Only the bookkeeping goes; rows stay until their log is read again, so a log Codex since deleted keeps its history.
+const forgetCodexLogs = `DELETE FROM files WHERE harness = 'codex'`
+
 // sessionViews is the sessions read model. It holds no data, so migrate replaces it whenever its definition changes.
 const sessionViews = `
 DROP VIEW IF EXISTS session_requests;
@@ -180,7 +185,7 @@ func Open(o Options) (*SQLiteIndex, error) {
 		db.Close()
 		return nil, err
 	}
-	if err := migrate(db, schemaVersion, sessionViews); err != nil {
+	if err := migrate(db, schemaVersion, sessionViews, forgetCodexLogs); err != nil {
 		db.Close()
 		return nil, err
 	}
