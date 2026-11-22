@@ -1,0 +1,1 @@
+{"mcpServers": {"omp-docs": {"command": "x", "env": {"KEY": "SECRET-OMP-ENV"}}}, "enabledServers": ["omp-docs", "elsewhere"]}

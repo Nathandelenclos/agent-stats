@@ -1,8 +1,11 @@
 package tui
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -64,7 +67,8 @@ var harnessChoices = append([]kernel.Harness{{}}, kernel.Harnesses...)
 // reportMsg carries the result of a report request; seq tells which request it answers.
 type reportMsg struct {
 	seq             int
-	period, harness int // the filters the report was asked for
+	period, harness int  // the filters the report was asked for
+	restricted      bool // and whether it was restricted to the project
 	report          reporting.Report
 	err             error
 }
@@ -81,20 +85,33 @@ type syncDoneMsg struct {
 	err  error
 }
 
+// scopeMsg carries the project detection found after an indexing; err is its failure.
+type scopeMsg struct {
+	project kernel.Project
+	err     error
+}
+
 // Model is the Bubble Tea model of the interface.
 type Model struct {
 	reports  reporting.BuildReport
 	lister   reporting.ListSessions // without queries, the sessions mode is off
 	shower   reporting.ShowSession
-	reviewer reporting.ReviewPrompts // without queries, the prompts mode is off
-	sync     Sync                    // nil when indexing is off
+	reviewer reporting.ReviewPrompts        // without queries, the prompts mode is off
+	sync     Sync                           // nil when indexing is off
+	detect   func() (kernel.Project, error) // nil when the scope is not for detection to change
+	syncs    *syncRuns
 	now      func() time.Time
 
-	periods []period // the presets, led by a custom period when the command line asked for one
-	period  int
-	harness int                           // index in harnessChoices
-	shown   struct{ period, harness int } // the filters of the report on screen: the title names these, not the pending choice
-	seq     int                           // the latest report request; older answers are ignored
+	periods    []period // the presets, led by a custom period when the command line asked for one
+	period     int
+	harness    int            // index in harnessChoices
+	project    kernel.Project // what key a restricts the views to; the zero Project leaves nothing to restrict to
+	restricted bool           // whether the views are restricted to project
+	shown      struct {       // the filters of the report on screen: the title names these, not the pending choice
+		period, harness int
+		restricted      bool
+	}
+	seq     int // the latest report request; older answers are ignored
 	pending bool
 
 	syncing  bool
@@ -118,7 +135,7 @@ type Model struct {
 // New returns the model for o. Its Init asks for the first report.
 func New(o Options) Model {
 	t := table.New(table.WithFocused(true))
-	m := Model{reports: o.Reports, lister: o.Sessions, shower: o.Session, reviewer: o.Prompts, sessions: newSessionsState(), sync: o.Sync, syncing: o.Sync != nil, spinner: spinner.New(spinner.WithSpinner(spinner.MiniDot)), now: time.Now, table: t, width: 80, height: 24, periods: periods}
+	m := Model{reports: o.Reports, lister: o.Sessions, shower: o.Session, reviewer: o.Prompts, sessions: newSessionsState(), sync: o.Sync, detect: o.Detect, syncs: newSyncRuns(), syncing: o.Sync != nil, spinner: spinner.New(spinner.WithSpinner(spinner.MiniDot)), now: time.Now, table: t, width: 80, height: 24, periods: periods}
 	m.period = len(periods) - 1 // all
 	if o.SinceLabel != "" {
 		m.period = -1
@@ -138,7 +155,8 @@ func New(o Options) Model {
 			m.harness = i
 		}
 	}
-	m.shown.period, m.shown.harness = m.period, m.harness // nothing on screen yet: the title names the first request
+	m.project, m.restricted = o.Project, o.Restricted && !o.Project.IsZero()
+	m.shown.period, m.shown.harness, m.shown.restricted = m.period, m.harness, m.restricted // nothing on screen yet: the title names the first request
 	for i := range m.sorts {
 		m.sorts[i] = reportOrder
 	}
@@ -153,35 +171,111 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(m.load(), m.startSync(), m.spinner.Tick)
 }
 
+// progressEvery is the shortest time between two progress messages: each one redraws the screen, and a
+// sync that indexes files by the hundred per second would otherwise keep the interface busy drawing counts.
+const progressEvery = 100 * time.Millisecond
+
+// syncRuns tells the syncs to stop when the interface closes, and waits for them: they write to an index
+// that is closed right after.
+type syncRuns struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+	mu     sync.Mutex // orders begin after stop
+	runs   sync.WaitGroup
+}
+
+func newSyncRuns() *syncRuns {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &syncRuns{ctx: ctx, cancel: cancel}
+}
+
+// begin registers a sync about to run; it is false once the syncs were stopped.
+func (s *syncRuns) begin() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ctx.Err() != nil {
+		return false
+	}
+	s.runs.Add(1)
+	return true
+}
+
+// stop cancels the syncs and returns once they ended.
+func (s *syncRuns) stop() {
+	s.mu.Lock()
+	s.cancel()
+	s.mu.Unlock()
+	s.runs.Wait()
+}
+
+// stopSync is what closing the interface does about a sync still running.
+func (m Model) stopSync() { m.syncs.stop() }
+
+// listen is the command that waits for the next message of a sync, or for the interface to close.
+func (m Model) listen(events <-chan tea.Msg) tea.Cmd {
+	done := m.syncs.ctx.Done()
+	return func() tea.Msg {
+		select {
+		case msg := <-events:
+			return msg
+		case <-done:
+			return syncDoneMsg{err: context.Canceled}
+		}
+	}
+}
+
 // startSync runs the sync off the UI loop and streams its progress back as messages.
 func (m Model) startSync() tea.Cmd {
-	sync := m.sync
+	index, now, runs := m.sync, m.now, m.syncs
 	return func() tea.Msg {
+		if !runs.begin() {
+			return syncDoneMsg{err: context.Canceled}
+		}
 		events := make(chan tea.Msg, 8)
 		go func() {
-			note, err := sync(func(n int) {
+			defer runs.runs.Done()
+			var mu sync.Mutex
+			var last time.Time // when the latest progress message was sent
+			note, err := index(runs.ctx, func(n int) {
+				mu.Lock()
+				t := now()
+				skip := !last.IsZero() && t.Sub(last) < progressEvery
+				if !skip {
+					last = t
+				}
+				mu.Unlock()
+				if skip {
+					return
+				}
 				select {
 				case events <- syncProgressMsg{n, events}:
 				default: // the screen is behind: the next count will do
 				}
 			})
-			events <- syncDoneMsg{note, err}
+			select {
+			case events <- syncDoneMsg{note, err}:
+			case <-runs.ctx.Done(): // the interface closed: nobody reads any more
+			}
 		}()
-		return <-events
+		return m.listen(events)()
 	}
 }
 
 // query is what the filters currently ask for.
 func (m Model) query() reporting.Query {
-	return reporting.Query{Since: m.periods[m.period].since(m.now()), Harness: harnessChoices[m.harness]}
+	q := reporting.Query{Since: m.periods[m.period].since(m.now()), Harness: harnessChoices[m.harness]}
+	if m.restricted {
+		q.Project = m.project
+	}
+	return q
 }
 
 // load asks the use case for the report of the current filters, off the UI loop.
 func (m Model) load() tea.Cmd {
-	reports, q, seq, period, harness := m.reports, m.query(), m.seq, m.period, m.harness
+	reports, q, seq, period, harness, restricted := m.reports, m.query(), m.seq, m.period, m.harness, m.restricted
 	return func() tea.Msg {
-		r, err := reports.Run(q)
-		return reportMsg{seq, period, harness, r, err}
+		r, err := reports.Run(context.Background(), q)
+		return reportMsg{seq, period, harness, restricted, r, err}
 	}
 }
 
@@ -219,7 +313,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		if msg.err == nil {
 			m.report, m.loaded = msg.report, true
-			m.shown.period, m.shown.harness = msg.period, msg.harness
+			m.shown.period, m.shown.harness, m.shown.restricted = msg.period, msg.harness, msg.restricted
 		}
 		m.layout()
 		return m, nil
@@ -231,7 +325,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		if msg.err == nil {
 			m.sessions.list, m.sessions.loaded = msg.list, true
-			m.shown.period, m.shown.harness = msg.period, msg.harness
+			m.shown.period, m.shown.harness, m.shown.restricted = msg.period, msg.harness, msg.restricted
 		}
 		m.layout()
 		return m, nil
@@ -243,7 +337,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		if msg.err == nil {
 			m.prompts.review, m.prompts.loaded = msg.review, true
-			m.shown.period, m.shown.harness = msg.period, msg.harness
+			m.shown.period, m.shown.harness, m.shown.restricted = msg.period, msg.harness, msg.restricted
 		}
 		m.layout()
 		return m, nil
@@ -258,10 +352,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case syncProgressMsg:
 		m.indexed = msg.indexed
-		return m, func() tea.Msg { return <-msg.events }
+		return m, m.listen(msg.events)
 	case syncDoneMsg:
 		m.syncing, m.syncNote, m.syncErr = false, msg.note, msg.err
-		return m.reload() // the index changed: show it
+		if m.detect == nil || errors.Is(msg.err, context.Canceled) {
+			return m.reload() // the index changed: show it
+		}
+		detect := m.detect
+		return m, func() tea.Msg { // the index may now hold sessions of the working folder: look again before showing it
+			p, err := detect()
+			return scopeMsg{p, err}
+		}
+	case scopeMsg:
+		if msg.err == nil {
+			m.project, m.restricted = reporting.Redetect(m.project, m.restricted, msg.project)
+		}
+		return m.reload()
 	case spinner.TickMsg:
 		if !m.syncing {
 			return m, nil // stops the animation
@@ -287,6 +393,7 @@ func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	switch k := msg.String(); k {
 	case "q", "ctrl+c":
+		m.syncs.cancel() // Run waits for the sync to stop once the program has
 		return m, tea.Quit
 	case "tab", "right":
 		m.selectTab((m.tab + 1) % tabCount)
@@ -304,6 +411,8 @@ func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "h":
 		m.harness = (m.harness + 1) % len(harnessChoices)
 		return m.reload()
+	case "a":
+		return m.toggleRestriction()
 	case "s":
 		m.sorts[m.tab] = m.sorts[m.tab].next(m.grid())
 		m.layout()
@@ -320,6 +429,23 @@ func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	return m, nil
+}
+
+// toggleRestriction switches the views between the project and every project; with no project to switch to it does nothing.
+func (m Model) toggleRestriction() (Model, tea.Cmd) {
+	if m.project.IsZero() {
+		return m, nil
+	}
+	m.restricted = !m.restricted
+	return m.reload()
+}
+
+// coverageLabel names what the report on screen covers.
+func (m Model) coverageLabel() string {
+	if m.shown.restricted {
+		return "project: " + textfmt.Printable(m.project.Name())
+	}
+	return "all projects"
 }
 
 // reindex starts a sync when indexing is on and none is running.
@@ -477,7 +603,7 @@ func (m Model) titleBar() string {
 	if h := harnessChoices[m.shown.harness]; !h.IsZero() {
 		harness = h.String()
 	}
-	bar := titleStyle.Render("agent-stats") + m.modeLabel() + faintStyle.Render(fmt.Sprintf("  period: %s · harness: %s", m.periods[m.shown.period].label, harness))
+	bar := titleStyle.Render("agent-stats") + m.modeLabel() + faintStyle.Render(fmt.Sprintf("  period: %s · harness: %s · %s", m.periods[m.shown.period].label, harness, m.coverageLabel()))
 	if m.syncing {
 		bar += "  " + m.spinner.View() + " indexing…"
 		if m.indexed > 0 {
@@ -523,12 +649,23 @@ func (m Model) help() string {
 	if m.sync != nil {
 		keys = append(keys, "r re-index")
 	}
+	if !m.project.IsZero() && !(m.mode == sessionsMode && m.sessions.detail.open) {
+		filters = append(filters, "a "+m.coverageSwitch())
+	}
 	keys = append(keys, filters...)
 	line := func(k []string) string { return strings.Join(append(k[:len(k):len(k)], "q quit"), " · ") }
 	for m.width > 0 && len(keys) > 0 && lipgloss.Width(line(keys)) > m.width {
 		keys = keys[:len(keys)-1]
 	}
 	return line(keys)
+}
+
+// coverageSwitch says what key a would switch the views to.
+func (m Model) coverageSwitch() string {
+	if m.restricted {
+		return "all projects"
+	}
+	return "this project"
 }
 
 func (m Model) tabBar() string {

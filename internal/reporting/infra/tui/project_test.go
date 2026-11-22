@@ -1,0 +1,275 @@
+package tui
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
+)
+
+func appProject(t *testing.T) kernel.Project {
+	t.Helper()
+	p, err := kernel.NewProject("/work/app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestTheInterfaceOpensOnTheProjectItIsGiven(t *testing.T) {
+	// Given the interface opened on a project
+	reports := &fakeReports{report: sampleReport()}
+	m := startWith(t, reports, Options{Project: appProject(t), Restricted: true})
+
+	// Then the first report is about that project, and the title says so
+	if got := reports.queries[0].Project; got != appProject(t) {
+		t.Errorf("first report asked about %v", got)
+	}
+	if view := m.View(); !strings.Contains(view, "· project: app") || strings.Contains(view, "all projects") {
+		t.Errorf("title does not name the project:\n%s", view)
+	}
+}
+
+func TestTheTitleStillNamesTheProjectWhileTheReportOfEveryProjectLoads(t *testing.T) {
+	// Given the interface on a project
+	m := startWith(t, &fakeReports{report: sampleReport()}, Options{Project: appProject(t), Restricted: true})
+
+	// When the user presses a, before the new report arrives
+	m, _ = pressCmd(t, m, "a")
+
+	// Then the title still names the report on screen
+	if view := m.View(); !strings.Contains(view, "project: app") {
+		t.Errorf("title changed before the new report:\n%s", view)
+	}
+}
+
+func TestTheKeyAShowsEveryProjectWhenTheInterfaceIsOnAProject(t *testing.T) {
+	// Given the interface on a project
+	reports := &fakeReports{report: sampleReport()}
+	m := startWith(t, reports, Options{Project: appProject(t), Restricted: true})
+
+	// When the user presses a and the report for every project arrives
+	m, cmd := pressCmd(t, m, "a")
+	m = answer(t, m, cmd)
+
+	// Then it was asked for no project in particular, and the title says so
+	if got := reports.queries[len(reports.queries)-1].Project; !got.IsZero() {
+		t.Errorf("asked about %v", got)
+	}
+	if view := m.View(); !strings.Contains(view, "· all projects") || strings.Contains(view, "project: app") {
+		t.Errorf("title does not say every project:\n%s", view)
+	}
+}
+
+func TestTheKeyAGoesBackToTheProjectFromEveryProject(t *testing.T) {
+	// Given the interface that showed every project after a first press of a
+	reports := &fakeReports{report: sampleReport()}
+	m := startWith(t, reports, Options{Project: appProject(t), Restricted: true})
+	m, cmd := pressCmd(t, m, "a")
+	m = answer(t, m, cmd)
+
+	// When the user presses a again
+	m, cmd = pressCmd(t, m, "a")
+	m = answer(t, m, cmd)
+
+	// Then the project is back
+	if got := reports.queries[len(reports.queries)-1].Project; got != appProject(t) || !strings.Contains(m.View(), "project: app") {
+		t.Errorf("asked about %v:\n%s", got, m.View())
+	}
+}
+
+func TestAnInterfaceOpenedOnEveryProjectCanSwitchToTheProjectOfTheFolder(t *testing.T) {
+	// Given the interface opened on every project (--all) with a project to switch to
+	reports := &fakeReports{report: sampleReport()}
+	m := startWith(t, reports, Options{Project: appProject(t)})
+	if !reports.queries[0].Project.IsZero() || !strings.Contains(m.View(), "all projects") {
+		t.Fatalf("first query = %+v\n%s", reports.queries[0], m.View())
+	}
+
+	// When the user presses a
+	m, cmd := pressCmd(t, m, "a")
+	m = answer(t, m, cmd)
+
+	// Then the report is about the project
+	if got := reports.queries[len(reports.queries)-1].Project; got != appProject(t) || !strings.Contains(m.View(), "project: app") {
+		t.Errorf("asked about %v", got)
+	}
+}
+
+func TestWithoutAProjectTheKeyADoesNothingAndIsNotOffered(t *testing.T) {
+	// Given the interface of a folder no session worked in: no project to switch to, even if asked to start on one
+	reports := &fakeReports{report: sampleReport()}
+	m := startWith(t, reports, Options{Restricted: true})
+	m = send(t, m, tea.WindowSizeMsg{Width: 200, Height: 30})
+
+	// When the user presses a
+	m, cmd := pressCmd(t, m, "a")
+
+	// Then nothing is asked, the title says every project and the help does not list the key
+	if cmd != nil || len(reports.queries) != 1 || !reports.queries[0].Project.IsZero() {
+		t.Errorf("a asked for a report: %v %+v", cmd != nil, reports.queries)
+	}
+	if view := m.View(); !strings.Contains(view, "all projects") || strings.Contains(m.help(), "a all projects") || strings.Contains(m.help(), "a this project") {
+		t.Errorf("view:\n%s\nhelp: %s", view, m.help())
+	}
+}
+
+func TestTheHelpSaysWhatTheKeyAWouldSwitchTo(t *testing.T) {
+	m := startWith(t, &fakeReports{report: sampleReport()}, Options{Project: appProject(t), Restricted: true})
+	m = send(t, m, tea.WindowSizeMsg{Width: 200, Height: 30})
+	if !strings.Contains(m.help(), "a all projects") {
+		t.Errorf("help = %q", m.help())
+	}
+	m, cmd := pressCmd(t, m, "a")
+	m = answer(t, m, cmd)
+	if !strings.Contains(m.help(), "a this project") {
+		t.Errorf("help = %q", m.help())
+	}
+}
+
+func TestAProjectNameIsShownWithoutItsControlCharacters(t *testing.T) {
+	p, err := kernel.NewProject("/work/app\x1b[2J")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := startWith(t, &fakeReports{report: sampleReport()}, Options{Project: p, Restricted: true})
+	if view := m.View(); strings.Contains(view, "\x1b[2J") {
+		t.Errorf("title holds a control sequence: %q", view)
+	}
+}
+
+// onTheSessionsOfTheProject opens the interface on a project, in the sessions mode.
+func onTheSessionsOfTheProject(t *testing.T) (Model, *fakeSessions) {
+	t.Helper()
+	sessions := sampleSessions()
+	m := New(Options{Reports: build(&fakeReports{report: sampleReport()}), Project: appProject(t), Restricted: true,
+		Sessions: reporting.ListSessions{Queries: sessions}, Session: reporting.ShowSession{Queries: sessions}})
+	m.now = func() time.Time { return noon }
+	m = send(t, m, m.Init()())
+	m, cmd := pressCmd(t, m, "m")
+	return answer(t, m, cmd), sessions
+}
+
+func TestTheSessionsOfTheProjectAreListedUnderATitleThatNamesIt(t *testing.T) {
+	// Given the interface on a project, in the sessions mode
+	m, sessions := onTheSessionsOfTheProject(t)
+
+	// Then the sessions listed are those of the project, under a title that names it
+	if got := sessions.filters[len(sessions.filters)-1].Project; got != appProject(t) || !strings.Contains(m.View(), "project: app") {
+		t.Errorf("sessions asked about %v:\n%s", got, m.View())
+	}
+}
+
+func TestTheKeyAListsTheSessionsOfEveryProject(t *testing.T) {
+	// Given the interface on a project, in the sessions mode
+	m, sessions := onTheSessionsOfTheProject(t)
+
+	// When the user presses a
+	m, cmd := pressCmd(t, m, "a")
+	m = answer(t, m, cmd)
+
+	// Then the sessions of every project are listed
+	if got := sessions.filters[len(sessions.filters)-1].Project; !got.IsZero() || !strings.Contains(m.View(), "all projects") {
+		t.Errorf("sessions asked about %v:\n%s", got, m.View())
+	}
+}
+
+func TestASessionOpenedInAProjectShowsTheFiguresThatProjectListsForIt(t *testing.T) {
+	// Given a session that counts 77 requests in the app and 99 in every project together
+	for name, c := range map[string]struct{ keys, shown, notShown string }{
+		"on the project":   {"", "77 requests", "99 requests"},
+		"on every project": {"a", "99 requests", "77 requests"},
+	} {
+		m, sessions := onTheSessionsOfTheProject(t)
+		inApp, everywhere := detailOf(sessions.list[0]), detailOf(sessions.list[0])
+		inApp.Requests, everywhere.Requests = 77, 99
+		sessions.inProject = map[kernel.Project]map[string]reporting.SessionDetail{
+			appProject(t):    {"codex:cheap": inApp},
+			kernel.Project{}: {"codex:cheap": everywhere},
+		}
+		if c.keys != "" {
+			var cmd tea.Cmd
+			m, cmd = pressCmd(t, m, c.keys)
+			m = answer(t, m, cmd)
+		}
+
+		// When the user opens the most recent session
+		m, cmd := pressType(t, m, tea.KeyEnter)
+		m = send(t, m, cmd())
+
+		// Then the screen shows the figures of the scope the list was in
+		if view := m.View(); !strings.Contains(view, c.shown) || strings.Contains(view, c.notShown) {
+			t.Errorf("%s: want %q and not %q:\n%s", name, c.shown, c.notShown, view)
+		}
+	}
+}
+
+// indexed is a Sync that has nothing to wait for.
+func indexed(context.Context, func(int)) (string, error) { return "", nil }
+
+// afterIndexing delivers the end of an indexing to the interface, then what it asks for next, and returns the interface
+// once the report that follows has arrived.
+func afterIndexing(t *testing.T, m Model) Model {
+	t.Helper()
+	next, cmd := m.Update(syncDoneMsg{})
+	next, cmd = next.Update(cmd()) // the project found by detection, which asks for the report again
+	return answer(t, next.(Model), cmd)
+}
+
+func TestTheProjectFoundWhenIndexingEndsBecomesTheScopeOfTheViews(t *testing.T) {
+	// Given the interface opened on an empty index, so that it found no project, and detection that finds the app once its logs are indexed
+	reports := &fakeReports{report: sampleReport()}
+	found := kernel.Project{}
+	m := startWith(t, reports, Options{Sync: indexed, Detect: func() (kernel.Project, error) { return found, nil }})
+	m = send(t, m, tea.WindowSizeMsg{Width: 200, Height: 30})
+	found = appProject(t)
+
+	// When the indexing is done
+	m = afterIndexing(t, m)
+
+	// Then the report is asked again for that project, which the title names and key a can switch away from
+	if got := reports.queries[len(reports.queries)-1].Project; got != appProject(t) {
+		t.Errorf("the report was asked for %v", got)
+	}
+	if view := m.View(); !strings.Contains(view, "project: app") || !strings.Contains(m.help(), "a all projects") {
+		t.Errorf("view:\n%s\nhelp: %s", view, m.help())
+	}
+}
+
+func TestTheScopeTheUserChoseSurvivesTheEndOfAnIndexing(t *testing.T) {
+	// Given the interface on a project that the user switched to every project, with indexing on
+	reports := &fakeReports{report: sampleReport()}
+	m := startWith(t, reports, Options{Project: appProject(t), Restricted: true, Sync: indexed,
+		Detect: func() (kernel.Project, error) { return appProject(t), nil }})
+	m, cmd := pressCmd(t, m, "a")
+	m = answer(t, m, cmd)
+
+	// When an indexing ends, which finds the same project again
+	m = afterIndexing(t, m)
+
+	// Then the views still cover every project
+	if got := reports.queries[len(reports.queries)-1].Project; !got.IsZero() || !strings.Contains(m.View(), "all projects") {
+		t.Errorf("the report was asked for %v:\n%s", got, m.View())
+	}
+}
+
+func TestADetectionThatFailsDoesNotStopTheReportFromRefreshing(t *testing.T) {
+	// Given detection that cannot read the index
+	reports := &fakeReports{report: sampleReport()}
+	m := startWith(t, reports, Options{Sync: indexed, Detect: func() (kernel.Project, error) { return kernel.Project{}, errors.New("boom") }})
+	asked := len(reports.queries)
+
+	// When an indexing ends
+	m = afterIndexing(t, m)
+
+	// Then the report is asked again, for every project
+	if len(reports.queries) != asked+1 || !strings.Contains(m.View(), "all projects") {
+		t.Errorf("%d reports asked, was %d:\n%s", len(reports.queries), asked, m.View())
+	}
+}

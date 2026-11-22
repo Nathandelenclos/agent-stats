@@ -9,6 +9,6 @@ __pycache__/
 .grace/kit-history/
 .grace/updates/
 
-# Web front (future): dependencies and build output are never versioned
+# Web front: dependencies and build output are never versioned (go generate ./web builds them)
 /web/node_modules/
 /web/dist/

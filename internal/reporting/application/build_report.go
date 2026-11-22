@@ -2,6 +2,7 @@
 package application
 
 import (
+	"context"
 	"time"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
@@ -16,10 +17,12 @@ type (
 	USD        = domain.USD
 )
 
-// Query asks for the report of activity since a time (zero: all) and optionally one harness (empty: all).
+// Query asks for the report of activity since a time (zero: all), optionally one harness (empty: all) and optionally
+// the sessions of one project (zero: every project).
 type Query struct {
 	Since   time.Time
 	Harness kernel.Harness
+	Project kernel.Project
 }
 
 // UsageReader answers usage questions over one state of the indexed sessions.
@@ -32,8 +35,8 @@ type UsageReader interface {
 // UsageQueries gives access to the indexed sessions, which indexing may be changing meanwhile.
 type UsageQueries interface {
 	// Snapshot runs fn on one consistent state of the index: whatever indexing commits meanwhile
-	// does not show in the answers the reader gives fn.
-	Snapshot(fn func(UsageReader) error) error
+	// does not show in the answers the reader gives fn. The reader's questions stop with ctx.
+	Snapshot(ctx context.Context, fn func(UsageReader) error) error
 }
 
 // Report is the usage summary: totals, usage grouped along every dimension, and tool calls.
@@ -48,11 +51,11 @@ type BuildReport struct {
 	Queries UsageQueries
 }
 
-// Run builds the report for the activity q asks for.
-func (uc BuildReport) Run(q Query) (Report, error) {
+// Run builds the report for the activity q asks for; it gives up when ctx ends.
+func (uc BuildReport) Run(ctx context.Context, q Query) (Report, error) {
 	var r Report
-	err := uc.Queries.Snapshot(func(u UsageReader) (err error) {
-		r, err = build(u, domain.Filter{Since: q.Since, Harness: q.Harness})
+	err := uc.Queries.Snapshot(ctx, func(u UsageReader) (err error) {
+		r, err = build(u, domain.Filter{Since: q.Since, Harness: q.Harness, Project: q.Project})
 		return err
 	})
 	return r, err

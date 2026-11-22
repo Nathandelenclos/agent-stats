@@ -1,0 +1,36 @@
+All projects
+
+claude · 22 installed, 12 never used
+KIND    ITEM              SCOPE         USES  UNIT         LAST USED
+mcp     docs              user          2     calls        2026-01-02
+mcp     claude_ai_Notes   logs          1     calls        2026-01-05
+mcp     helper            plugin:demo   1     calls        2026-01-05
+mcp     inline-server     plugin:demo   0     calls        never
+mcp     local-db          project       0     calls        never
+mcp     project-server    project       0     calls        never
+mcp     remote            user          0     calls        never
+skill   review-notes      user          2     loads        2026-01-05
+skill   builtin-skill     logs          1     loads        2026-01-05
+skill   demo:audit        plugin:demo   1     loads        2026-01-05
+skill   frontmatter-name  user          0     loads        never
+skill   named:kept        plugin:named  0     loads        never
+skill   no-frontmatter    user          0     loads        never
+skill   project-skill     project       0     loads        never
+agent   Explore           logs          1     requests     2026-01-05
+agent   reviewer          user          1     requests     2026-01-02
+agent   demo:checker      plugin:demo   0     requests     never
+agent   plain-agent       user          0     requests     never
+agent   project-agent     project       0     requests     never
+plugin  demo@market       user          2     invocations  2026-01-05
+plugin  escape@market     user          ?     invocations  ?
+plugin  manifest@market   user          ?     invocations  ?
+plugin  missing@market    user          ?     invocations  ?
+plugin  named@market      user          0     invocations  never
+plugin  off@market (off)  user          ?     invocations  ?
+tool    Skill             logs          4     calls        2026-01-05
+tool    Read              logs          1     calls        2026-01-05
+--- stderr ---
+skipped ~/.claude/plugins/installed_plugins.json: plugin escape@market: install path points outside its directory
+skipped plugin manifest@market: .claude-plugin/plugin.json: a declared server file points outside its plugin
+skipped ~/.claude/plugins/installed_plugins.json: plugin missing@market: not installed, its install path is not an existing directory
+skipped plugin named@market: .claude-plugin/plugin.json: malformed

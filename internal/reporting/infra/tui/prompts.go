@@ -15,6 +15,7 @@ import (
 type promptsMsg struct {
 	seq             int
 	period, harness int // the filters the review was asked for
+	restricted      bool
 	review          reporting.PromptReview
 	err             error
 }
@@ -31,10 +32,10 @@ func (m Model) promptsEnabled() bool { return m.reviewer.Queries != nil }
 
 // loadPrompts asks the use case for the review of the current filters, off the UI loop.
 func (m Model) loadPrompts() tea.Cmd {
-	reviewer, q, seq, period, harness := m.reviewer, m.query(), m.seq, m.period, m.harness
+	reviewer, q, seq, period, harness, restricted := m.reviewer, m.query(), m.seq, m.period, m.harness, m.restricted
 	return func() tea.Msg {
 		r, err := reviewer.Run(q)
-		return promptsMsg{seq, period, harness, r, err}
+		return promptsMsg{seq, period, harness, restricted, r, err}
 	}
 }
 
@@ -46,6 +47,8 @@ func (m Model) promptsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.switchMode()
 	case "r":
 		return m.reindex()
+	case "a":
+		return m.toggleRestriction()
 	case "p":
 		m.period = (m.period + 1) % len(m.periods)
 		return m.reload()

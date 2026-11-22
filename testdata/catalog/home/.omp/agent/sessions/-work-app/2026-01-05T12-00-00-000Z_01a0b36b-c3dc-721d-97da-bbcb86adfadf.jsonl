@@ -1,0 +1,2 @@
+{"type":"session","id":"o1","timestamp":"2026-01-05T12:00:00Z","cwd":"/work/app"}
+{"type":"message","id":"e1","timestamp":"2026-01-05T12:00:01Z","message":{"role":"assistant","provider":"anthropic","model":"claude-x","content":[{"type":"toolCall","id":"t1","name":"mcp__omp-docs__lookup","arguments":{}}],"usage":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0},"stopReason":"toolUse"}}

@@ -166,14 +166,31 @@ func (r Request) Cost(listed kernel.Cost, known bool) (cost kernel.Cost, priced 
 
 // ToolCall is one tool invocation by the model.
 type ToolCall struct {
-	Key         string
-	At          time.Time
-	Name        string
-	Server      string // MCP server name, empty for built-in tools
+	Key    string
+	At     time.Time
+	Name   string
+	Server string // MCP server name, empty for built-in tools
+	// Skill is the skill a call loads (Claude Code's Skill tool); empty for every other call, and for a Skill call
+	// that named no valid skill.
+	Skill       string
 	ArgsChars   int
 	ResultChars int
 	IsError     bool
 	Duration    Duration
+}
+
+// LoadsSkill reports whether the call is one of the harness's own Skill tool, whose Skill says what it loaded.
+func (c ToolCall) LoadsSkill() bool { return c.Server == "" && c.Name == "Skill" }
+
+var declaredSkill = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 _.:-]{0,127}$`)
+
+// ParseSkillName accepts the name of a skill as a harness logs it: "review" or "plugin:review".
+// A refused text comes back empty, so a caller that skips the check still never holds an unvalidated name.
+func ParseSkillName(name string) (string, bool) {
+	if !declaredSkill.MatchString(name) {
+		return "", false
+	}
+	return name, true
 }
 
 // Prompt is one message typed by a human (or sent by a parent agent to a subagent).
@@ -203,16 +220,21 @@ type Transcript struct {
 
 const maxTitleRunes = 80
 
-// TitleFromFirstPrompt names an untitled session after its first prompt, on one line and at most 80 characters.
+// Title is text as a session title: on one line and at most 80 characters.
+func Title(text string) string {
+	title := strings.Join(strings.Fields(text), " ")
+	if r := []rune(title); len(r) > maxTitleRunes {
+		title = string(r[:maxTitleRunes]) + "…"
+	}
+	return title
+}
+
+// TitleFromFirstPrompt names an untitled session after its first prompt, see Title.
 func (t *Transcript) TitleFromFirstPrompt() {
 	if t.Session.Title != "" || len(t.Prompts) == 0 {
 		return
 	}
-	title := strings.Join(strings.Fields(t.Prompts[0].Text), " ")
-	if r := []rune(title); len(r) > maxTitleRunes {
-		title = string(r[:maxTitleRunes]) + "…"
-	}
-	t.Session.Title = title
+	t.Session.Title = Title(t.Prompts[0].Text)
 }
 
 // SplitMCPToolName recognises the "mcp__<server>__<tool>" naming used by Claude Code and others.

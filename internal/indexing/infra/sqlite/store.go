@@ -1,5 +1,5 @@
 // Package sqlite is the SQLite index of the indexing context. It owns the schema and every write;
-// other contexts read only the usage_* views, the index's published read model.
+// other contexts read only the usage_* and session_* views, the index's published read model.
 package sqlite
 
 import (
@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -20,7 +21,11 @@ import (
 // The prompts table keeps each prompt's frustration signals (domain.Signals). The sessions view reads them
 // through the session_prompts view below, which closes the debt of indexing them before anything read them
 // (2026-11-21, closed 2026-11-22): no re-index was needed.
+//
+// page_size only applies to an index created now, and an index made by an older version keeps its 4 KiB pages.
+// Fewer, larger pages make a cold run of 2 070 logs 18% faster (2.95 s to 2.42 s) and a report 14% (0.58 s to 0.50 s).
 const schema = `
+PRAGMA page_size = 16384;
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
 CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, harness TEXT NOT NULL, size INTEGER NOT NULL, mtime INTEGER NOT NULL);
@@ -53,24 +58,18 @@ CREATE INDEX IF NOT EXISTS tool_calls_ts ON tool_calls (ts);
 CREATE INDEX IF NOT EXISTS prompts_ts ON prompts (ts);
 CREATE INDEX IF NOT EXISTS sessions_started ON sessions (started_at);
 -- Published read model: the only part of the index other contexts may read. Prompt texts stay private,
--- except in session_prompts, which exists to show a session's own prompts.
+-- except in session_prompts, which exists to show a session's own prompts. usage_tool_calls is defined by
+-- migration, as it gained a column (see addSkill).
 CREATE VIEW IF NOT EXISTS usage_requests AS
 	SELECT r.ts, r.model, r.input, r.output, r.cache_read, r.cache_write, r.cost, r.priced, r.duration_ms, r.ttft_ms, r.error,
 		s.harness, s.agent_type, s.folder
 	FROM requests r JOIN sessions s ON s.id = r.session_id;
-CREATE VIEW IF NOT EXISTS usage_tool_calls AS
-	SELECT t.ts, t.name, t.server, t.args_chars, t.result_chars, t.is_error, t.duration_ms, s.harness
-	FROM tool_calls t JOIN sessions s ON s.id = t.session_id;
 -- position is the prompt's place in its session: rows are inserted in log order.
 CREATE VIEW IF NOT EXISTS session_prompts AS
 	SELECT p.session_id, p.rowid AS position, p.ts, p.text, p.chars, p.words, p.yelling, p.profanity, p.anguish, p.negation,
 		p.repetition, p.blame
 	FROM prompts p;
 `
-
-// schemaVersion is the index's user_version once migrate has brought it up to date. 0 is an index from before
-// migrations: it is migrated when opened, never twice.
-const schemaVersion = 1
 
 // forgetCodexLogs makes the next sync read every Codex log again: a Codex session indexed before its end was
 // taken from its last tool call or prompt ended too late, and an unchanged log is not read twice.
@@ -117,10 +116,85 @@ CREATE VIEW session_tool_calls AS
 	FROM tool_calls t JOIN session_overview o ON o.id = t.session_id;
 `
 
-// migrate runs steps in one transaction if the index is older than version, then records version: another
+// A migration brings the index up by one version. It runs inside migrate's transaction, so it must not manage one.
+type migration func(ctx context.Context, conn *sql.Conn) error
+
+// sqlSteps is a migration made of statements only.
+func sqlSteps(steps ...string) migration {
+	return func(ctx context.Context, conn *sql.Conn) error {
+		for _, step := range steps {
+			if _, err := conn.ExecContext(ctx, step); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+}
+
+// migrations is the history of the index, oldest first. An index's user_version is how many of them it has run: 0 is
+// an index from before migrations, and a fresh one runs them all on empty tables. Append a migration, never edit one,
+// for an index that has run it is not migrated again. Each one sees the index as the previous ones left it.
+var migrations = []migration{
+	sqlSteps(sessionViews, forgetCodexLogs),
+	sqlSteps(recordSkills),
+	sqlSteps(recordRevisions),
+	sqlSteps(publishFolders),
+}
+
+// recordSkills makes the index record the skill each Skill call loads. It is a table of its own, not a column of
+// tool_calls: a build from before it writes tool_calls with positional statements that a column more would refuse,
+// so that build keeps writing an index this one has migrated (its Skill calls then await their log, see below).
+//
+// The published usage_tool_calls says, in its skill column, what the index knows of a call:
+//   - on a Skill call (no server): the skill it loaded; "" when it named no valid skill; NULL while the index has no
+//     record of it, because its log was not read again since the index records skills (a pending call);
+//   - on any other call: "".
+//
+// The files holding a Skill call are forgotten, so that the next indexing reads them again and records them.
+// So are those holding a call named "mcp__<server>__<tool>" under no server, how a Codex function call was
+// recorded before the server was split out of its name.
+const recordSkills = `
+CREATE TABLE tool_call_skills (
+	file TEXT NOT NULL, session_id TEXT NOT NULL, key TEXT NOT NULL, skill TEXT NOT NULL,
+	PRIMARY KEY (session_id, key)) WITHOUT ROWID;
+CREATE INDEX tool_call_skills_file ON tool_call_skills (file);
+DELETE FROM files WHERE path IN (SELECT file FROM tool_calls WHERE name = 'Skill' AND server = '');
+DELETE FROM files WHERE path IN (SELECT file FROM tool_calls WHERE server = '' AND name LIKE 'mcp\_\_%' ESCAPE '\');
+DROP VIEW IF EXISTS usage_tool_calls;
+CREATE VIEW usage_tool_calls AS
+	SELECT t.ts, t.name, t.server, CASE WHEN t.name = 'Skill' AND t.server = '' THEN k.skill ELSE '' END AS skill,
+		t.args_chars, t.result_chars, t.is_error, t.duration_ms, s.harness
+	FROM tool_calls t JOIN sessions s ON s.id = t.session_id
+		LEFT JOIN tool_call_skills k ON k.session_id = t.session_id AND k.key = t.key;
+`
+
+// recordRevisions keeps the revision a reader gives each log (application.LogFile.Revision) in a table of its own,
+// for the reason recordSkills is one: a build from before it writes files with positional statements that a column
+// more would refuse. A log this build saved has size and mtime 0 in files and its revision here. A row with another
+// size or mtime was written by an earlier build, which saw a file of that size and modification time, and its
+// revision is those two as application.FileRevision makes it, how the readers of files give theirs: nothing is read again for it.
+const recordRevisions = `
+CREATE TABLE file_revisions (path TEXT PRIMARY KEY, revision TEXT NOT NULL) WITHOUT ROWID;
+`
+
+// publishFolders lets the other contexts narrow their questions to a project: usage_tool_calls gains the working folder of
+// its session, as usage_requests already has, and usage_folders lists each folder a session worked in, so that a reader
+// need not scan every request to learn them. The view only gains a column: a build that reads it by name is unaffected.
+const publishFolders = `
+DROP VIEW usage_tool_calls;
+CREATE VIEW usage_tool_calls AS
+	SELECT t.ts, t.name, t.server, CASE WHEN t.name = 'Skill' AND t.server = '' THEN k.skill ELSE '' END AS skill,
+		t.args_chars, t.result_chars, t.is_error, t.duration_ms, s.harness, s.folder
+	FROM tool_calls t JOIN sessions s ON s.id = t.session_id
+		LEFT JOIN tool_call_skills k ON k.session_id = t.session_id AND k.key = t.key;
+CREATE VIEW usage_folders AS
+	SELECT DISTINCT folder FROM sessions WHERE folder IS NOT NULL AND folder <> '';
+`
+
+// migrate runs, in one transaction, the migrations the index has not run, then records how many it has run: another
 // connection keeps reading the previous state until it commits, and a failure leaves it untouched.
-// An index that is up to date is not locked for writing.
-func migrate(db *sql.DB, version int, steps ...string) (err error) {
+// An index that is up to date, or made by a newer build, is not locked for writing and not touched.
+func migrate(db *sql.DB, migrations []migration) (err error) {
 	ctx := context.Background()
 	conn, err := db.Conn(ctx)
 	if err != nil {
@@ -131,7 +205,7 @@ func migrate(db *sql.DB, version int, steps ...string) (err error) {
 		err = conn.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&v)
 		return v, err
 	}
-	if v, err := userVersion(); err != nil || v >= version {
+	if v, err := userVersion(); err != nil || v >= len(migrations) {
 		return err
 	}
 	if _, err := conn.ExecContext(ctx, `PRAGMA busy_timeout = 5000`); err != nil {
@@ -146,18 +220,20 @@ func migrate(db *sql.DB, version int, steps ...string) (err error) {
 			conn.ExecContext(ctx, `ROLLBACK`)
 		}
 	}()
-	if v, err := userVersion(); err != nil || v >= version { // migrated by the other process meanwhile
-		if err == nil {
-			_, err = conn.ExecContext(ctx, `COMMIT`)
-		}
+	v, err := userVersion() // read again under the lock: another process may have migrated, or a newer build upgraded, meanwhile
+	if err != nil {
 		return err
 	}
-	for _, step := range steps {
-		if _, err := conn.ExecContext(ctx, step); err != nil {
+	if v >= len(migrations) {
+		_, err = conn.ExecContext(ctx, `COMMIT`)
+		return err
+	}
+	for ; v < len(migrations); v++ {
+		if err := migrations[v](ctx, conn); err != nil {
 			return err
 		}
 	}
-	if _, err := conn.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, version)); err != nil {
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, len(migrations))); err != nil {
 		return err
 	}
 	_, err = conn.ExecContext(ctx, `COMMIT`)
@@ -196,7 +272,7 @@ func Open(o Options) (*SQLiteIndex, error) {
 		db.Close()
 		return nil, err
 	}
-	if err := migrate(db, schemaVersion, sessionViews, forgetCodexLogs); err != nil {
+	if err := migrate(db, migrations); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -222,9 +298,10 @@ func private(path string) error {
 // Close closes the database.
 func (s *SQLiteIndex) Close() error { return s.db.Close() }
 
-// IndexedFiles returns every log file indexed so far, with its size and modification time at that point.
+// IndexedFiles returns every log file indexed so far, with its revision at that point.
 func (s *SQLiteIndex) IndexedFiles() (map[string]application.LogFile, error) {
-	rows, err := s.db.Query(`SELECT path, harness, size, mtime FROM files`)
+	rows, err := s.db.Query(`SELECT f.path, f.harness, f.size, f.mtime, COALESCE(r.revision, '')
+		FROM files f LEFT JOIN file_revisions r ON r.path = f.path`)
 	if err != nil {
 		return nil, err
 	}
@@ -233,78 +310,172 @@ func (s *SQLiteIndex) IndexedFiles() (map[string]application.LogFile, error) {
 	for rows.Next() {
 		var f application.LogFile
 		var harness string
-		var mtime int64
-		if err := rows.Scan(&f.Path, &harness, &f.Size, &mtime); err != nil {
+		var size, mtime int64
+		if err := rows.Scan(&f.Path, &harness, &size, &mtime, &f.Revision); err != nil {
 			return nil, err
+		}
+		if size != 0 || mtime != 0 { // written by a build from before revisions, which kept the size and time of the file
+			f.Revision = application.FileRevision(size, mtime)
 		}
 		if f.Harness, err = kernel.ParseHarness(harness); err != nil {
 			return nil, err
 		}
-		f.ModTime = time.Unix(0, mtime)
 		known[f.Path] = f
 	}
 	return known, rows.Err()
 }
 
-// Save replaces the rows indexed from file. Rows are keyed by session, not file,
-// so a log moved elsewhere (Codex archiving) is not counted twice.
-func (s *SQLiteIndex) Save(file application.LogFile, t application.IndexedTranscript) error {
+// statements are the prepared statements that write one log, bound to the transaction of a batch.
+type statements struct {
+	deletes                                               [5]*sql.Stmt // the rows of a file, in each of deletedTables
+	session, request, tool, skill, prompt, file, revision *sql.Stmt
+}
+
+var deletedTables = [...]string{"sessions", "requests", "tool_calls", "tool_call_skills", "prompts"}
+
+func prepare(tx *sql.Tx) (st statements, err error) {
+	prep := func(query string) *sql.Stmt {
+		if err != nil {
+			return nil
+		}
+		var stmt *sql.Stmt
+		stmt, err = tx.Prepare(query)
+		return stmt
+	}
+	for i, table := range deletedTables {
+		st.deletes[i] = prep(`DELETE FROM ` + table + ` WHERE file = ?`)
+	}
+	// Two logs may name one session (a conversation copied, or saved in another format). The log that goes on last, and
+	// the later in path order when they stop together, gives the session: whichever is saved first, the index ends the same.
+	st.session = prep(`INSERT INTO sessions (id, file, harness, parent_id, agent_type, title, folder, user, started_at, ended_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT (id) DO UPDATE SET file = excluded.file, harness = excluded.harness, parent_id = excluded.parent_id,
+			agent_type = excluded.agent_type, title = excluded.title, folder = excluded.folder, user = excluded.user,
+			started_at = excluded.started_at, ended_at = excluded.ended_at
+		WHERE (COALESCE(excluded.ended_at, 0), excluded.file) >= (COALESCE(sessions.ended_at, 0), sessions.file)`)
+	st.request = prep(ownedRows("requests", "file", "key", "session_id", "ts", "model", "provider", "input", "output", "cache_read", "cache_write", "reasoning",
+		"cost", "priced", "duration_ms", "ttft_ms", "stop_reason", "error"))
+	st.tool = prep(ownedRows("tool_calls", "file", "key", "session_id", "ts", "name", "server", "args_chars", "result_chars", "is_error", "duration_ms"))
+	st.skill = prep(ownedRows("tool_call_skills", "file", "session_id", "key", "skill"))
+	st.prompt = prep(ownedRows("prompts", "file", "key", "session_id", "ts", "text", "chars", "words", "yelling", "profanity", "anguish", "negation",
+		"repetition", "blame"))
+	st.file = prep(`INSERT OR REPLACE INTO files (path, harness, size, mtime) VALUES (?,?,0,0)`) // the revision is in file_revisions
+	st.revision = prep(`INSERT OR REPLACE INTO file_revisions (path, revision) VALUES (?,?)`)
+	return st, err
+}
+
+// ownedRows is the statement that writes a row of a log, keyed by (session_id, key). A row that another log wrote
+// is replaced only by the log that gives the session (see the session statement), so that logs naming one session
+// leave the same rows whichever is saved first. Columns are named, so that a column another build adds to a table does
+// not break the statement.
+func ownedRows(table string, cols ...string) string {
+	set := make([]string, 0, len(cols))
+	for _, c := range cols {
+		if c != "session_id" && c != "key" {
+			set = append(set, c+" = excluded."+c)
+		}
+	}
+	return fmt.Sprintf(`INSERT INTO %s (%s) VALUES (?%s)
+		ON CONFLICT (session_id, key) DO UPDATE SET %s
+		WHERE excluded.file = (SELECT file FROM sessions WHERE id = excluded.session_id)`,
+		table, strings.Join(cols, ", "), strings.Repeat(",?", len(cols)-1), strings.Join(set, ", "))
+}
+
+func (st statements) close() {
+	for _, stmt := range append(st.deletes[:], st.session, st.request, st.tool, st.skill, st.prompt, st.file, st.revision) {
+		if stmt != nil {
+			stmt.Close()
+		}
+	}
+}
+
+// Save replaces the rows indexed from each log, all in one transaction: committing once per log made the
+// writes wait on the write-ahead log thousands of times. Each log is saved under its own savepoint, so one
+// that fails is undone alone and the others are kept. Rows are keyed by session, not file, so a log moved
+// elsewhere (Codex archiving) is not counted twice; later logs of the batch replace earlier ones.
+func (s *SQLiteIndex) Save(batch []application.IndexedLog) []error {
+	errs := make([]error, len(batch))
+	failAll := func(err error) []error { // the transaction itself failed: whatever was not refused already is lost
+		for i := range errs {
+			if errs[i] == nil {
+				errs[i] = err
+			}
+		}
+		return errs
+	}
+	if len(batch) == 0 {
+		return errs
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
-		return err
+		return failAll(err)
 	}
 	defer tx.Rollback()
+	st, err := prepare(tx)
+	defer st.close()
+	if err != nil {
+		return failAll(err)
+	}
+	for i, l := range batch {
+		if _, err := tx.Exec(`SAVEPOINT log`); err != nil {
+			return failAll(err)
+		}
+		if errs[i] = s.saveLog(st, l.File, l.Transcript); errs[i] != nil {
+			if _, err := tx.Exec(`ROLLBACK TO log`); err != nil {
+				return failAll(err)
+			}
+		}
+		if _, err := tx.Exec(`RELEASE log`); err != nil {
+			return failAll(err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return failAll(err)
+	}
+	return errs
+}
+
+func (s *SQLiteIndex) saveLog(st statements, file application.LogFile, t application.IndexedTranscript) error {
 	path := file.Path
-	for _, table := range []string{"sessions", "requests", "tool_calls", "prompts"} {
-		if _, err := tx.Exec(`DELETE FROM `+table+` WHERE file = ?`, path); err != nil {
+	for _, del := range st.deletes {
+		if _, err := del.Exec(path); err != nil {
 			return err
 		}
 	}
 	ss := t.Session
-	if _, err := tx.Exec(`INSERT OR REPLACE INTO sessions VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		ss.ID.String(), path, file.Harness.String(), nullStr(ss.ParentID.String()), ss.AgentType.String(), ss.Title, ss.Folder, s.user,
+	if _, err := st.session.Exec(ss.ID.String(), path, file.Harness.String(), nullStr(ss.ParentID.String()), ss.AgentType.String(), ss.Title, ss.Folder, s.user,
 		kernel.UnixMilli(ss.Start), kernel.UnixMilli(ss.End)); err != nil {
-		return err
-	}
-
-	reqStmt, err := tx.Prepare(`INSERT OR REPLACE INTO requests VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-	if err != nil {
 		return err
 	}
 	for i, r := range t.Requests {
 		c, n := t.Costs[i], r.Tokens.Counts()
-		if _, err := reqStmt.Exec(path, r.Key, ss.ID.String(), kernel.UnixMilli(r.At), r.Model, r.Provider, n.Input, n.Output, n.CacheRead, n.CacheWrite, n.Reasoning,
+		if _, err := st.request.Exec(path, r.Key, ss.ID.String(), kernel.UnixMilli(r.At), r.Model, r.Provider, n.Input, n.Output, n.CacheRead, n.CacheWrite, n.Reasoning,
 			c.Cost.USD(), c.Priced, nullMillis(r.Duration), nullMillis(r.TTFT), r.StopReason, nullStr(r.Failure)); err != nil {
 			return err
 		}
 	}
-
-	toolStmt, err := tx.Prepare(`INSERT OR REPLACE INTO tool_calls VALUES (?,?,?,?,?,?,?,?,?,?)`)
-	if err != nil {
-		return err
-	}
 	for _, c := range t.Tools {
-		if _, err := toolStmt.Exec(path, c.Key, ss.ID.String(), kernel.UnixMilli(c.At), c.Name, c.Server, c.ArgsChars, c.ResultChars, c.IsError, nullMillis(c.Duration)); err != nil {
+		if _, err := st.tool.Exec(path, c.Key, ss.ID.String(), kernel.UnixMilli(c.At), c.Name, c.Server, c.ArgsChars, c.ResultChars, c.IsError, nullMillis(c.Duration)); err != nil {
 			return err
 		}
-	}
-
-	promptStmt, err := tx.Prepare(`INSERT OR REPLACE INTO prompts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-	if err != nil {
-		return err
+		if c.LoadsSkill() {
+			if _, err := st.skill.Exec(path, ss.ID.String(), c.Key, c.Skill); err != nil {
+				return err
+			}
+		}
 	}
 	for i, pr := range t.Prompts {
 		sig := t.Signals[i]
-		if _, err := promptStmt.Exec(path, pr.Key, ss.ID.String(), kernel.UnixMilli(pr.At), pr.Text, sig.Chars, sig.Words, sig.Yelling, sig.Profanity,
+		if _, err := st.prompt.Exec(path, pr.Key, ss.ID.String(), kernel.UnixMilli(pr.At), pr.Text, sig.Chars, sig.Words, sig.Yelling, sig.Profanity,
 			sig.Anguish, sig.Negation, sig.Repeated, sig.Blame); err != nil {
 			return err
 		}
 	}
-
-	if _, err := tx.Exec(`INSERT OR REPLACE INTO files VALUES (?,?,?,?)`, path, file.Harness.String(), file.Size, file.ModTime.UnixNano()); err != nil {
+	if _, err := st.file.Exec(path, file.Harness.String()); err != nil {
 		return err
 	}
-	return tx.Commit()
+	_, err := st.revision.Exec(path, file.Revision)
+	return err
 }
 
 func nullStr(s string) any {

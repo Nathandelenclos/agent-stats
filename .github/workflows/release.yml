@@ -2,7 +2,16 @@
 #
 # It is called by ci.yml, after every check passed, on each push to main. So the commit this run is for (GITHUB_SHA)
 # is the commit CI validated, and it is also the one that is tagged, built and named by the provenance attestation.
-# The binaries are built once, by GoReleaser, from that commit.
+# The binaries are built once, by GoReleaser, from that commit. The web front is built from the same commit by a job that
+# can only read, and the job that tags, publishes and signs receives the result as an artifact: it runs no front tooling.
+#
+# Four jobs, from the least to the most privileged. `front` and `plan` only read. `plan` decides whether there is
+# something to release and writes the git-cliff notes. `release-notes` only reads too, and is the only job that receives the
+# OpenAI key: it turns the commit subjects of those notes into a short summary (tools/releasenotes) and hands over that
+# summary alone. `release` tags, builds, signs and publishes, and never sees the key: it downloads the front, the notes and
+# the summary by the artifact ID their job reported (never by name), checks the summary again and publishes it above the
+# notes, or the git-cliff notes alone if there is none (the summary is an extra, never a condition of the release).
+# The publishing job compiles and runs nothing of tools/: that code runs in the job that cannot write.
 #
 # Catch-up design: the next version and the notes are computed from ALL the Conventional Commits since the last tag
 # (git-cliff, see cliff.toml), up to this run's commit. A run therefore releases everything releasable up to its own
@@ -26,6 +35,11 @@ name: release
 
 on:
   workflow_call:
+    secrets:
+      # Optional: without it, or with the repository variable AI_RELEASE_NOTES set to "off", the release has no AI summary.
+      # Only the release-notes job reads it.
+      OPENAI_API_KEY:
+        required: false
   workflow_dispatch:
 
 permissions:
@@ -42,29 +56,62 @@ concurrency:
   queue: max
 
 jobs:
-  release:
-    name: Tag and publish
+  # Builds web/dist. vite, tailwind and tsc are third-party programs: they run here, in a clone that holds no token, with
+  # read-only rights and no signing identity, never in the job below. No npm cache, so nothing a pull request could have
+  # left is restored. The build is a pure function of the lockfile (npm ci, install scripts off through web/.npmrc).
+  front:
+    name: Build the web front
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     permissions:
-      contents: write # push the tag, create the GitHub release
-      id-token: write # sign the build provenance attestation
-      attestations: write
+      contents: read
+    outputs:
+      # The ID of the artifact below: the publishing job downloads it by ID, not by name (see there).
+      web_dist_id: ${{ steps.web-dist.outputs.artifact-id }}
     steps:
-      # The commit CI validated (the default ref is the pushed commit), with the whole history and the tags
-      # (git-cliff needs both). The token is kept to push the tag; no step runs code that is not pinned below.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+      - name: Test and build the front
+        working-directory: web
+        run: |
+          npm ci
+          npm test
+          npm run build
+      - id: web-dist
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-dist
+          path: web/dist
+          if-no-files-found: error
+          # Re-running only the failed publish job reads this artifact again, and GitHub allows a re-run for 30 days: keep it
+          # that long. Past it, the manual run on the tag rebuilds the front (see the header). It holds no secret.
+          retention-days: 30
+
+  # Decides whether there is something to release and writes the notes. It only reads and keeps no token in its clone: the
+  # tag is pushed by the release job. git-cliff is the single source of truth for the version and the notes; the jobs
+  # below receive both from here and compute nothing themselves.
+  plan:
+    name: Plan the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      release: ${{ steps.plan.outputs.release }}
+      version: ${{ steps.plan.outputs.version }}
+      create_tag: ${{ steps.plan.outputs.create_tag }}
+      notes_id: ${{ steps.notes.outputs.artifact-id }}
+    steps:
+      # The commit CI validated (the default ref is the pushed commit), with the whole history and the tags (git-cliff
+      # needs both).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      # No build cache: this job can write to the repository and sign, so it restores nothing a pull request could have left.
-      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
-        with:
-          go-version-file: go.mod
-          cache: false
-      # syft generates the SBOM of each archive (sboms in .goreleaser.yaml).
-      - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
-        with:
-          syft-version: v1.57.1
+          persist-credentials: false
       - uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
         with:
           tool: git-cliff@2.14.2
@@ -208,36 +255,255 @@ jobs:
             echo "create_tag=$create_tag"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Create the tag
-        if: steps.plan.outputs.release == 'true' && steps.plan.outputs.create_tag == 'true'
+      # The git-cliff notes of the release, for the jobs below. They hold commit subjects of a public repository, no secret.
+      # Kept as long as the front: re-running only a failed job after a failure reads them again.
+      - name: Hand the notes over
+        id: notes
+        if: steps.plan.outputs.release == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/notes.md
+          if-no-files-found: error
+          retention-days: 30
+
+  # The only job that receives the OpenAI key, and it can only read. It sends the commit subjects of the notes, nothing
+  # else, to the API and keeps a reply that passes the checks of tools/releasenotes; the program never fails: with no
+  # key, an API error, a timeout or a reply that does not pass, the summary is an empty file, and an empty summary is not
+  # handed over. The job hands over that summary alone; the release job composes the body itself. `continue-on-error`
+  # covers what the program cannot (a runner or download failure): the release does not depend on this job.
+  # To turn it off: set the repository variable AI_RELEASE_NOTES to "off" (the job is then skipped) or delete the secret
+  # OPENAI_API_KEY (the job starts, builds nothing and hands nothing over). It is bounded in time: the API call is at
+  # most two attempts of 30 s, the step that makes it is stopped after 2 minutes and the job after 3.
+  release-notes:
+    name: Summarize the release notes
+    needs: plan
+    if: needs.plan.outputs.release == 'true' && needs.plan.outputs.notes_id != '' && vars.AI_RELEASE_NOTES != 'off'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    continue-on-error: true
+    permissions:
+      contents: read
+    outputs:
+      summary_id: ${{ steps.summary.outputs.artifact-id }}
+    env:
+      # A small model is enough for a summary of a few dozen subjects. A dated snapshot, not the moving alias: the text of
+      # a published release must not change without a commit. Change it here.
+      OPENAI_MODEL: gpt-5.4-mini-2026-03-17
+      # Whether there is a key, never the key itself: without one the steps below do nothing.
+      AI_KEY_SET: ${{ secrets.OPENAI_API_KEY != '' }}
+    steps:
+      - if: env.AI_KEY_SET == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: env.AI_KEY_SET == 'true'
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      # The notes of the plan job, by the ID it reported: the name of an artifact does not tell who uploaded it.
+      - if: env.AI_KEY_SET == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.plan.outputs.notes_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/notes
+      # Built apart, so that the compiler and the go tool never run with the key in their environment.
+      - name: Build the tool
+        if: env.AI_KEY_SET == 'true'
+        run: go build -o "$RUNNER_TEMP/releasenotes" ./tools/releasenotes
+      # The key is passed to this one step, through its environment: never on a command line, never to the steps above.
+      - name: Write the summary
+        if: env.AI_KEY_SET == 'true'
+        timeout-minutes: 2
         env:
-          VERSION: ${{ steps.plan.outputs.version }}
+          OPENAI_API_KEY: ${{ vars.AI_RELEASE_NOTES != 'off' && secrets.OPENAI_API_KEY || '' }}
+        run: |
+          "$RUNNER_TEMP/releasenotes" summarize -notes "$RUNNER_TEMP/notes/notes.md" -out "$RUNNER_TEMP/summary.md"
+      # No key from here on. An empty summary (the program found nothing it could keep) is no summary: nothing is uploaded.
+      - name: Drop an empty summary
+        if: env.AI_KEY_SET == 'true'
+        run: '[ -s "$RUNNER_TEMP/summary.md" ] || rm -f "$RUNNER_TEMP/summary.md"'
+      - name: Hand the summary over
+        id: summary
+        if: env.AI_KEY_SET == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-summary
+          path: ${{ runner.temp }}/summary.md
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # Runs whatever the result of release-notes (skipped, failed or done): `!cancelled()` lifts the default "every needed job
+  # succeeded", and the tests that follow keep what the release does need: the front and a release to make. A cancelled
+  # run publishes nothing.
+  release:
+    name: Tag and publish
+    needs: [front, plan, release-notes]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.front.result == 'success' && needs.plan.outputs.release == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write # push the tag, create the GitHub release
+      id-token: write # sign the build provenance attestation
+      attestations: write
+      actions: read # read the size of the summary artifact before it is downloaded
+    steps:
+      # The commit CI validated (the default ref is the pushed commit), with the whole history and the tags (GoReleaser
+      # needs both). The token is kept to push the tag; no step builds or installs third-party code (the front
+      # comes from the front job, the notes and the summary from the jobs above).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # No build cache: this job can write to the repository and sign, so it restores nothing a pull request could have left.
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # Artifacts are downloaded by the ID their producing job reported, never by name: any job of the run could upload
+      # another artifact of the same name, and the front ends up inside the signed binaries. The front and the notes are
+      # required: without their ID the job stops here.
+      - name: Require the front and the notes
+        env:
+          WEB_DIST_ID: ${{ needs.front.outputs.web_dist_id }}
+          NOTES_ID: ${{ needs.plan.outputs.notes_id }}
         run: |
           set -euo pipefail
-          git tag "$VERSION" HEAD
+          [ -n "$WEB_DIST_ID" ] || { echo "::error::The front job reported no artifact: refusing to build without it."; exit 1; }
+          [ -n "$NOTES_ID" ] || { echo "::error::The plan job reported no release notes: refusing to publish without them."; exit 1; }
+      # The front built above, from this same commit. It is embedded by the web build tag (.goreleaser.yaml): the build
+      # fails if it is missing, and nothing in this job builds it.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.front.outputs.web_dist_id }}
+          merge-multiple: true
+          path: web/dist
+      # syft generates the SBOM of each archive (sboms in .goreleaser.yaml).
+      - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          syft-version: v1.57.1
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.plan.outputs.notes_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/notes
+      # The summary is optional. Its size is read from the API before anything is downloaded or extracted; no ID (the
+      # job was skipped, had no key or had nothing to hand over), an API error or a size over the limit and it is not fetched.
+      - name: Check the summary artifact
+        id: summary
+        if: needs.release-notes.result == 'success'
+        env:
+          SUMMARY_ID: ${{ needs.release-notes.outputs.summary_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SUMMARY_ID" ]; then
+            echo "::notice::No AI summary was handed over: publishing the notes alone."
+            exit 0
+          fi
+          case $SUMMARY_ID in
+            *[!0-9]*) echo "::notice::The AI summary artifact ID is not a number: publishing the notes alone."; exit 0 ;;
+          esac
+          size=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SUMMARY_ID" --jq '.size_in_bytes') || size=
+          case $size in
+            '' | *[!0-9]*) echo "::notice::The size of the AI summary is unknown: publishing the notes alone."; exit 0 ;;
+          esac
+          # A summary of 1 500 characters is at most 6 000 bytes: a zip of it is far below this.
+          if [ "$size" -gt 8192 ]; then
+            echo "::notice::The AI summary artifact is too big: publishing the notes alone."
+            exit 0
+          fi
+          echo "fetch=true" >> "$GITHUB_OUTPUT"
+      - if: steps.summary.outputs.fetch == 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.release-notes.outputs.summary_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/summary
+      # The summary comes from a job that holds the key and from a third-party API, so it is not taken as it is: it is
+      # checked again here, in shell, because this job compiles nothing of tools/ (it repeats the allowlist of
+      # tools/releasenotes). At most 1 500 characters, only paragraphs and "- " bullets of plain text: printable ASCII
+      # and curly quotes, dashes and an ellipsis, none of # > < ` @ [ ] & \ | ~, no address (// or www.), no line that
+      # opens with anything but a letter or a digit (after "- " and ** or _), no ordered list. Anything else, or no
+      # summary, and the notes alone are published. Otherwise the body is "## Summary", the summary and the notes.
+      - name: Choose the release body
+        id: body
+        run: |
+          set -euo pipefail
+          notes="$RUNNER_TEMP/notes/notes.md"
+          summary="$RUNNER_TEMP/summary/summary.md"
+          body="$RUNNER_TEMP/body.md"
+          # Curly single and double quotes, en and em dash, ellipsis: as UTF-8 bytes, for grep in the C locale.
+          typographic=$'\xe2\x80\x98|\xe2\x80\x99|\xe2\x80\x9c|\xe2\x80\x9d|\xe2\x80\x93|\xe2\x80\x94|\xe2\x80\xa6'
+          [ -s "$notes" ] || { echo "::error::The release notes are missing."; exit 1; }
+          # absent: grep found nothing (exit 1). A grep that fails (exit 2) is not "found nothing": the check fails closed.
+          absent() { local rc=0; LC_ALL=C grep -a "$@" "$summary" >/dev/null || rc=$?; [ "$rc" -eq 1 ]; }
+          plain() {
+            [ -f "$summary" ] && [ ! -L "$summary" ] || return 1
+            [ "$(wc -c < "$summary")" -le 6000 ] || return 1
+            [ "$(LC_ALL=C.UTF-8 wc -m < "$summary")" -le 1500 ] || return 1
+            [ -n "$(tr -d ' \n' < "$summary" | head -c 1)" ] || return 1
+            [ "$(tr -d '\000' < "$summary" | wc -c)" -eq "$(wc -c < "$summary")" ] || return 1 # grep does not see a NUL
+            absent -qiE '[][#<>`@&\\|~]|//|www\.' || return 1
+            absent -qvE "^([ -~]|$typographic)*\$" || return 1
+            absent -qvE '^$|^(- )?(\*{1,2}|_{1,2})?[A-Za-z0-9]' || return 1
+            absent -qE '^(- )?(\*{1,2}|_{1,2})?[0-9]+[.)]( |$)' || return 1
+          }
+          if plain; then
+            { printf '## Summary\n\n%s\n\n' "$(cat "$summary")"; cat "$notes"; } > "$body"
+            echo "path=$body" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::No valid AI summary: publishing the notes alone."
+            echo "path=$notes" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The tag step runs again on "Re-run failed jobs", with the plan's create_tag=true although a first attempt pushed the
+      # tag. A tag that already names this commit is accepted (and pushed if origin lacks it); one that names another
+      # commit is refused, never moved.
+      - name: Create the tag
+        if: needs.plan.outputs.create_tag == 'true'
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            if [ "$(git rev-parse "refs/tags/$VERSION^{commit}")" != "$(git rev-parse HEAD)" ]; then
+              echo "::error::$VERSION already exists on another commit: refusing to move a tag."
+              exit 1
+            fi
+            echo "::notice::$VERSION already names this commit: not creating it again."
+          else
+            git tag "$VERSION" HEAD
+          fi
           git push origin "refs/tags/$VERSION"
 
       # GoReleaser builds once and uploads the assets and the notes to a DRAFT release: nothing is public
       # until the provenance below is attested.
       - name: Build the binaries and create the draft release
-        if: steps.plan.outputs.release == 'true'
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           distribution: goreleaser
           version: v2.20.3
-          args: release --clean --release-notes ${{ runner.temp }}/notes.md
+          args: release --clean --release-notes ${{ steps.body.outputs.path }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
       - name: Attest the build provenance
-        if: steps.plan.outputs.release == 'true'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-checksums: dist/checksums.txt
 
       - name: Publish the release
-        if: steps.plan.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.plan.outputs.version }}
-        run: gh release edit "$VERSION" --draft=false --verify-tag
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          # A release must carry its notes: refuse to publish an empty body.
+          body=$(gh release view "$VERSION" --json body --jq '.body')
+          [ -n "${body//[[:space:]]/}" ] || { echo "::error::The draft release $VERSION has no notes."; exit 1; }
+          gh release edit "$VERSION" --draft=false --verify-tag

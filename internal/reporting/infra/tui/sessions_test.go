@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -22,15 +23,20 @@ type fakeSessions struct {
 	err     error
 	filters []domain.Filter
 	asked   []string
+	// inProject, when it describes a session for a project, is the description of the sessions as that project lists them.
+	inProject map[kernel.Project]map[string]reporting.SessionDetail
 }
 
-func (f *fakeSessions) Sessions(fl domain.Filter) ([]domain.SessionSummary, error) {
+func (f *fakeSessions) Sessions(_ context.Context, fl domain.Filter) ([]domain.SessionSummary, error) {
 	f.filters = append(f.filters, fl)
 	return f.list, f.err
 }
 
-func (f *fakeSessions) Session(id domain.SessionID) (domain.SessionDetail, error) {
+func (f *fakeSessions) Session(_ context.Context, id domain.SessionID, p kernel.Project) (domain.SessionDetail, error) {
 	f.asked = append(f.asked, id.String())
+	if d, ok := f.inProject[p][id.String()]; ok {
+		return d, nil
+	}
 	if d, ok := f.details[id.String()]; ok {
 		return d, nil
 	}
@@ -638,7 +644,7 @@ func TestSessionsViewFitsTheTerminal(t *testing.T) {
 func TestSessionsIndexedMeanwhileShowAfterIndexing(t *testing.T) {
 	// Given the sessions on screen while indexing runs
 	sessions := sampleSessions()
-	m := New(Options{Reports: build(&fakeReports{report: sampleReport()}), Sync: func(func(int)) (string, error) { return "", nil },
+	m := New(Options{Reports: build(&fakeReports{report: sampleReport()}), Sync: func(context.Context, func(int)) (string, error) { return "", nil },
 		Sessions: reporting.ListSessions{Queries: sessions}, Session: reporting.ShowSession{Queries: sessions}})
 	m = send(t, m, tea.WindowSizeMsg{Width: 220, Height: 30})
 	m, cmd := pressCmd(t, send(t, m, m.load()()), "m")
@@ -692,7 +698,7 @@ func TestATerminalThatReportsNoSizeKeepsTheDefaultSize(t *testing.T) {
 func TestTheSessionsHelpStillOffersQuitOnAn80ColumnTerminalWhileIndexing(t *testing.T) {
 	// Given the sessions on an 80-column terminal, with indexing available
 	sessions := sampleSessions()
-	m := New(Options{Reports: build(&fakeReports{report: sampleReport()}), Sync: func(func(int)) (string, error) { return "", nil },
+	m := New(Options{Reports: build(&fakeReports{report: sampleReport()}), Sync: func(context.Context, func(int)) (string, error) { return "", nil },
 		Sessions: reporting.ListSessions{Queries: sessions}, Session: reporting.ShowSession{Queries: sessions}})
 	m = send(t, m, tea.WindowSizeMsg{Width: 80, Height: 30})
 	m, cmd := pressCmd(t, send(t, m, m.load()()), "m")

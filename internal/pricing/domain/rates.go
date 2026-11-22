@@ -41,8 +41,11 @@ func NewRates(r RatesPerToken) (Rates, error) {
 // the input rate instead of the list's 5-minute cache-write rate.
 func (r Rates) Cost(t kernel.Tokens) (kernel.Cost, error) {
 	c, p := t.Counts(), r.perToken
-	return kernel.NewCost(float64(c.Input)*p.Input + float64(c.Output)*p.Output + float64(c.CacheRead)*p.CacheRead +
-		float64(t.CacheWrite5m())*p.CacheWrite + float64(c.CacheWrite1h)*2*p.Input)
+	// Each product is converted explicitly so the compiler cannot fuse it with the sum (FMA on arm64 but not
+	// on amd64): the same tokens must cost the same on every CPU.
+	return kernel.NewCost(float64(float64(c.Input)*p.Input) + float64(float64(c.Output)*p.Output) +
+		float64(float64(c.CacheRead)*p.CacheRead) + float64(float64(t.CacheWrite5m())*p.CacheWrite) +
+		float64(float64(c.CacheWrite1h)*2*p.Input))
 }
 
 // PriceList maps a model name to its rates.
@@ -50,7 +53,11 @@ type PriceList map[string]Rates
 
 var dateSuffix = regexp.MustCompile(`-\d{8}$`)
 
-// Lookup finds rates for a model, tolerating provider prefixes ("openai-codex/gpt-6") and date suffixes.
+// dottedVersion is a version written with a dot ("4.5"), as some gateways write the versions of Claude models.
+var dottedVersion = regexp.MustCompile(`(\d)\.(\d)`)
+
+// Lookup finds rates for a model, tolerating provider prefixes ("openai-codex/gpt-6"), date suffixes and, for Claude
+// models, a dotted version ("claude-sonnet-4.5" for "claude-sonnet-4-5"). The name as written is looked up first.
 func (l PriceList) Lookup(model string) (Rates, bool) {
 	m := strings.ToLower(model)
 	candidates := []string{m}
@@ -59,6 +66,11 @@ func (l PriceList) Lookup(model string) (Rates, bool) {
 	}
 	for _, c := range candidates[:len(candidates):len(candidates)] {
 		if d := dateSuffix.ReplaceAllString(c, ""); d != c {
+			candidates = append(candidates, d)
+		}
+	}
+	for _, c := range candidates[:len(candidates):len(candidates)] {
+		if d := dottedVersion.ReplaceAllString(c, "$1-$2"); d != c && strings.Contains(c, "claude") {
 			candidates = append(candidates, d)
 		}
 	}

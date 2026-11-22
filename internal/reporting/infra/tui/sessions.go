@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -28,7 +29,8 @@ var modeNames = [...]string{"Usage", "Sessions", "Prompts"}
 // sessionsMsg carries the result of a sessions request; seq tells which request it answers.
 type sessionsMsg struct {
 	seq             int
-	period, harness int // the filters the list was asked for
+	period, harness int  // the filters the list was asked for
+	restricted      bool // and whether it was restricted to the project
 	list            reporting.SessionList
 	err             error
 }
@@ -101,20 +103,20 @@ func (m Model) nextMode() mode {
 
 // loadSessions asks the use case for the sessions of the current filters, off the UI loop.
 func (m Model) loadSessions() tea.Cmd {
-	lister, q, seq, period, harness := m.lister, m.query(), m.seq, m.period, m.harness
+	lister, q, seq, period, harness, restricted := m.lister, m.query(), m.seq, m.period, m.harness, m.restricted
 	return func() tea.Msg {
-		list, err := lister.Run(q)
-		return sessionsMsg{seq, period, harness, list, err}
+		list, err := lister.Run(context.Background(), q)
+		return sessionsMsg{seq, period, harness, restricted, list, err}
 	}
 }
 
 // loadDetail asks the use case to describe a session, off the UI loop; answers to earlier requests no longer count.
 func (m *Model) loadDetail(id reporting.SessionID) tea.Cmd {
-	shower := m.shower
+	shower, q := m.shower, m.query()
 	m.sessions.detailSeq++
 	seq := m.sessions.detailSeq
 	return func() tea.Msg {
-		d, err := shower.Run(id)
+		d, err := shower.Run(context.Background(), id, q)
 		return detailMsg{seq, id, d, err}
 	}
 }
@@ -127,6 +129,9 @@ func (m Model) switchMode() (Model, tea.Cmd) {
 	}
 	m.sessions.detail = sessionDetail{}
 	m.mode = next
+	if next == promptsMode {
+		m.prompts = promptsState{pager: pager{display: m.prompts.display}}
+	}
 	return m.reload()
 }
 
@@ -166,6 +171,8 @@ func (m Model) sessionsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "h":
 		m.harness = (m.harness + 1) % len(harnessChoices)
 		return m.reload()
+	case "a":
+		return m.toggleRestriction()
 	case "s":
 		m.sessions.sort = m.sessions.sort.next(m.sessionsGrid())
 		m.layout()

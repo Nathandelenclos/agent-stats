@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/application"
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
@@ -18,6 +19,12 @@ type Source struct {
 	Root    string
 	Match   func(path string) bool
 	Parse   Parser
+	// Database, when set, makes Root the directory of SQLite databases that hold the sessions of the harness,
+	// instead of a tree of logs: Match and Parse are not used.
+	Database *OpenCodeDatabase
+	// Beside, when set, says what else than the log itself a transcript is made of (a file beside it): it is part of the
+	// log's revision, so that the log is read again when it changes.
+	Beside func(path string) string
 }
 
 // DefaultSources lists the standard log locations, honouring CLAUDE_CONFIG_DIR and CODEX_HOME.
@@ -29,13 +36,23 @@ func DefaultSources(home string) []Source {
 		b := filepath.Base(p)
 		return strings.HasPrefix(b, "rollout-") && (strings.HasSuffix(b, ".jsonl") || strings.HasSuffix(b, ".jsonl.zst"))
 	}
+	data := envOr("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	openCodeData, kiloData := filepath.Join(data, "opencode"), filepath.Join(data, "kilo")
 	return []Source{
-		{kernel.Claude, filepath.Join(claude, "projects"), jsonl, ParseClaude},
-		{kernel.Codex, filepath.Join(codex, "sessions"), rollout, ParseCodex},
-		{kernel.Codex, filepath.Join(codex, "archived_sessions"), rollout, ParseCodex},
-		{kernel.OMP, filepath.Join(home, ".omp", "agent", "sessions"), jsonl, ParsePi(kernel.OMP)},
-		{kernel.Pi, filepath.Join(home, ".pi", "agent", "sessions"), jsonl, ParsePi(kernel.Pi)},
+		{Harness: kernel.Claude, Root: filepath.Join(claude, "projects"), Match: jsonl, Parse: ParseClaude},
+		{Harness: kernel.Codex, Root: filepath.Join(codex, "sessions"), Match: rollout, Parse: ParseCodex},
+		{Harness: kernel.Codex, Root: filepath.Join(codex, "archived_sessions"), Match: rollout, Parse: ParseCodex},
+		{Harness: kernel.OMP, Root: filepath.Join(home, ".omp", "agent", "sessions"), Match: jsonl, Parse: ParsePi(kernel.OMP)},
+		{Harness: kernel.Pi, Root: filepath.Join(home, ".pi", "agent", "sessions"), Match: jsonl, Parse: ParsePi(kernel.Pi)},
+		{Harness: kernel.OpenCode, Root: openCodeData, Database: &OpenCodeDatabase{Prefix: "opencode", Override: os.Getenv("OPENCODE_DB")}},
+		{Harness: kernel.Kilo, Root: kiloData, Database: &OpenCodeDatabase{Prefix: "kilo", Fallback: "opencode", Override: os.Getenv("KILO_DB")}},
+		GeminiSource(filepath.Join(envOr("GEMINI_CLI_HOME", home), ".gemini", "tmp")),
 	}
+}
+
+// GeminiSource reads the conversations of Gemini CLI under root, the "tmp" directory of its home.
+func GeminiSource(root string) Source {
+	return Source{Harness: kernel.Gemini, Root: root, Match: IsGeminiConversation, Parse: ParseGemini, Beside: geminiBeside}
 }
 
 func envOr(key, def string) string {
@@ -46,21 +63,47 @@ func envOr(key, def string) string {
 }
 
 // FileSessionLogs reads session logs from the harnesses' directories on the local disk.
+// Read may be called from several goroutines at once, as IndexSessions does.
 type FileSessionLogs struct {
 	Sources []Source
-	parsers map[string]Parser
+	mu      sync.RWMutex
+	parsers map[string]Parser // by path, as of the last List
+	dbLogs  map[string]dbLog  // the sessions of databases, by their path "<database>#<session id>"
+}
+
+// dbLog is a session that lives in a database.
+type dbLog struct {
+	db      *OpenCodeDatabase
+	path    string
+	harness kernel.Harness
+	session dbSession
 }
 
 // NewFileSessionLogs reads the logs found under sources.
 func NewFileSessionLogs(sources []Source) *FileSessionLogs {
-	return &FileSessionLogs{Sources: sources, parsers: map[string]Parser{}}
+	return &FileSessionLogs{Sources: sources, parsers: map[string]Parser{}, dbLogs: map[string]dbLog{}}
 }
 
 // List walks every source. A harness that is not installed is not an error.
 func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 	var files []application.LogFile
 	var problems []error
+	parsers := map[string]Parser{}
+	dbLogs := map[string]dbLog{}
 	for _, src := range l.Sources {
+		if src.Database != nil {
+			for _, path := range src.Database.paths(src.Root) {
+				sessions, dbProblems := src.Database.list(path)
+				problems = append(problems, dbProblems...)
+				for _, s := range sessions {
+					log := path + DBSessionSep + s.id
+					dbLogs[log] = dbLog{db: src.Database, path: path, harness: src.Harness, session: s}
+					files = append(files, application.LogFile{Path: log, Harness: src.Harness, Revision: s.revision,
+						WeightBytes: min(s.weight, maxLogBytes)})
+				}
+			}
+			continue
+		}
 		err := filepath.WalkDir(src.Root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				if os.IsNotExist(err) || os.IsPermission(err) {
@@ -80,20 +123,42 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 				problems = append(problems, fmt.Errorf("%s: %w", path, err))
 				return nil
 			}
-			l.parsers[path] = src.Parse
-			files = append(files, application.LogFile{Path: path, Harness: src.Harness, Size: info.Size(), ModTime: info.ModTime()})
+			parsers[path] = src.Parse
+			files = append(files, application.LogFile{Path: path, Harness: src.Harness, Revision: fileRevision(info) + besideRevision(src, path), WeightBytes: logWeight(path, info.Size())})
 			return nil
 		})
 		if err != nil {
 			return files, problems, err
 		}
 	}
+	l.mu.Lock()
+	l.parsers, l.dbLogs = parsers, dbLogs
+	l.mu.Unlock()
 	return files, problems, nil
+}
+
+// fileRevision is the revision of a log that is a file, see application.FileRevision.
+func fileRevision(info fs.FileInfo) string {
+	return application.FileRevision(info.Size(), info.ModTime().UnixNano())
+}
+
+// besideRevision is what the source says of the files a log depends on, for its revision.
+func besideRevision(src Source, path string) string {
+	if src.Beside == nil {
+		return ""
+	}
+	return src.Beside(path)
 }
 
 // Read parses a file returned by List.
 func (l *FileSessionLogs) Read(f application.LogFile) (domain.Transcript, error) {
+	l.mu.RLock()
 	p, ok := l.parsers[f.Path]
+	db, inDB := l.dbLogs[f.Path]
+	l.mu.RUnlock()
+	if inDB {
+		return db.db.read(db.path, db.harness, db.session)
+	}
 	if !ok {
 		return domain.Transcript{}, fmt.Errorf("%s was not listed", f.Path)
 	}

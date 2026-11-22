@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -78,7 +80,7 @@ func TestReportApproved(t *testing.T) {
 		"omp":         {Harness: kernel.OMP},
 		"since-jan-2": {Since: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
 	} {
-		r, err := reporting.BuildReport{Queries: usage}.Run(f)
+		r, err := reporting.BuildReport{Queries: usage}.Run(context.Background(), f)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -106,6 +108,16 @@ func mustRates(t *testing.T, perToken pricing.RatesPerToken) pricing.Rates {
 		t.Fatal(err)
 	}
 	return r
+}
+
+func TestIndexWorkersKeepACoreForTheWriterAndTheInterface(t *testing.T) {
+	defer func(n int) { runtime.GOMAXPROCS(n) }(runtime.GOMAXPROCS(0))
+	for cpus, want := range map[int]int{1: 1, 2: 2, 4: 3, 8: 6, 10: 8} {
+		runtime.GOMAXPROCS(cpus)
+		if got := indexWorkers(); got != want {
+			t.Errorf("%d CPUs: %d workers, want %d", cpus, got, want)
+		}
+	}
 }
 
 func TestParseSince(t *testing.T) {

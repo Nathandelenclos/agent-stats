@@ -3,12 +3,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -24,21 +26,29 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/reporting/infra/tui"
 )
 
-// indexRun brings the index up to date with the session logs, calling progress as files are indexed.
-type indexRun func(progress func(indexing.IndexReport)) (indexing.IndexReport, error)
+// indexRun brings the index up to date with the session logs, calling progress as files are indexed,
+// until ctx is done.
+type indexRun func(ctx context.Context, progress func(indexing.IndexReport)) (indexing.IndexReport, error)
 
 func newIndexRun(index *sqlite.SQLiteIndex, prices indexing.PriceList) (indexRun, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
-	uc := indexing.IndexSessions{Logs: logfiles.NewFileSessionLogs(logfiles.DefaultSources(home)), Store: index, Prices: prices}
-	return uc.Run, nil
+	uc := indexing.IndexSessions{Logs: logfiles.NewFileSessionLogs(logfiles.DefaultSources(home)), Store: index, Prices: prices, Workers: indexWorkers()}
+	return uc.RunContext, nil
+}
+
+// indexWorkers is how many logs are read at once: three quarters of the CPUs the program may use (at least one),
+// which leaves the writer, the garbage collector and an interface that is drawing a core to run on.
+func indexWorkers() int {
+	cpus := runtime.GOMAXPROCS(0)
+	return max(1, cpus-cpus/4)
 }
 
 // indexBeforeReport indexes while the plain-text report waits, narrating on stderr so stdout stays the report.
 func indexBeforeReport(run indexRun) error {
-	rep, err := run(func(r indexing.IndexReport) {
+	rep, err := run(context.Background(), func(r indexing.IndexReport) {
 		fmt.Fprintf(os.Stderr, "\rindexing… %d files", r.Indexed)
 	})
 	if rep.Indexed >= 50 {
@@ -64,7 +74,13 @@ func main() {
 }
 
 func run() error {
+	if len(os.Args) > 1 && os.Args[1] == "serve" {
+		return runServe(os.Args[2:])
+	}
 	termquiet.Restore()
+	if len(os.Args) > 1 && os.Args[1] == "catalog" {
+		return runCatalog(os.Args[2:], os.Stdout, os.Stderr)
+	}
 	defaultDB := ""
 	if cache, err := os.UserCacheDir(); err == nil {
 		defaultDB = filepath.Join(cache, "agent-stats", "index.db")
@@ -72,9 +88,11 @@ func run() error {
 	dbPath := flag.String("db", defaultDB, "index database (default: agent-stats/index.db in the user cache directory)")
 	pricesPath := flag.String("prices", "", "JSON file overriding embedded prices: {\"model\": [input, output, cacheRead, cacheWrite]} in USD per token")
 	since := flag.String("since", "", "only count activity after this: 24h, 7d, 30d or 2006-01-02")
-	harness := flag.String("harness", "", "only one harness: claude, codex, omp, pi")
+	harness := flag.String("harness", "", "only one harness: claude, codex, omp, pi, opencode, kilo, gemini")
 	asJSON := flag.Bool("json", false, "print the report as JSON")
 	noSync := flag.Bool("no-sync", false, "skip re-reading the logs")
+	all := flag.Bool("all", false, "count every project, not only the one of the current folder (it wins over --project)")
+	projectDir := flag.String("project", "", "only count the sessions that worked in this folder or below it (default: the project of the current folder, if sessions worked in it)")
 	flag.Parse()
 	sub, err := subcommand(flag.CommandLine)
 	if err != nil {
@@ -122,19 +140,26 @@ func run() error {
 		return err
 	}
 	defer usage.Close()
+	detect := reporting.DetectProject{Queries: usage, Home: homeProject()}.Run
+	cov, err := coverageOf(*all, *projectDir, detect)
+	if err != nil {
+		return err
+	}
 	if sub == promptsCommand {
-		return runPrompts(os.Stdout, usage.Prompts(), reporting.Query{Since: from, Harness: only}, *asJSON)
+		return runPrompts(os.Stdout, usage.Prompts(), reporting.Query{Since: from, Harness: only}, cov, *asJSON)
 	}
 	if ui {
 		sessions := usage.Sessions()
 		o := tui.Options{Reports: reporting.BuildReport{Queries: usage}, Harness: only, SinceLabel: *since, Since: from,
-			Sessions: reporting.ListSessions{Queries: sessions}, Session: reporting.ShowSession{Queries: sessions}, Prompts: reporting.ReviewPrompts{Queries: usage.Prompts()}}
+			Sessions: reporting.ListSessions{Queries: sessions}, Session: reporting.ShowSession{Queries: sessions},
+			Prompts: reporting.ReviewPrompts{Queries: usage.Prompts()},
+			Project: cov.project, Restricted: cov.restricted, Detect: redetection(*all, *projectDir, detect)}
 		if indexLogs != nil {
 			o.Sync = tuiSync(indexLogs)
 		}
 		return tui.Run(o)
 	}
-	rep, err := reporting.BuildReport{Queries: usage}.Run(reporting.Query{Since: from, Harness: only})
+	rep, err := reporting.BuildReport{Queries: usage}.Run(context.Background(), reporting.Query{Since: from, Harness: only, Project: cov.restriction()})
 	if err != nil {
 		return err
 	}
@@ -143,7 +168,7 @@ func run() error {
 		enc.SetIndent("", "  ")
 		return enc.Encode(toJSON(rep))
 	}
-	printReport(rep)
+	printReport(rep, cov)
 	return nil
 }
 

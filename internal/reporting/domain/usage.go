@@ -8,10 +8,12 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 )
 
-// Filter restricts a report to activity since a time (zero: all) and optionally one harness (empty: all).
+// Filter restricts a report to activity since a time (zero: all), optionally one harness (empty: all) and optionally
+// one project (zero: all).
 type Filter struct {
 	Since   time.Time
 	Harness kernel.Harness
+	Project kernel.Project
 }
 
 // Dimension is a way to group usage.
@@ -22,6 +24,8 @@ const (
 	ByModel
 	ByFolder
 	ByAgentType
+	// ByDay groups by local calendar day, as 2006-01-02, oldest first. A request with no known time has no day and is left out.
+	ByDay
 )
 
 // USD is a sum of request costs in US dollars.

@@ -3,6 +3,7 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	"github.com/Nathandelenclos/agent-stats/internal/platform/projectfolders"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 	report "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 )
@@ -32,8 +34,50 @@ type querier interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
-// reader answers the usage questions through q.
-type reader struct{ q querier }
+// scoped runs the queries of a database or a transaction under a context: each stops when ctx does, which a plain
+// Query on a transaction does not.
+type scoped struct {
+	ctx context.Context
+	db  interface {
+		QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+		QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	}
+}
+
+func (s scoped) Query(query string, args ...any) (*sql.Rows, error) {
+	return s.db.QueryContext(s.ctx, query, args...)
+}
+
+func (s scoped) QueryRow(query string, args ...any) *sql.Row {
+	return s.db.QueryRowContext(s.ctx, query, args...)
+}
+
+// reader answers the usage questions through q. folders, when set, remembers the folders of the project the questions
+// are about, so that the questions of one snapshot read the index's folders once and agree on them; a reader of the
+// live index has none, for what it read would go stale.
+type reader struct {
+	q       querier
+	folders *projectFolders
+}
+
+// projectFolders is the folders of one project as projectfolders.List gives them.
+type projectFolders struct {
+	project kernel.Project
+	list    string
+	read    bool
+}
+
+// folderList is the folders of p, read the first time and remembered after that when the reader remembers.
+func (r reader) folderList(p kernel.Project) (string, error) {
+	if m := r.folders; m != nil && m.read && m.project == p {
+		return m.list, nil
+	}
+	list, err := projectfolders.List(r.q, p)
+	if err == nil && r.folders != nil {
+		*r.folders = projectFolders{p, list, true}
+	}
+	return list, err
+}
 
 var _ reporting.UsageReader = reader{}
 
@@ -52,38 +96,53 @@ func OpenReadOnly(path string) (*SQLiteUsage, error) {
 		db.Close()
 		return nil, err
 	}
-	return &SQLiteUsage{db: db, reader: reader{db}}, nil
+	return &SQLiteUsage{db: db, reader: reader{q: scoped{context.Background(), db}}}, nil
 }
 
 // Snapshot runs fn inside one read transaction. The index is in WAL mode, so the transaction keeps the state
 // of its first read until it ends and the indexing writer is never blocked; the reader fn gets cannot see
-// anything indexing commits meanwhile.
-func (s *SQLiteUsage) Snapshot(fn func(reporting.UsageReader) error) error {
-	tx, err := s.db.Begin()
+// anything indexing commits meanwhile. The transaction and every query of the reader stop when ctx does.
+func (s *SQLiteUsage) Snapshot(ctx context.Context, fn func(reporting.UsageReader) error) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() // nothing was written: ending the transaction is all it takes
-	return fn(reader{tx})
+	return fn(reader{q: scoped{ctx, tx}, folders: &projectFolders{}})
 }
 
 // Close closes the database.
 func (s *SQLiteUsage) Close() error { return s.db.Close() }
 
-// where turns a filter into SQL conditions; every value is a bound parameter.
-func where(f report.Filter, tsCol string) (string, []any) {
+var _ reporting.ProjectQueries = (*SQLiteUsage)(nil)
+
+// HasSessions reports whether a session of the index worked in the project's folder or below it.
+func (s *SQLiteUsage) HasSessions(p kernel.Project) (bool, error) {
+	folders, err := projectfolders.Folders(s.db, p)
+	return len(folders) > 0, err
+}
+
+// where turns a filter into SQL conditions on the rows of a view aliased alias; every value is a bound parameter.
+func (r reader) where(f report.Filter, alias string) (string, []any, error) {
 	var conds []string
 	var args []any
 	if !f.Since.IsZero() {
-		conds, args = append(conds, tsCol+" >= ?"), append(args, kernel.UnixMilli(f.Since))
+		conds, args = append(conds, alias+".ts >= ?"), append(args, kernel.UnixMilli(f.Since))
 	}
 	if !f.Harness.IsZero() {
 		conds, args = append(conds, "harness = ?"), append(args, f.Harness.String())
 	}
-	if len(conds) == 0 {
-		return "", nil
+	if !f.Project.IsZero() {
+		list, err := r.folderList(f.Project)
+		if err != nil {
+			return "", nil, err
+		}
+		conds, args = append(conds, projectfolders.InList(alias+".folder")), append(args, list)
 	}
-	return " WHERE " + strings.Join(conds, " AND "), args
+	if len(conds) == 0 {
+		return "", nil, nil
+	}
+	return " WHERE " + strings.Join(conds, " AND "), args, nil
 }
 
 // groupColumns is the closed list of SQL expressions a usage query may group by.
@@ -92,6 +151,7 @@ var groupColumns = map[report.Dimension]string{
 	report.ByModel:     "model",
 	report.ByFolder:    "COALESCE(folder, '')",
 	report.ByAgentType: "agent_type",
+	report.ByDay:       "strftime('%Y-%m-%d', r.ts / 1000, 'unixepoch', 'localtime')",
 }
 
 // COALESCE keeps an empty selection scannable as zeros.
@@ -122,16 +182,28 @@ func fromMillis(ms int64) time.Time {
 	return time.UnixMilli(ms)
 }
 
-// UsageBy groups requests along d, most expensive first.
+// UsageBy groups requests along d, most expensive first (days: oldest first).
 func (r reader) UsageBy(f report.Filter, d report.Dimension) ([]report.UsageGroup, error) {
 	col, ok := groupColumns[d]
 	if !ok {
 		return nil, fmt.Errorf("unknown usage dimension %d", d)
 	}
-	cond, args := where(f, "r.ts")
+	cond, args, err := r.where(f, "r")
+	if err != nil {
+		return nil, err
+	}
+	order := "SUM(r.cost) DESC, COUNT(*) DESC"
+	if d == report.ByDay {
+		order = "1"
+		if cond == "" {
+			cond = " WHERE r.ts > 0" // a request with an unknown time (0) has no day
+		} else {
+			cond += " AND r.ts > 0"
+		}
+	}
 	rows, err := r.q.Query(`SELECT `+col+`, `+usageCols+`
 		FROM usage_requests r`+cond+`
-		GROUP BY 1 ORDER BY SUM(r.cost) DESC, COUNT(*) DESC`, args...)
+		GROUP BY 1 ORDER BY `+order, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -150,21 +222,28 @@ func (r reader) UsageBy(f report.Filter, d report.Dimension) ([]report.UsageGrou
 
 // Total aggregates every request matching f.
 func (r reader) Total(f report.Filter) (report.Usage, error) {
-	cond, args := where(f, "r.ts")
+	cond, args, err := r.where(f, "r")
+	if err != nil {
+		return report.Usage{}, err
+	}
 	var row usageRow
-	err := r.q.QueryRow(`SELECT `+usageCols+` FROM usage_requests r`+cond, args...).Scan(row.args()...)
+	err = r.q.QueryRow(`SELECT `+usageCols+` FROM usage_requests r`+cond, args...).Scan(row.args()...)
 	return row.usage(), err
 }
 
 // Tools aggregates tool calls, most used first.
 func (r reader) Tools(f report.Filter) ([]report.ToolUsage, error) {
-	cond, args := where(f, "t.ts")
-	return toolUsage(r.q, "usage_tool_calls", cond, args)
+	cond, args, err := r.where(f, "t")
+	if err != nil {
+		return nil, err
+	}
+	return toolUsage(r.q, "", "usage_tool_calls", cond, args)
 }
 
-// toolUsage aggregates the calls of view (aliased t) that cond selects, most used first.
-func toolUsage(q querier, view, cond string, args []any) ([]report.ToolUsage, error) {
-	rows, err := q.Query(`SELECT t.name, t.server, COUNT(*), SUM(t.is_error), SUM(t.args_chars), SUM(t.result_chars),
+// toolUsage aggregates the calls of view (aliased t) that cond selects, most used first. with, when it is not empty, is a
+// WITH clause cond may use.
+func toolUsage(q querier, with, view, cond string, args []any) ([]report.ToolUsage, error) {
+	rows, err := q.Query(with+` SELECT t.name, t.server, COUNT(*), SUM(t.is_error), SUM(t.args_chars), SUM(t.result_chars),
 		COALESCE(AVG(t.duration_ms), 0), MAX(t.ts)
 		FROM `+view+` t`+cond+`
 		GROUP BY 1, 2 ORDER BY 3 DESC`, args...)

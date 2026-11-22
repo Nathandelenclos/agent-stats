@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	"github.com/Nathandelenclos/agent-stats/internal/platform/projectfolders"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 	report "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 )
@@ -21,14 +22,27 @@ func (s *SQLiteUsage) Prompts() *SQLitePrompts { return &SQLitePrompts{s.db} }
 // FlaggedPrompts lists the prompts typed in the filter's range that show a signal, most recent first.
 // Only user prompts in main conversations are included. Full text is needed to group recurring asks.
 func (s *SQLitePrompts) FlaggedPrompts(f report.Filter) ([]report.FlaggedPrompt, error) {
-	cond, args := `(p.yelling + p.profanity + p.anguish + p.negation + p.blame > 0 OR p.repetition <> 0)`, []any(nil)
+	var args []any
+	cond := `(p.yelling + p.profanity + p.anguish + p.negation + p.blame > 0 OR p.repetition <> 0)`
 	if !f.Since.IsZero() {
 		cond, args = cond+" AND p.ts >= ?", append(args, kernel.UnixMilli(f.Since))
 	}
 	if !f.Harness.IsZero() {
 		cond, args = cond+" AND o.harness = ?", append(args, f.Harness.String())
 	}
-	rows, err := s.db.Query(`SELECT p.session_id, o.harness, COALESCE(o.title, ''), COALESCE(o.folder, ''), p.ts, p.text,
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	projectCondition, projectArgs, err := projectfolders.Condition(tx, f.Project, "o.folder")
+	if err != nil {
+		return nil, err
+	}
+	if projectCondition != "" {
+		cond, args = cond+" AND "+projectCondition, append(args, projectArgs...)
+	}
+	rows, err := tx.Query(`SELECT p.session_id, o.harness, COALESCE(o.title, ''), COALESCE(o.folder, ''), p.ts, p.text,
 			p.yelling, p.profanity, p.anguish, p.negation, p.repetition, p.blame
 		FROM session_prompts p JOIN session_overview o ON o.id = p.session_id AND o.id = o.root_id AND o.agent_type = 'main'
 		WHERE `+cond+` ORDER BY p.ts DESC, p.session_id, p.position`, args...)

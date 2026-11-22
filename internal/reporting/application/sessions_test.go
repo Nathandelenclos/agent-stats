@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -18,12 +19,18 @@ type recordedSessions struct {
 	err    error
 }
 
-func (r *recordedSessions) Sessions(f domain.Filter) ([]domain.SessionSummary, error) {
+func (r *recordedSessions) Sessions(ctx context.Context, f domain.Filter) ([]domain.SessionSummary, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	r.filter = f
 	return r.list, r.err
 }
 
-func (r *recordedSessions) Session(id domain.SessionID) (domain.SessionDetail, error) {
+func (r *recordedSessions) Session(ctx context.Context, id domain.SessionID, _ kernel.Project) (domain.SessionDetail, error) {
+	if err := ctx.Err(); err != nil {
+		return domain.SessionDetail{}, err
+	}
 	r.asked = id
 	return r.detail, r.err
 }
@@ -35,7 +42,7 @@ func TestListSessionsAsksForTheRangeOfTheQuery(t *testing.T) {
 	since := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	// When the sessions of a harness since a date are listed
-	got, err := ListSessions{Queries: idx}.Run(Query{Since: since, Harness: kernel.Codex})
+	got, err := ListSessions{Queries: idx}.Run(context.Background(), Query{Since: since, Harness: kernel.Codex})
 
 	// Then the index is asked for exactly that range, and its sessions come back
 	if err != nil || len(got.Sessions) != 1 || got.Sessions[0].Title != "fix the build" {
@@ -52,7 +59,7 @@ func TestShowSessionDescribesTheSessionAskedFor(t *testing.T) {
 	idx := &recordedSessions{detail: domain.SessionDetail{SessionSummary: domain.SessionSummary{ID: id}, Prompts: []domain.Prompt{{Text: "hi"}}}}
 
 	// When that session is shown
-	d, err := ShowSession{Queries: idx}.Run(id)
+	d, err := ShowSession{Queries: idx}.Run(context.Background(), id, Query{})
 
 	// Then the index was asked about it and its prompts are in the answer
 	if err != nil || idx.asked != id || len(d.Prompts) != 1 {
@@ -66,7 +73,7 @@ func TestShowSessionReportsAnUnknownSession(t *testing.T) {
 	id, _ := NewSessionID("claude:gone")
 
 	// When it is shown, then the caller can tell it is missing
-	if _, err := (ShowSession{Queries: idx}).Run(id); !errors.Is(err, ErrSessionNotFound) {
+	if _, err := (ShowSession{Queries: idx}).Run(context.Background(), id, Query{}); !errors.Is(err, ErrSessionNotFound) {
 		t.Errorf("err = %v", err)
 	}
 }
@@ -80,7 +87,7 @@ func TestTheListedSessionsAreAddedUp(t *testing.T) {
 	}}
 
 	// When they are listed
-	got, err := ListSessions{Queries: idx}.Run(Query{})
+	got, err := ListSessions{Queries: idx}.Run(context.Background(), Query{})
 
 	// Then the list carries the totals of what its sessions used
 	if err != nil || got.Total.Requests != 15 || got.Total.Failed != 1 || got.Total.Cost != 3 || got.Total.Unpriced != 3 {
@@ -141,5 +148,37 @@ func TestASessionLastsFromItsFirstToItsLastEntry(t *testing.T) {
 	}
 	if _, ok := (domain.SessionSummary{}).Duration(); ok {
 		t.Error("a session without timestamps has a duration")
+	}
+}
+
+func TestNoSessionIsListedForACallerThatGaveUp(t *testing.T) {
+	// Given a caller that has already given up, and an index holding a session
+	ctx, giveUp := context.WithCancel(context.Background())
+	giveUp()
+	id, _ := domain.NewSessionID("claude:s1")
+	idx := &recordedSessions{list: []domain.SessionSummary{{ID: id}}}
+
+	// When the sessions are listed
+	got, err := ListSessions{Queries: idx}.Run(ctx, Query{})
+
+	// Then the caller is told it gave up and gets no session
+	if !errors.Is(err, context.Canceled) || len(got.Sessions) != 0 {
+		t.Errorf("sessions = %+v, error = %v, want none and context.Canceled", got, err)
+	}
+}
+
+func TestNoSessionIsShownToACallerThatGaveUp(t *testing.T) {
+	// Given a caller that has already given up, and an index that knows the session
+	ctx, giveUp := context.WithCancel(context.Background())
+	giveUp()
+	id, _ := domain.NewSessionID("claude:s1")
+	idx := &recordedSessions{detail: domain.SessionDetail{SessionSummary: domain.SessionSummary{ID: id}}}
+
+	// When the session is shown
+	_, err := ShowSession{Queries: idx}.Run(ctx, id, Query{})
+
+	// Then the caller is told it gave up
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want context.Canceled", err)
 	}
 }

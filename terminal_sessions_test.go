@@ -26,7 +26,7 @@ func seedSession(t *testing.T) string {
 	tokens, _ := kernel.NewTokens(kernel.TokenCounts{Input: 1000, Output: 100})
 	cost, _ := kernel.NewCost(2)
 	prompts := []domain.Prompt{{Key: "p1", At: at, Text: "fix the build"}, {Key: "p2", At: at, Text: "WHY IS IT STILL BROKEN??"}}
-	err = w.Save(indexing.LogFile{Path: "/logs/s1.jsonl", Harness: kernel.Claude}, indexing.IndexedTranscript{
+	err = w.Save([]indexing.IndexedLog{{File: indexing.LogFile{Path: "/logs/s1.jsonl", Harness: kernel.Claude}, Transcript: indexing.IndexedTranscript{
 		Transcript: domain.Transcript{
 			Session:  domain.Session{ID: id, Harness: kernel.Claude, AgentType: domain.MainAgent, Title: "fix build", Folder: "/repo", Start: at, End: at.Add(time.Minute)},
 			Requests: []domain.Request{{Key: "m1", At: at, Model: "big-model", Tokens: tokens}},
@@ -34,7 +34,7 @@ func seedSession(t *testing.T) string {
 		},
 		Costs:   []indexing.PricedCost{{Cost: cost, Priced: true}},
 		Signals: domain.AnalyzeSession(prompts),
-	})
+	}}})[0]
 	if err != nil {
 		t.Fatal(err)
 	}

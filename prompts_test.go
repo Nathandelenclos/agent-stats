@@ -45,7 +45,7 @@ func reviewIndexed(t *testing.T) *usagedb.SQLiteUsage {
 		for i, text := range texts {
 			prompts = append(prompts, domain.Prompt{Key: string(rune('a' + i)), At: s.Start.Add(time.Duration(i) * time.Minute), Text: text})
 		}
-		err := w.Save(indexing.LogFile{Path: file, Harness: h}, indexing.IndexedTranscript{Transcript: domain.Transcript{Session: s, Prompts: prompts}, Signals: domain.AnalyzeSession(prompts)})
+		err := w.Save([]indexing.IndexedLog{{File: indexing.LogFile{Path: file, Harness: h}, Transcript: indexing.IndexedTranscript{Transcript: domain.Transcript{Session: s, Prompts: prompts}, Signals: domain.AnalyzeSession(prompts)}}})[0]
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -102,7 +102,7 @@ func TestPromptsReviewIsPrintedAsApprovedText(t *testing.T) {
 
 	// When the review is printed as text
 	var out bytes.Buffer
-	if err := runPrompts(&out, usage.Prompts(), reporting.Query{}, false); err != nil {
+	if err := runPrompts(&out, usage.Prompts(), reporting.Query{}, coverage{}, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -120,7 +120,7 @@ func TestPromptsReviewIsPrintedAsApprovedJSON(t *testing.T) {
 
 	// When the review is printed as JSON
 	var out bytes.Buffer
-	if err := runPrompts(&out, usage.Prompts(), reporting.Query{}, true); err != nil {
+	if err := runPrompts(&out, usage.Prompts(), reporting.Query{}, coverage{}, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -135,15 +135,15 @@ func TestPromptsReviewOfAnEmptyRangeSaysSoAndPrintsEmptyLists(t *testing.T) {
 
 	// When the review is printed as text, then as JSON
 	var text, js bytes.Buffer
-	if err := runPrompts(&text, usage.Prompts(), q, false); err != nil {
+	if err := runPrompts(&text, usage.Prompts(), q, coverage{}, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := runPrompts(&js, usage.Prompts(), q, true); err != nil {
+	if err := runPrompts(&js, usage.Prompts(), q, coverage{}, true); err != nil {
 		t.Fatal(err)
 	}
 
 	// Then the text says there is nothing, and the JSON lists are empty arrays, not null
-	if text.String() != "No flagged prompts in this range.\n" {
+	if text.String() != "All projects\nNo flagged prompts in this range.\n" {
 		t.Errorf("text = %q", text.String())
 	}
 	for _, want := range []string{`"prompts": []`, `"recurring": []`, `"byFolder": []`, `"sessions": 0`} {
@@ -159,12 +159,12 @@ func TestPromptsReviewCanBeLimitedToOneHarness(t *testing.T) {
 
 	// When the review is limited to one harness
 	var codex bytes.Buffer
-	if err := runPrompts(&codex, usage.Prompts(), reporting.Query{Harness: kernel.Codex}, false); err != nil {
+	if err := runPrompts(&codex, usage.Prompts(), reporting.Query{Harness: kernel.Codex}, coverage{}, false); err != nil {
 		t.Fatal(err)
 	}
 
 	// Then only that harness's prompt is listed
-	if !strings.HasPrefix(codex.String(), "1 flagged prompt in 1 session\n") || strings.Contains(codex.String(), "/work/web") {
+	if !strings.HasPrefix(codex.String(), "All projects\n1 flagged prompt in 1 session\n") || strings.Contains(codex.String(), "/work/web") {
 		t.Errorf("codex review:\n%s", codex.String())
 	}
 }
@@ -175,12 +175,12 @@ func TestPromptsReviewCanBeLimitedToAPeriod(t *testing.T) {
 
 	// When the review is limited to the prompts typed from the fifth hour on
 	var late bytes.Buffer
-	if err := runPrompts(&late, usage.Prompts(), reporting.Query{Since: promptsBase.Add(4 * time.Hour)}, false); err != nil {
+	if err := runPrompts(&late, usage.Prompts(), reporting.Query{Since: promptsBase.Add(4 * time.Hour)}, coverage{}, false); err != nil {
 		t.Fatal(err)
 	}
 
 	// Then only the late sessions' prompts are listed
-	if !strings.HasPrefix(late.String(), "4 flagged prompts in 2 sessions\n") || strings.Contains(late.String(), "/work/api") {
+	if !strings.HasPrefix(late.String(), "All projects\n4 flagged prompts in 2 sessions\n") || strings.Contains(late.String(), "/work/api") {
 		t.Errorf("late review:\n%s", late.String())
 	}
 }

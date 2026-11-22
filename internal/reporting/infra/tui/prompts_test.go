@@ -265,3 +265,45 @@ func TestThePromptsViewShowsSignalsBesideLongMetadata(t *testing.T) {
 		t.Fatalf("signal lost at 80 columns:\n%s", view)
 	}
 }
+
+func TestThePromptsViewCanSwitchBetweenProjectAndAllProjects(t *testing.T) {
+	project, err := kernel.NewProject("/work/api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompts := samplePrompts()
+	m := New(Options{
+		Reports: build(&fakeReports{report: sampleReport()}),
+		Prompts: reporting.ReviewPrompts{Queries: prompts},
+		Project: project, Restricted: true,
+	})
+	m, cmd := pressCmd(t, m, "m")
+	m = answer(t, m, cmd)
+	m, cmd = pressCmd(t, m, "a")
+	m = answer(t, m, cmd)
+
+	if len(prompts.filters) != 2 || prompts.filters[0].Project != project || !prompts.filters[1].Project.IsZero() {
+		t.Fatalf("prompt review scopes = %+v", prompts.filters)
+	}
+	if !strings.Contains(m.View(), "all projects") {
+		t.Fatal("title did not follow the scope of the review")
+	}
+}
+
+func TestReturningToPromptsHidesThePreviousScopesReview(t *testing.T) {
+	project, err := kernel.NewProject("/work/api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := inPrompts(t, samplePrompts())
+	m.project = project
+	m, cmd := pressCmd(t, m, "m")
+	m = answer(t, m, cmd)
+	m, cmd = pressCmd(t, m, "a")
+	m = answer(t, m, cmd)
+	m, _ = pressCmd(t, m, "m")
+
+	if view := m.View(); strings.Contains(view, "4 flagged prompts") || !strings.Contains(view, "loading") {
+		t.Fatalf("previous scope is still visible:\n%s", view)
+	}
+}

@@ -13,7 +13,7 @@ type (
 // PromptQueries answers questions about the prompts the user typed. The answer describes one state of the
 // index, which indexing may be changing meanwhile.
 type PromptQueries interface {
-	// FlaggedPrompts lists the prompts typed in the filter's range (since the filter's time, in its harness)
+	// FlaggedPrompts lists the prompts typed in the filter's range (since the filter's time, in its harness and project)
 	// that show at least one frustration signal. They are the user's own: the briefs sent to subagents are not.
 	FlaggedPrompts(domain.Filter) ([]domain.FlaggedPrompt, error)
 }
@@ -23,9 +23,9 @@ type ReviewPrompts struct {
 	Queries PromptQueries
 }
 
-// Run reviews the flagged prompts q asks for: those typed since q.Since (zero: ever) and, when q.Harness is set, in that harness.
+// Run reviews the flagged prompts q asks for: in the requested period, harness and project.
 func (uc ReviewPrompts) Run(q Query) (PromptReview, error) {
-	prompts, err := uc.Queries.FlaggedPrompts(domain.Filter{Since: q.Since, Harness: q.Harness})
+	prompts, err := uc.Queries.FlaggedPrompts(domain.Filter{Since: q.Since, Harness: q.Harness, Project: q.Project})
 	if err != nil {
 		return PromptReview{}, err
 	}

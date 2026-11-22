@@ -5,6 +5,7 @@
 package tui
 
 import (
+	"context"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -14,8 +15,11 @@ import (
 )
 
 // Sync brings the index up to date and calls progress with the number of files indexed so far.
+// It is the interface's own option, supplied by the composition root, and not a port of an application: the
+// interface does not know what is indexed, only that it may ask for the index to be refreshed.
+// It must stop soon after ctx is done, which happens when the user quits: the index is closed once it has.
 // The note it returns, if any, is shown when it is done (what was skipped, for instance).
-type Sync func(progress func(indexed int)) (note string, err error)
+type Sync func(ctx context.Context, progress func(indexed int)) (note string, err error)
 
 // Options configures the interface.
 type Options struct {
@@ -33,10 +37,21 @@ type Options struct {
 	// Any other label stands for a custom period starting at Since.
 	SinceLabel string
 	Since      time.Time
+	// Project is the project key a switches the views to, and Restricted whether the views start restricted to it. The zero
+	// Project means there is none to switch to: the views cover every project and the key does nothing.
+	Project    kernel.Project
+	Restricted bool
+	// Detect, when set, finds the project of the working folder again each time an indexing ends: a folder that no session
+	// had worked in may have been given sessions by it. A project found where there was none becomes the scope the views
+	// restrict to; a failure leaves the scope as it is. It runs off the interface's loop, and is left nil when the user
+	// named the scope (--all, --project), which detection must not change.
+	Detect func() (kernel.Project, error)
 }
 
-// Run shows the interface until the user quits.
+// Run shows the interface until the user quits, then waits for a sync still running to stop.
 func Run(o Options) error {
-	_, err := tea.NewProgram(New(o), tea.WithAltScreen()).Run()
+	m := New(o)
+	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
+	m.stopSync()
 	return err
 }

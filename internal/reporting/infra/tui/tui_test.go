@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -23,10 +25,12 @@ type fakeReports struct {
 	queries []reporting.Query
 }
 
-func (f *fakeReports) Snapshot(fn func(reporting.UsageReader) error) error { return fn(f) }
+func (f *fakeReports) Snapshot(_ context.Context, fn func(reporting.UsageReader) error) error {
+	return fn(f)
+}
 
 func (f *fakeReports) Total(fl domain.Filter) (domain.Usage, error) {
-	f.queries = append(f.queries, reporting.Query{Since: fl.Since, Harness: fl.Harness})
+	f.queries = append(f.queries, reporting.Query{Since: fl.Since, Harness: fl.Harness, Project: fl.Project})
 	return f.report.Total, f.err
 }
 
@@ -385,7 +389,7 @@ func TestPeriodKeyAsksForAnotherReport(t *testing.T) {
 func TestHarnessKeyCyclesThroughEveryHarness(t *testing.T) {
 	reports := &fakeReports{report: sampleReport()}
 	m := startWith(t, reports, Options{})
-	for _, want := range []kernel.Harness{kernel.Claude, kernel.Codex, kernel.OMP, kernel.Pi, {}} {
+	for _, want := range append(slices.Clone(kernel.Harnesses), kernel.Harness{}) {
 		var cmd tea.Cmd
 		m, cmd = pressCmd(t, m, "h")
 		m = answer(t, m, cmd)
@@ -501,7 +505,7 @@ type fakeSync struct {
 	calls  int
 }
 
-func (f *fakeSync) run(progress func(int)) (string, error) {
+func (f *fakeSync) run(_ context.Context, progress func(int)) (string, error) {
 	f.calls++
 	for _, c := range f.counts {
 		progress(c)
@@ -548,7 +552,7 @@ func TestProgressShowsFilesIndexedSoFar(t *testing.T) {
 func TestProgressReachesTheScreenWhileIndexingIsStillRunning(t *testing.T) {
 	// Given a sync that is still working after its first progress report
 	release := make(chan struct{})
-	m := New(Options{Reports: build(&fakeReports{}), Sync: func(progress func(int)) (string, error) {
+	m := New(Options{Reports: build(&fakeReports{}), Sync: func(_ context.Context, progress func(int)) (string, error) {
 		progress(50)
 		<-release
 		return "", nil
@@ -568,6 +572,128 @@ func TestProgressReachesTheScreenWhileIndexingIsStillRunning(t *testing.T) {
 
 	// And its end arrives as a message once released
 	close(release)
+}
+
+func TestProgressIsNotSentMoreOftenThanTheScreenNeedsIt(t *testing.T) {
+	// Given a sync that reports three counts at once, then one 200 ms later
+	clock := time.Unix(1000, 0)
+	m := New(Options{Reports: build(&fakeReports{}), Sync: func(_ context.Context, progress func(int)) (string, error) {
+		progress(50)
+		progress(100)
+		progress(150)
+		clock = clock.Add(200 * time.Millisecond)
+		progress(200)
+		return "", nil
+	}})
+	m.now = func() time.Time { return clock }
+
+	// When the interface listens to it
+	var counts []int
+	msg := m.startSync()()
+	for {
+		p, ok := msg.(syncProgressMsg)
+		if !ok {
+			break
+		}
+		counts = append(counts, p.indexed)
+		msg = <-p.events
+	}
+
+	// Then the burst makes one message, and the later count another
+	if fmt.Sprint(counts) != "[50 200]" {
+		t.Errorf("progress messages = %v, want [50 200]", counts)
+	}
+}
+
+// stopped reports whether stop returned within the time a test is willing to wait.
+func stopped(stop func()) bool {
+	done := make(chan struct{})
+	go func() { stop(); close(done) }()
+	select {
+	case <-done:
+		return true
+	case <-time.After(2 * time.Second):
+		return false
+	}
+}
+
+func TestQuittingCancelsTheSyncAndWaitsForItToStop(t *testing.T) {
+	// Given a sync that works until it is told to stop
+	started := make(chan struct{})
+	m := New(Options{Reports: build(&fakeReports{}), Sync: func(ctx context.Context, progress func(int)) (string, error) {
+		close(started)
+		<-ctx.Done()
+		return "", ctx.Err()
+	}})
+	first := make(chan tea.Msg, 1)
+	go func() { first <- m.startSync()() }()
+	<-started
+
+	// When the user quits
+	_, cmd := pressCmd(t, m, "q")
+
+	// Then the interface asks to close, the sync was told to stop, and closing waits for it: the index is not
+	// closed under a run that is still saving
+	if cmd == nil || cmd() != tea.Quit() {
+		t.Error("q did not quit")
+	}
+	if !stopped(m.stopSync) {
+		t.Fatal("the sync was not told to stop, or stopping does not wait for it")
+	}
+	select {
+	case msg := <-first:
+		if done, ok := msg.(syncDoneMsg); !ok || !errors.Is(done.err, context.Canceled) {
+			t.Errorf("the sync ended with %#v, want a cancellation", msg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("the sync's end is never delivered")
+	}
+}
+
+func TestASyncThatEndsAfterTheInterfaceStoppedReadingDoesNotBlock(t *testing.T) {
+	// Given a sync that reports more progress than the interface reads, then ends
+	clock := time.Unix(1000, 0)
+	finished := make(chan struct{})
+	m := New(Options{Reports: build(&fakeReports{}), Sync: func(_ context.Context, progress func(int)) (string, error) {
+		for i := 1; i <= 30; i++ {
+			clock = clock.Add(time.Second)
+			progress(i)
+		}
+		close(finished)
+		return "", nil
+	}})
+	m.now = func() time.Time { return clock }
+
+	// When the interface reads the first message only and then quits: the buffer of the stream is full
+	first := m.startSync()()
+	<-finished
+	time.Sleep(20 * time.Millisecond) // let the sync try to send its end
+	pressCmd(t, m, "q")
+
+	// Then the sync's goroutine ends instead of waiting for a reader that is gone
+	if _, ok := first.(syncProgressMsg); !ok {
+		t.Fatalf("first message = %#v", first)
+	}
+	if !stopped(m.stopSync) {
+		t.Error("the sync's last message blocks it for ever")
+	}
+}
+
+func TestEveryKeyAndMessageIsAnsweredWithoutQueryingTheIndex(t *testing.T) {
+	// Given an interface with its first report on screen
+	reports := &fakeReports{report: sampleReport()}
+	m := openWithSync(t, reports, &fakeSync{})
+	asked := len(reports.queries)
+
+	// When keys that only change the view are pressed and progress arrives
+	m = press(t, m, "tab", "s", "o", "right", "1")
+	m = send(t, m, syncProgressMsg{indexed: 50, events: make(chan tea.Msg)})
+	m = send(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	// Then the update loop queried nothing: only a command, run off the loop, asks the index
+	if len(reports.queries) != asked {
+		t.Errorf("the update loop made %d queries", len(reports.queries)-asked)
+	}
 }
 
 func TestFailedIndexingIsShownAndTheViewStillRefreshes(t *testing.T) {
