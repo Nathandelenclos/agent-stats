@@ -121,6 +121,8 @@ func runServe(args []string) error {
 		Prompts:         reporting.ReviewPrompts{Queries: usage.Prompts()},
 		Catalog:         interactiveCatalog(*dbPath, *projectDir),
 		Quotas:          readQuotas,
+		RecordQuotas:    index.RecordQuotaWindows,
+		QuotaHistory:    index.QuotaHistory,
 		Sync:            sync,
 		SyncInterval:    30 * time.Second,
 		ParseSince:      parseSince,

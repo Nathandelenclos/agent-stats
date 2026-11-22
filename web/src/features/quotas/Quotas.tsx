@@ -3,6 +3,8 @@ import { getJSON } from "../../shared/api";
 import { describe, Failure } from "../../shared/Failure";
 import { formatDateTime, formatPercent } from "../../shared/format";
 
+import { QuotaHistory } from "./QuotaHistory";
+
 const defaultProviders = ["Codex", "Claude Code"];
 
 export interface QuotaWindow {
@@ -133,6 +135,7 @@ export function Quotas() {
           </div>
         );
       })}
+      <QuotaHistory version={query.dataUpdatedAt} enabled={query.isSuccess && !query.isFetching} />
     </section>
   );
 }

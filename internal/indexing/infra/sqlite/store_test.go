@@ -645,6 +645,7 @@ func TestRequestDetailsViewMigrationPreservesIndexedCalls(t *testing.T) {
 const schemaBeforeRequestDetails = `
 PRAGMA user_version = 4;
 DROP TABLE request_metadata;
+DROP TABLE quota_snapshots;
 DROP VIEW session_requests;
 CREATE VIEW session_requests AS SELECT session_id, cost FROM requests;
 DROP VIEW usage_requests;

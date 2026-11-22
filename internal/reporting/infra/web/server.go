@@ -36,6 +36,8 @@ type Options struct {
 	Prompts         reporting.ReviewPrompts
 	Catalog         func(catalog.Query) (catalog.Catalog, error)
 	Quotas          quota.Reader
+	RecordQuotas    func(context.Context, []quota.Window) error
+	QuotaHistory    func(context.Context, time.Time, int) ([]quota.Window, error)
 	// Sync, when set, runs at startup and on request. Serve cancels and waits for it when its context ends.
 	Sync         Sync
 	SyncInterval time.Duration
@@ -114,6 +116,7 @@ func New(o Options, addr net.Addr) *Server {
 	s.mux.HandleFunc("/api/prompts", s.prompts)
 	s.mux.HandleFunc("/api/catalog", s.catalog)
 	s.mux.HandleFunc("/api/quotas", s.quotas)
+	s.mux.HandleFunc("/api/quotas/history", s.quotaHistory)
 	s.mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		problem{Type: problemNotFound, Title: "No such route", Status: http.StatusNotFound}.write(w)
 	})

@@ -95,6 +95,13 @@ In the browser, open a session and select **Requests** to page through indexed m
 its subagents. **Failed only** filters the list. Open a failed row to read its error text on a loopback
 server. Some coding agents record usage by turn rather than for each individual provider call.
 
+The **Requests** and **Errors** views cover the selected period across sessions. The local Errors
+view groups messages with changing identifiers into signatures. A session's **Trace** tab shows
+recorded model usage, prompts and tools in time order, with subagent tracks when available.
+Short periods show hourly activity in the overview. The model and provider tables report
+timing coverage alongside averages. The cost breakdown uses current token rates and the standard
+cache-write rate. The quota history retains observations made when viewing or refreshing quotas.
+
 A running browser server checks for new or changed logs every 30 seconds. The dashboard refreshes
 when the index changes. Pass `--no-sync` to read the existing index without these checks.
 

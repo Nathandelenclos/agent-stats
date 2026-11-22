@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"time"
 
 	catalog "github.com/Nathandelenclos/agent-stats/internal/catalog/application"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
@@ -74,5 +75,27 @@ func (s *Server) quotas(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	windows := append([]quota.Window{}, s.opts.Quotas(r.Context())...)
+	if s.opts.RecordQuotas != nil {
+		if err := s.opts.RecordQuotas(r.Context(), windows); err != nil {
+			s.log("recording quota history: %v", err)
+		}
+	}
 	writeJSON(w, s.log, windows)
+}
+
+func (s *Server) quotaHistory(w http.ResponseWriter, r *http.Request) {
+	if !s.localOnly || s.opts.QuotaHistory == nil {
+		problem{Type: problemNotFound, Title: "Quota history unavailable", Status: http.StatusNotFound}.write(w)
+		return
+	}
+	if _, bad := s.parseParams(r); bad != nil {
+		bad.write(w)
+		return
+	}
+	windows, err := s.opts.QuotaHistory(r.Context(), s.now().Add(-30*24*time.Hour), 1000)
+	if err != nil {
+		s.fail(w, "reading quota history", err)
+		return
+	}
+	writeJSON(w, s.log, append([]quota.Window{}, windows...))
 }

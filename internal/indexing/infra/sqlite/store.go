@@ -141,6 +141,7 @@ var migrations = []migration{
 	sqlSteps(publishFolders),
 	sqlSteps(publishRequestDetails),
 	sqlSteps(recordRequestMetadata),
+	sqlSteps(recordQuotaHistory),
 }
 
 // recordSkills makes the index record the skill each Skill call loads. It is a table of its own, not a column of

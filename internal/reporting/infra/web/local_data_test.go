@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	catalog "github.com/Nathandelenclos/agent-stats/internal/catalog/application"
 	"github.com/Nathandelenclos/agent-stats/internal/catalog/domain"
@@ -83,5 +84,25 @@ func TestQuotaHTTPShowsExhaustedWindowsWithoutUsageFilters(t *testing.T) {
 	}
 	if rec := getLocalData(t, o, "/api/quotas?project=all"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("quota endpoint accepted project filter: %d", rec.Code)
+	}
+}
+
+func TestQuotaHistoryIsLocalAndUsesTheLastThirtyDays(t *testing.T) {
+	now := time.UnixMilli(1767261600000)
+	o := Options{
+		Now: func() time.Time { return now },
+		QuotaHistory: func(_ context.Context, since time.Time, limit int) ([]quota.Window, error) {
+			if !since.Equal(now.Add(-30*24*time.Hour)) || limit != 1000 {
+				t.Fatalf("history window: %v, limit %d", since, limit)
+			}
+			return []quota.Window{{Provider: "Codex", Label: "Weekly", Remaining: 80, Observed: now}}, nil
+		},
+	}
+	if rec := getLocalData(t, o, "/api/quotas/history"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Weekly") {
+		t.Fatalf("local history: %d %s", rec.Code, rec.Body)
+	}
+	o.AllowRemote = true
+	if rec := getLocalData(t, o, "/api/quotas/history"); rec.Code != http.StatusNotFound {
+		t.Fatalf("remote history: %d %s", rec.Code, rec.Body)
 	}
 }
