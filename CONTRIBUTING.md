@@ -108,9 +108,11 @@ The key's life cycle:
 
 - **Scope.** Use a key of a dedicated OpenAI project that only this repository uses, limited to the Responses API and the
   model above, with a monthly spend limit. Never a personal or shared key.
-- **Owner.** Nathan owns the key. He sets the secret (`gh secret set OPENAI_API_KEY`) and rotates it, and does so
-  whenever an admin leaves or the key may have leaked: create the new key, set the secret, then revoke the old key in the
-  OpenAI dashboard. The rotation is tracked by the Kaneo ticket AST-41, due 2027-02-20.
+- **Owner.** Nathan owns the key. He sets the secret (`gh secret set OPENAI_API_KEY`) and rotates it every 90 days, and
+  whenever the key may have leaked or someone who had access leaves: create the new key, set the secret, then revoke the
+  old key in the OpenAI dashboard. The first rotation is tracked by the Kaneo ticket AST-41, due 2027-02-20; each
+  rotation opens the ticket for the next one. If Nathan is unavailable, any repository admin may rotate or revoke the
+  key (revoking is always safe, see below).
 - **Revocation is safe and visible.** Nothing depends on the key: once it is revoked, the next release logs
   `AI release summary skipped: API answered 401` and goes out with its notes alone (a unit test pins this). Revoking a
   key therefore never blocks a release, and is the answer to a leak.
