@@ -242,6 +242,9 @@ func (m Model) dailyView() string {
 }
 
 func (m Model) dailyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if next, cmd, handled := m.dailyRelationKey(msg); handled {
+		return next, cmd
+	}
 	switch k := msg.String(); k {
 	case "esc":
 		m.dailyOpen = false

@@ -158,16 +158,22 @@ before pasting it anywhere.
 | `--prices file.json` | Override or add model prices, see [Pricing](#pricing). |
 | `--db path` | Index database to use (default: `agent-stats/index.db` in the user cache directory). |
 
-On a terminal, `agent-stats` opens an interactive view: `tab`/`←→` or `1`–`5` switch between harness, model,
-folder, agent and tools tables, `↑↓` scroll, `s` sorts by the next column and `o` reverses it, `p` cycles the period
-(24h, 7d, 30d, all), `h` cycles the harness, `a` switches between the project and every project, `r` indexes the logs
-again and `q` quits. Press `?` for shortcuts in the current view or `e` to expand it. `Esc` closes the shortcuts,
-restores the layout or returns to the previous view.
+On a terminal, `agent-stats` opens the dashboard. Use the arrow keys to choose Usage, Quotas, Sessions,
+Prompts or Catalog, and press Enter to open it. Press `0` to go back to the dashboard, `?` for shortcuts in
+the current view, or `e` to expand a detail. Esc closes the current detail and restores the previous selection.
 
-Usage leaves most of the screen for the table. On terminals at least 120 columns wide and 28 lines tall, the
-daily trends and estimated costs by coding agent sit beside the table. At any size, press `g` to open the
-charts and scroll down for exact daily values. Set `NO_COLOR=1` for a monochrome interface, or run
-`agent-stats --plain` for a static report with the daily values. `--json` and redirected output use the report formats below.
+In Usage, `tab` or `1`–`5` switches the breakdown and `g` opens the charts and the daily values. Select a
+row or day and press Enter to see the sessions that contributed activity within the current filters. Session
+details show the full session. Related tool and MCP rows count calls and errors without attributing model cost.
+
+Open a session to browse its summary, models, tools, subagents and prompts. Open a prompt to read it with its
+line breaks and use `/` to find text. In lists, `/` filters the results. A flagged prompt can open its source
+session with `s`. In Catalog, `s` on an MCP detail opens the sessions with observed calls. Quota windows
+belong to the account and have their own reset times.
+
+Press `p` to change period, `h` to change harness, `a` to switch the project scope, or `r` to re-index the logs.
+Set `NO_COLOR=1` for a monochrome interface, or run `agent-stats --plain` for a static report with the daily
+values. `--json` and redirected output use the report formats below.
 
 The report has a one-line total (requests, failures, cost, tokens in and out, cache rate, date range), then one table
 per harness, model, folder and agent type, then the most used tools with their MCP server, call count, errors and

@@ -351,28 +351,23 @@ func TestDetailShowsWhatTheSessionDid(t *testing.T) {
 			t.Errorf("detail lacks %q:\n%s", want, view)
 		}
 	}
-	// And the requests by model, with each model's share of the cost
-	for _, want := range []string{"MODEL", "opus", "96%", "haiku", "4%", "SHARE"} {
-		if !strings.Contains(view, want) {
-			t.Errorf("models lack %q:\n%s", want, view)
+	sections := []struct {
+		key   string
+		wants []string
+	}{
+		{"2", []string{"[Models]", "opus", "96% share", "haiku", "4% share"}},
+		{"3", []string{"[Tools]", "Bash", "42 calls", "grace / search"}},
+		{"4", []string{"[Subagents]", "Explore", "look around", "$1.25"}},
+		{"5", []string{"[Prompts]", "please fix the build", "WHY IS THIS STILL BROKEN?? no, stop", "yelling 4 · anguish 3 · negation 2 · repeated"}},
+	}
+	for _, section := range sections {
+		m = press(t, m, section.key)
+		view := m.View()
+		for _, want := range section.wants {
+			if !strings.Contains(view, want) {
+				t.Errorf("section %s lacks %q:\n%s", section.key, want, view)
+			}
 		}
-	}
-	// And the tools, the subagents and the prompts in order, with their signals
-	for _, want := range []string{
-		"TOOLS", "Bash", "42", "grace",
-		"SUBAGENTS", "Explore", "look around", "$1.25",
-		"PROMPTS", "#1 · 01-02 11:55:00 · 20 characters", "please fix the build",
-		"#2 · 01-02 11:58:00 · 35 characters · yelling 4 · anguish 3 · negation 2 · repeated", "WHY IS THIS STILL BROKEN?? no, stop",
-	} {
-		if !strings.Contains(view, want) {
-			t.Errorf("detail lacks %q:\n%s", want, view)
-		}
-	}
-	if strings.Contains(view, "#1 · 01-02 11:55:00 · 20 characters ·") {
-		t.Errorf("a calm prompt shows signals:\n%s", view)
-	}
-	if got := order(view, "MODEL", "TOOLS", "SUBAGENTS", "PROMPTS"); got != "MODEL TOOLS SUBAGENTS PROMPTS" {
-		t.Errorf("sections out of order: %q", got)
 	}
 }
 
@@ -386,16 +381,11 @@ func TestDetailListsEveryToolAndSubagent(t *testing.T) {
 	}
 
 	// When its detail is drawn
-	body := strings.Join(detailLines(d, 100), "\n")
-
-	// Then every tool and every subagent is listed, with nothing left out
-	for _, want := range []string{"tool-01", "tool-20", "agent-01", "agent-20"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("detail lacks %q", want)
+	for _, section := range []sessionSection{sessionToolsSection, sessionSubagentsSection} {
+		sectionState := sessionDetail{data: d, section: section}
+		if rows := sectionState.rows(); len(rows) != 20 || !strings.HasSuffix(rows[0].title, "-01") || !strings.HasSuffix(rows[19].title, "-20") {
+			t.Errorf("section %d does not include all rows in order: %+v", section, rows)
 		}
-	}
-	if strings.Contains(body, "more") {
-		t.Errorf("detail leaves rows out:\n%s", body)
 	}
 }
 
@@ -451,14 +441,15 @@ func TestDetailTextCannotDriveTheTerminal(t *testing.T) {
 	list := m.View()
 	m = openDetail(t, m)
 
-	// Then no control character reaches the terminal
-	for _, view := range []string{list, m.View()} {
+	for _, view := range []string{list, m.View(), press(t, m, "2").View(), press(t, m, "3").View(), press(t, m, "4").View()} {
 		if strings.ContainsAny(view, "\x07\u009b\r\t") || strings.Contains(view, "\x1b[2J") || strings.Contains(view, "\x1b]0") {
 			t.Errorf("control characters reached the view: %q", view)
 		}
 	}
-	if !strings.Contains(m.View(), "hi�]0;owned� here �31m") {
-		t.Errorf("the prompt is missing:\n%s", m.View())
+	m = press(t, m, "5")
+	m, _ = pressType(t, m, tea.KeyEnter)
+	if !strings.Contains(m.View(), "hi�]0;owned�") || !strings.Contains(m.View(), "\n    here �31m") {
+		t.Errorf("the prompt is missing or lost its paragraphs:\n%s", m.View())
 	}
 }
 
@@ -473,7 +464,7 @@ func aLongSessionOnASmallTerminal(t *testing.T) Model {
 	}
 	sessions.details["codex:cheap"] = d
 	m := send(t, inSessions(t, sessions), tea.WindowSizeMsg{Width: 60, Height: 14})
-	return openDetail(t, m)
+	return press(t, openDetail(t, m), "5")
 }
 
 // fitsA14By60Terminal fails when the view is taller or wider than the terminal.
@@ -493,7 +484,7 @@ func fitsA14By60Terminal(t *testing.T, m Model) {
 func TestALongSessionFitsASmallTerminalFromItsTop(t *testing.T) {
 	m := aLongSessionOnASmallTerminal(t)
 	fitsA14By60Terminal(t, m)
-	if view := m.View(); !strings.Contains(view, "refactor the billing module") || strings.Contains(view, "prompt number 60") {
+	if view := m.View(); !strings.Contains(view, "prompt number 1 ") || strings.Contains(view, "prompt number 60") {
 		t.Errorf("top of the detail:\n%s", view)
 	}
 }
@@ -504,13 +495,13 @@ func TestEndAndHomeTakeTheDetailToItsLastPromptAndBack(t *testing.T) {
 	// When the user goes to the end, then the last prompt is shown
 	m, _ = pressType(t, m, tea.KeyEnd)
 	fitsA14By60Terminal(t, m)
-	if view := m.View(); !strings.Contains(view, "prompt number 60") || strings.Contains(view, "TOOLS") {
+	if view := m.View(); !strings.Contains(view, "prompt number 60") || strings.Contains(view, "prompt number 1 ") {
 		t.Errorf("end of the detail:\n%s", view)
 	}
 
 	// When the user goes home, then the top is back
 	m, _ = pressType(t, m, tea.KeyHome)
-	if view := m.View(); !strings.Contains(view, "TOOLS") || !strings.Contains(view, "refactor the billing module") {
+	if view := m.View(); !strings.Contains(view, "> #1 prompt number 1") {
 		t.Errorf("home:\n%s", view)
 	}
 }
@@ -520,13 +511,13 @@ func TestPagingMovesTheDetailByAScreenAndBack(t *testing.T) {
 
 	// When the user pages down, then the first lines are gone
 	m, _ = pressType(t, m, tea.KeyPgDown)
-	if view := m.View(); strings.Contains(view, "refactor the billing module") || !strings.Contains(view, "SUBAGENTS") {
+	if view := m.View(); strings.Contains(view, "prompt number 1 ") || !strings.Contains(view, "[Prompts]") {
 		t.Errorf("after a page down:\n%s", view)
 	}
 
 	// When the user pages up, then the top is back
 	m, _ = pressType(t, m, tea.KeyPgUp)
-	if view := m.View(); !strings.Contains(view, "refactor the billing module") {
+	if view := m.View(); !strings.Contains(view, "prompt number 1 ") {
 		t.Errorf("after a page up:\n%s", view)
 	}
 }

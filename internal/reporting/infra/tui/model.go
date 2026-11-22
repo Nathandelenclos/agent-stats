@@ -99,14 +99,16 @@ type scopeMsg struct {
 
 // Model is the Bubble Tea model of the interface.
 type Model struct {
-	reports  reporting.BuildTimelineReport
-	lister   reporting.ListSessions // without queries, the sessions mode is off
-	shower   reporting.ShowSession
-	reviewer reporting.ReviewPrompts        // without queries, the prompts mode is off
-	sync     Sync                           // nil when indexing is off
-	detect   func() (kernel.Project, error) // nil when the scope is not for detection to change
-	syncs    *syncRuns
-	now      func() time.Time
+	reports    reporting.BuildTimelineReport
+	lister     reporting.ListSessions // without queries, the sessions mode is off
+	shower     reporting.ShowSession
+	promptText reporting.ShowSessionPrompt
+	relations  reporting.ListRelatedSessions
+	reviewer   reporting.ReviewPrompts        // without queries, the prompts mode is off
+	sync       Sync                           // nil when indexing is off
+	detect     func() (kernel.Project, error) // nil when the scope is not for detection to change
+	syncs      *syncRuns
+	now        func() time.Time
 
 	periods    []period // the presets, led by a custom period when the command line asked for one
 	period     int
@@ -117,8 +119,9 @@ type Model struct {
 		period, harness int
 		restricted      bool
 	}
-	seq     int // the latest report request; older answers are ignored
-	pending bool
+	reported filtersShown // filters of the most recent usage report
+	seq      int          // the latest report request; older answers are ignored
+	pending  bool
 
 	syncing  bool
 	indexed  int
@@ -126,35 +129,47 @@ type Model struct {
 	syncErr  error
 	spinner  spinner.Model
 
-	mode          mode
-	catalog       func(catalog.Query) (catalog.Catalog, error)
-	quotas        quota.Reader
-	localPager    pager
-	localLoaded   bool
-	catalogUnused bool
-	catalogResult catalog.Catalog
-	quotaResult   []quota.Window
-	sessions      sessionsState
-	prompts       promptsState
-	tab           tab
-	sorts         [tabCount]sortState // each tab keeps its own order
-	report        reporting.Report
-	daily         []reporting.UsageGroup
-	dailyOpen     bool
-	dailyPager    pager
-	expanded      bool
-	helpOpen      bool
-	helpPager     pager
-	loaded        bool
-	err           error
-	table         table.Model
-	width, height int
+	dashboard          dashboardState
+	related            relatedSessions
+	usageFilter        listFilter
+	localFilter        listFilter
+	localSelection     int
+	localPositions     []int
+	localListScroll    int
+	localCategory      int
+	localDetail        bool
+	mode               mode
+	catalog            func(catalog.Query) (catalog.Catalog, error)
+	quotas             quota.Reader
+	localPager         pager
+	localLoaded        bool
+	catalogUnused      bool
+	catalogResult      catalog.Catalog
+	quotaResult        []quota.Window
+	sessions           sessionsState
+	prompts            promptsState
+	tab                tab
+	sorts              [tabCount]sortState // each tab keeps its own order
+	report             reporting.Report
+	daily              []reporting.UsageGroup
+	dailyOpen          bool
+	dailyFromDashboard bool
+	dailySelection     int
+	dailyPositions     []int
+	dailyPager         pager
+	expanded           bool
+	helpOpen           bool
+	helpPager          pager
+	loaded             bool
+	err                error
+	table              table.Model
+	width, height      int
 }
 
 // New returns the model for o. Its Init asks for the first report.
 func New(o Options) Model {
 	t := table.New(table.WithFocused(true))
-	m := Model{reports: o.Reports, lister: o.Sessions, shower: o.Session, reviewer: o.Prompts, catalog: o.Catalog, quotas: o.Quotas, sessions: newSessionsState(), sync: o.Sync, detect: o.Detect, syncs: newSyncRuns(), syncing: o.Sync != nil, spinner: spinner.New(spinner.WithSpinner(spinner.MiniDot)), now: time.Now, table: t, width: 80, height: 24, periods: periods}
+	m := Model{reports: o.Reports, lister: o.Sessions, shower: o.Session, promptText: o.PromptText, relations: o.RelatedSessions, reviewer: o.Prompts, catalog: o.Catalog, quotas: o.Quotas, sessions: newSessionsState(), sync: o.Sync, detect: o.Detect, syncs: newSyncRuns(), syncing: o.Sync != nil, spinner: spinner.New(spinner.WithSpinner(spinner.MiniDot)), now: time.Now, table: t, width: 80, height: 24, periods: periods}
 	m.period = len(periods) - 1 // all
 	if o.SinceLabel != "" {
 		m.period = -1
@@ -341,13 +356,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		if msg.err == nil {
 			if m.shown.period != msg.period || m.shown.harness != msg.harness || m.shown.restricted != msg.restricted {
-				m.dailyPager.scroll = 0
+				m.dailyPager.scroll, m.dailySelection = 0, 0
 			}
 			m.report, m.daily, m.loaded = msg.report.Report, msg.report.Daily, true
 			m.shown.period, m.shown.harness, m.shown.restricted = msg.period, msg.harness, msg.restricted
+			m.reported = filtersShown(m.shown)
+		}
+		if m.dashboard.open {
+			m.dashboard.summary.loaded = false
+			m.layout()
+			if msg.err == nil {
+				return m, m.loadDashboardSummary()
+			}
+			m.dashboard.summary = dashboardSummary{loaded: true}
+			m.layoutDashboard()
+			return m, nil
 		}
 		m.layout()
 		return m, nil
+	case dashboardSummary:
+		if msg.seq == m.seq && m.dashboard.open {
+			m.dashboard.summary = msg
+			m.layoutDashboard()
+		}
+		return m, nil
+	case promptTextMsg:
+		return m.updatePromptText(msg)
 	case sessionsMsg:
 		if msg.seq != m.seq {
 			return m, nil
@@ -367,7 +401,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pending = false
 		m.err = msg.err
 		if msg.err == nil {
-			m.prompts.review, m.prompts.loaded = msg.review, true
+			m.prompts.setReview(msg.review)
 			m.shown.period, m.shown.harness, m.shown.restricted = msg.period, msg.harness, msg.restricted
 		}
 		m.layout()
@@ -439,7 +473,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	k := msg.String()
-	if k == "q" || k == "ctrl+c" {
+	if k == "ctrl+c" {
+		m.syncs.cancel()
+		return m, tea.Quit
+	}
+	if !m.helpOpen {
+		if m.readingInputOpen() {
+			return m.readingInputKey(msg)
+		}
+		if m.usageFilter.editing || m.localFilter.editing {
+			return m.updateListFilter(msg)
+		}
+	}
+	if k == "q" {
 		m.syncs.cancel()
 		return m, tea.Quit
 	}
@@ -453,12 +499,17 @@ func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch k {
+	case "0":
+		return m.openDashboard()
 	case "?":
 		m.helpOpen = true
 		m.helpPager.scroll = 0
 		m.layoutHelp()
 		return m, nil
 	case "e":
+		if m.dashboard.open {
+			break
+		}
 		m.expanded = true
 		m.layout()
 		return m, nil
@@ -468,6 +519,19 @@ func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.layout()
 			return m, nil
 		}
+		if m.dashboard.enabled && !m.dashboard.open {
+			switch {
+			case m.dailyOpen && m.dailyFromDashboard:
+				m.dailyFromDashboard = false
+				return m.openDashboard()
+			case m.related.active && m.mode == sessionsMode && m.readingAtModeRoot():
+				m.restoreRelationSource()
+				m.layout()
+				return m, nil
+			case !m.dailyOpen && m.modeRoot():
+				return m.openDashboard()
+			}
+		}
 	case "c":
 		if m.modeEnabled(catalogMode) {
 			return m.selectMode(catalogMode)
@@ -476,6 +540,9 @@ func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.modeEnabled(quotasMode) {
 			return m.selectMode(quotasMode)
 		}
+	}
+	if m.dashboard.open {
+		return m.dashboardKey(msg)
 	}
 	if m.mode == catalogMode || m.mode == quotasMode {
 		return m.localDataKey(msg)
@@ -505,8 +572,18 @@ func (m Model) usageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.selectTab(tab(k[0] - '1'))
 	case "g":
 		m.dailyOpen = true
+		m.dailySelection = 0
 		m.dailyPager.scroll = 0
 		m.layout()
+	case "enter":
+		return m.openUsageRelation()
+	case "/":
+		return m.startListFilter(&m.usageFilter)
+	case "esc":
+		if m.usageFilter.value != "" {
+			m.usageFilter.value = ""
+			m.layout()
+		}
 	case "m":
 		m.dailyOpen = false
 		return m.switchMode()
@@ -570,8 +647,13 @@ func (m *Model) selectTab(t tab) {
 	m.table.SetCursor(0)
 }
 
-// grid is the table of the current tab.
+// grid is the filtered table of the current tab.
 func (m Model) grid() grid {
+	g, _ := m.filteredUsageGrid()
+	return g
+}
+
+func (m Model) rawUsageGrid() grid {
 	r := m.report
 	var g grid
 	switch m.tab {
@@ -609,13 +691,13 @@ func (m *Model) layout() {
 	width := m.usageTableWidth()
 	g, s := m.grid(), m.sorts[m.tab]
 	g.rows = g.sorted(s)
-	fit(&m.table, g.narrowedTo(width), s, width, height-(len(m.overview())-2))
+	fit(&m.table, g.narrowedTo(width), s, width, height-(len(m.overview())-2)-m.usageFilter.rows())
 	if m.dailyOpen {
 		m.dailyPager.display = max(1, height-detailChromeLines)
-		m.dailyPager.lines = m.dailyContent()
-		m.dailyPager.scrollBy(0)
+		m.layoutDailyContent()
 	}
-	sg := m.sessionsGrid()
+	visibleSessions := m.filteredSessions()
+	sg := sessionsGrid(visibleSessions).narrowedTo(m.sessionsTableWidth())
 	if m.sessions.sort.col >= len(sg.headers) { // sorted by a column this terminal cannot hold
 		m.sessions.sort = reportOrder
 	}
@@ -624,29 +706,18 @@ func (m *Model) layout() {
 	order := sg.order(m.sessions.sort)
 	rows := make([][]cell, len(order))
 	for j, i := range order {
-		m.sessions.shown = append(m.sessions.shown, m.sessions.list.Sessions[i])
+		m.sessions.shown = append(m.sessions.shown, visibleSessions[i])
 		rows[j] = sg.rows[i]
 	}
 	sg.rows = rows
-	fit(&m.sessions.table, sg, m.sessions.sort, m.width, height)
+	fit(&m.sessions.table, sg, m.sessions.sort, m.sessionsTableWidth(), height-m.sessionFilterRows())
 	for i, s := range m.sessions.shown { // the selection follows its session, not its row: fit may have put the cursor back at the top
 		if s.ID == selected {
 			m.sessions.table.SetCursor(i)
 		}
 	}
-	if d := &m.sessions.detail; d.open {
-		d.display = max(1, height-4)
-		if d.loaded {
-			d.lines = detailLines(d.data, m.width)
-		}
-		d.scrollBy(0) // a longer terminal or a shorter body leaves no empty page
-	}
-	p := &m.prompts
-	p.display = max(4, height-detailChromeLines)
-	if p.loaded {
-		p.lines = reviewLines(p.review, m.width)
-	}
-	p.scrollBy(0)
+	m.layoutReadingViews(height)
+	m.layoutDashboard()
 }
 
 // fit fills t with the prepared rows of g and marks its sorted column when visible.
@@ -720,6 +791,9 @@ func (m Model) View() string {
 	if m.helpOpen {
 		return m.helpView()
 	}
+	if m.dashboard.open {
+		return m.dashboardView()
+	}
 	if m.mode == catalogMode || m.mode == quotasMode {
 		return m.localDataView()
 	}
@@ -739,6 +813,9 @@ func (m Model) View() string {
 		b.WriteString(line + "\n")
 	}
 	b.WriteString(m.tabBar() + "\n")
+	if m.usageFilter.rows() > 0 {
+		b.WriteString(m.usageFilter.view() + "\n")
+	}
 	if m.loaded && !m.empty() {
 		body := m.table.View()
 		if width := m.usageTableWidth(); width < m.width {
@@ -756,7 +833,7 @@ func (m Model) View() string {
 			b.WriteString(message + "\n")
 			overview = append(overview, "")
 		}
-		b.WriteString(m.emptyBody(len(overview)-2) + "\n")
+		b.WriteString(m.emptyBody(len(overview)-2+m.usageFilter.rows()) + "\n")
 	}
 	b.WriteString(m.status() + "\n")
 	b.WriteString(m.help())
@@ -770,7 +847,10 @@ func (m Model) titleBar() string {
 		harness = h.String()
 	}
 	bar := titleStyle.Render("agent-stats") + m.modeLabel()
-	if m.expanded {
+	if m.dashboard.open {
+		bar = titleStyle.Render("agent-stats") + "  [Dashboard]"
+	}
+	if m.expanded && !m.dashboard.open {
 		bar = titleStyle.Render("agent-stats") + "  [" + modeNames[m.mode] + "] · Expanded"
 	}
 	if m.mode == quotasMode {
@@ -821,21 +901,31 @@ func (m Model) modeLabel() string {
 func (m Model) shortcuts() []string {
 	var keys, filters []string
 	switch {
+	case m.dashboard.open:
+		keys = []string{"enter open", "↑↓ choose", "g charts"}
+		filters = []string{"p period", "h harness"}
 	case m.mode == sessionsMode && m.sessions.detail.open:
-		keys = []string{"↑↓ pgup/pgdn scroll"}
-		if !m.expanded {
-			keys = append(keys, "esc back to sessions")
-		}
+		keys = m.readingShortcuts()
 	case m.mode == sessionsMode:
-		keys, filters = []string{"↑↓ scroll", "enter open"}, []string{"s sort", "o reverse", "p period", "h harness"}
+		keys, filters = []string{"↑↓ scroll", "enter open"}, []string{"/ filter", "s sort", "o reverse", "p period", "h harness"}
+	case (m.mode == catalogMode || m.mode == quotasMode) && m.localDetail:
+		keys = []string{"esc back", "↑↓ scroll"}
+		if m.mode == quotasMode {
+			keys = append(keys, "r refresh")
+		} else if m.relations.Queries != nil && m.selectedCatalogMCP() != nil {
+			keys = append(keys, "s sessions")
+		}
 	case m.mode == catalogMode:
-		keys, filters = []string{"u unused", "↑↓ scroll"}, []string{"p period", "h harness"}
+		keys, filters = []string{"u unused", "enter open", "↑↓ choose", "tab kinds", "/ filter"}, []string{"p period", "h harness"}
 	case m.mode == quotasMode:
-		keys = []string{"r refresh", "↑↓ scroll"}
+		keys = []string{"r refresh", "enter open", "↑↓ choose", "/ filter"}
 	case m.mode == promptsMode:
-		keys, filters = []string{"↑↓ pgup/pgdn scroll"}, []string{"p period", "h harness"}
+		keys, filters = m.readingShortcuts(), []string{"p period", "h harness"}
 	case m.dailyOpen:
 		keys, filters = []string{"↑↓ scroll"}, []string{"p period", "h harness"}
+		if m.relations.Queries != nil {
+			keys = []string{"enter sessions", "↑↓ day", "pgdn scroll"}
+		}
 		if !m.expanded {
 			keys = append([]string{"esc back"}, keys...)
 		}
@@ -844,7 +934,13 @@ func (m Model) shortcuts() []string {
 		if m.width < 50 {
 			keys = []string{"g charts", "tab tabs", "↑↓ scroll"}
 		}
-		filters = []string{"s sort", "o reverse", "p period", "h harness"}
+		if m.relations.Queries != nil {
+			keys = append(keys, "enter sessions")
+		}
+		filters = []string{"/ filter", "s sort", "o reverse", "p period", "h harness"}
+	}
+	if m.dashboard.enabled && !m.dashboard.open {
+		keys = append(keys, "0 dashboard")
 	}
 	if next := m.nextMode(); next != m.mode {
 		switchHint := "m " + strings.ToLower(modeNames[next])

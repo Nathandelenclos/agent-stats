@@ -27,8 +27,10 @@ type Sync func(ctx context.Context, progress func(indexed int)) (note string, er
 type Options struct {
 	Reports reporting.BuildTimelineReport
 	// Sessions and Session read the sessions behind the report; the sessions mode (key m) is offered when both have queries.
-	Sessions reporting.ListSessions
-	Session  reporting.ShowSession
+	Sessions        reporting.ListSessions
+	Session         reporting.ShowSession
+	PromptText      reporting.ShowSessionPrompt
+	RelatedSessions reporting.ListRelatedSessions
 	// Prompts reviews the prompts that showed frustration; the prompts mode (key m) is offered when it has queries.
 	Prompts reporting.ReviewPrompts
 	Catalog func(catalog.Query) (catalog.Catalog, error)
@@ -55,6 +57,8 @@ type Options struct {
 // Run shows the interface until the user quits, then waits for a sync still running to stop.
 func Run(o Options) error {
 	m := New(o)
+	m.dashboard.enabled, m.dashboard.open = true, true
+	m.layout()
 	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	m.stopSync()
 	return err

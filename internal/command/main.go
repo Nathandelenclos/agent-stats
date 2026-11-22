@@ -162,6 +162,7 @@ func Run() error {
 		sessions := usage.Sessions()
 		o := tui.Options{Reports: reporting.BuildTimelineReport{Queries: usage}, Harness: only, SinceLabel: *since, Since: from,
 			Sessions: reporting.ListSessions{Queries: sessions}, Session: reporting.ShowSession{Queries: sessions},
+			PromptText: reporting.ShowSessionPrompt{Queries: sessions}, RelatedSessions: reporting.ListRelatedSessions{Queries: sessions},
 			Prompts: reporting.ReviewPrompts{Queries: usage.Prompts()},
 			Catalog: interactiveCatalog(*dbPath, *projectDir), Quotas: readQuotas,
 			Project: cov.project, Restricted: cov.restricted, Detect: redetection(*all, *projectDir, detect)}

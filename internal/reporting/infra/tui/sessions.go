@@ -47,12 +47,14 @@ type detailMsg struct {
 
 // sessionsState is the presentation state of the sessions mode.
 type sessionsState struct {
-	list   reporting.SessionList
-	loaded bool
-	sort   sortState
-	table  table.Model
-	shown  []reporting.SessionSummary // the listed sessions in the order the table shows them
-	detail sessionDetail
+	list      reporting.SessionList
+	loaded    bool
+	sort      sortState
+	table     table.Model
+	shown     []reporting.SessionSummary // the listed sessions in the order the table shows them
+	detail    sessionDetail
+	search    readingSearch
+	promptSeq int
 	// detailSeq is the latest detail request, whatever session it was for: an older answer is ignored, even for
 	// the session on screen (it may describe the session before it grew).
 	detailSeq int
@@ -60,11 +62,16 @@ type sessionsState struct {
 
 // sessionDetail is the screen of one session: Esc closes it.
 type sessionDetail struct {
-	open   bool
-	id     reporting.SessionID
-	data   reporting.SessionDetail
-	loaded bool
-	err    error
+	open          bool
+	id            reporting.SessionID
+	data          reporting.SessionDetail
+	loaded        bool
+	err           error
+	fromPrompt    bool
+	section       sessionSection
+	list          readingList
+	reader        readerState
+	promptPreview reporting.Prompt
 	pager
 }
 
@@ -110,6 +117,13 @@ func (m Model) nextMode() mode {
 // loadSessions asks the use case for the sessions of the current filters, off the UI loop.
 func (m Model) loadSessions() tea.Cmd {
 	lister, q, seq, period, harness, restricted := m.lister, m.query(), m.seq, m.period, m.harness, m.restricted
+	if m.related.active {
+		relations, relation := m.relations, m.related.query
+		return func() tea.Msg {
+			list, err := relations.Run(context.Background(), q, relation)
+			return sessionsMsg{seq, period, harness, restricted, list, err}
+		}
+	}
 	return func() tea.Msg {
 		list, err := lister.Run(context.Background(), q)
 		return sessionsMsg{seq, period, harness, restricted, list, err}
@@ -133,11 +147,20 @@ func (m Model) switchMode() (Model, tea.Cmd) {
 }
 
 func (m Model) selectMode(next mode) (Model, tea.Cmd) {
-	if next == m.mode {
+	if next == m.mode && !m.dashboard.open {
 		return m, nil
 	}
+	m.dashboard.open = false
+	if m.related.active {
+		m.restoreRelationSource()
+	}
+	m.dailyFromDashboard = false
+	m.localSelection, m.localDetail, m.localFilter = 0, false, listFilter{}
 	m.sessions.detail = sessionDetail{}
 	m.dailyOpen = false
+	if next == usageMode && m.loaded {
+		m.shown = m.reported
+	}
 	m.mode = next
 	if next == catalogMode || next == quotasMode {
 		m.localLoaded = false
@@ -165,9 +188,22 @@ func (m Model) openSelected() (Model, tea.Cmd) {
 	if id == (reporting.SessionID{}) {
 		return m, nil
 	}
-	m.sessions.detail = sessionDetail{open: true, id: id}
+	return m.openSession(id)
+}
+
+func (m Model) openSession(id reporting.SessionID) (Model, tea.Cmd) {
+	return m.openSessionDetail(id, false)
+}
+
+func (m Model) openPromptSession(id reporting.SessionID) (tea.Model, tea.Cmd) {
+	m.mode = sessionsMode
+	return m.openSessionDetail(id, true)
+}
+
+func (m Model) openSessionDetail(id reporting.SessionID, fromPrompt bool) (Model, tea.Cmd) {
+	m.sessions.detail = sessionDetail{open: true, id: id, fromPrompt: fromPrompt}
 	m.layout()
-	detail := m.loadDetail(id) // before the return: loadDetail counts the request in m
+	detail := m.loadDetail(id) // loadDetail counts the request in m
 	return m, detail
 }
 
@@ -179,6 +215,13 @@ func (m Model) sessionsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.reindex()
 	case "enter":
 		return m.openSelected()
+	case "/":
+		m.sessions.search.begin()
+		m.layout()
+	case "esc":
+		if m.sessions.search.cancel() {
+			m.layout()
+		}
 	case "p":
 		m.period = (m.period + 1) % len(m.periods)
 		return m.reload()
@@ -207,16 +250,49 @@ func (m Model) sessionsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) detailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	d := &m.sessions.detail
+	if d.reader.open {
+		return m.readerKey(msg)
+	}
 	switch k := msg.String(); k {
 	case "esc", "backspace":
+		if d.list.search.cancel() {
+			break
+		}
+		if d.fromPrompt {
+			m.mode = promptsMode
+		}
 		m.sessions.detail = sessionDetail{}
+	case "tab", "right":
+		d.changeSection((d.section + 1) % sessionSectionCount)
+	case "shift+tab", "left":
+		d.changeSection((d.section + sessionSectionCount - 1) % sessionSectionCount)
+	case "1", "2", "3", "4", "5":
+		d.changeSection(sessionSection(k[0] - '1'))
+	case "enter":
+		if !d.loaded {
+			return m, nil
+		}
+		if d.section == sessionSummarySection {
+			d.changeSection(sessionPromptsSection)
+		} else if i := d.list.selected(); i >= 0 {
+			return m.openSessionItem(i)
+		}
+	case "/":
+		if d.section != sessionSummarySection {
+			d.list.search.begin()
+		}
 	case "m":
 		return m.switchMode()
 	case "r":
 		return m.reindex()
 	default:
-		d.scrollKey(k)
+		if d.section == sessionSummarySection {
+			d.scrollKey(k)
+			return m, nil
+		}
+		d.list.move(k)
 	}
+	m.layout()
 	return m, nil
 }
 
@@ -263,6 +339,17 @@ func sessionTitle(s reporting.SessionSummary) string {
 // sessionsGrid lays out the sessions, the most important columns first: what a session cost and what the user typed
 // come right after its title, so a narrow terminal leaves out the columns at the end, whole (see narrowedTo).
 func sessionsGrid(list []reporting.SessionSummary) grid {
+	if len(list) > 0 && list[0].RelatedTool != nil {
+		g := grid{headers: []string{"TITLE", "CALLS", "ERRORS", "HARNESS", "FOLDER"}, numeric: []bool{false, true, true, false, false}}
+		for _, s := range list {
+			var tool reporting.ToolUsage
+			if s.RelatedTool != nil {
+				tool = *s.RelatedTool
+			}
+			g.rows = append(g.rows, []cell{textCell(sessionTitle(s)), countCell(tool.Calls), countCell(tool.Errors), textCell(s.Harness.String()), textCell(textfmt.Shorten(s.Folder, 28))})
+		}
+		return g
+	}
 	g := grid{
 		headers: []string{"TITLE", "COST", "PROMPTS", "AVG PROMPT", "REQUESTS", "DURATION", "START", "HARNESS", "MODELS", "SUBAGENTS", "AGENT", "FOLDER"},
 		numeric: []bool{false, true, true, true, true, true, false, false, false, true, false, false},
@@ -270,7 +357,7 @@ func sessionsGrid(list []reporting.SessionSummary) grid {
 	for _, s := range list {
 		g.rows = append(g.rows, []cell{
 			textCell(sessionTitle(s)),
-			{fmt.Sprintf("$%.2f", float64(s.Cost)), float64(s.Cost)},
+			{displayCost(s.Usage), float64(s.Cost)},
 			countCell(s.PromptCount),
 			avgPromptCell(s),
 			countCell(s.Requests),
@@ -288,8 +375,30 @@ func sessionsGrid(list []reporting.SessionSummary) grid {
 
 // sessionsGrid is the table of the sessions as far as the terminal's width holds it.
 func (m Model) sessionsGrid() grid {
-	return sessionsGrid(m.sessions.list.Sessions).narrowedTo(m.width)
+	return sessionsGrid(m.filteredSessions()).narrowedTo(m.sessionsTableWidth())
 }
+
+func (m Model) filteredSessions() []reporting.SessionSummary {
+	if m.sessions.search.value == "" {
+		return m.sessions.list.Sessions
+	}
+	var out []reporting.SessionSummary
+	for _, s := range m.sessions.list.Sessions {
+		if matchesReading(s.Title+" "+s.Folder+" "+s.Harness.String()+" "+s.ID.String(), m.sessions.search.value) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func (m Model) sessionsTableWidth() int {
+	if m.width >= 120 && !m.expanded {
+		return m.width - 32
+	}
+	return m.width
+}
+
+func (m Model) sessionFilterRows() int { return m.sessions.search.rows() }
 
 func timeText(t time.Time, layout string) string {
 	if t.IsZero() {
@@ -342,27 +451,65 @@ func (m Model) sessionsSummary() string {
 	if len(l.Sessions) == 0 {
 		return noSessions + "\n"
 	}
-	return fmt.Sprintf("%s sessions · %s requests · $%.2f\n", textfmt.Number(int64(len(l.Sessions))), textfmt.Number(l.Total.Requests), float64(l.Total.Cost)) +
+	count := textfmt.Plural(len(l.Sessions), "session", "sessions")
+	if m.relationLabel() != "" {
+		if l.Sessions[0].RelatedTool != nil {
+			var totals reporting.ToolUsage
+			for _, s := range l.Sessions {
+				if s.RelatedTool != nil {
+					totals.Calls += s.RelatedTool.Calls
+					totals.Errors += s.RelatedTool.Errors
+				}
+			}
+			return count + " · " + toolCounts(totals) + "\nMatching calls · Enter opens the full session"
+		}
+		return fmt.Sprintf("%s · %s requests · %s\nMatching usage · Enter opens the full session", count, textfmt.Number(l.Total.Requests), displayCost(l.Total))
+	}
+	return fmt.Sprintf("%s · %s requests · $%.2f\n", count, textfmt.Number(l.Total.Requests), float64(l.Total.Cost)) +
 		"cost, requests, models cover subagents · prompts count what you typed"
 }
 
 const noSessions = "No sessions in this range."
 
-// sessionsView draws the sessions list, or the detail of one session.
+// sessionsView draws the list and the selected session preview when there is room.
 func (m Model) sessionsView() string {
+	if m.sessions.detail.open {
+		return m.sessionDetailView()
+	}
 	var b strings.Builder
 	b.WriteString(m.titleBar() + "\n")
-	if d := m.sessions.detail; d.open {
-		b.WriteString(activeTab.Render("Session") + "  one session, its subagents included" + "\n")
-		b.WriteString(m.detailBody() + "\n")
-	} else {
-		b.WriteString(activeTab.Render("Sessions") + m.sortLabel() + "\n")
-		b.WriteString(m.sessionsSummary() + "\n")
-		if m.sessions.loaded && len(m.sessions.list.Sessions) > 0 {
-			b.WriteString(m.sessions.table.View() + "\n")
-		} else {
-			b.WriteString(m.emptyBody(0) + "\n")
+	heading := activeTab.Render("Sessions") + m.sortLabel()
+	if context := m.relationLabel(); context != "" {
+		heading = titleStyle.Render(context)
+	}
+	b.WriteString(heading + "\n")
+	b.WriteString(m.sessionsSummary() + "\n")
+	if filter := m.sessions.search.view(m.width, "Filter"); filter != "" {
+		b.WriteString(filter + "\n")
+	}
+	switch {
+	case len(m.sessions.shown) > 0:
+		view := m.sessions.table.View()
+		if width := m.sessionsTableWidth(); width < m.width {
+			cut := lipgloss.NewStyle().MaxWidth(m.width - width - 2)
+			if i := m.sessions.table.Cursor(); i >= 0 && i < len(m.sessions.shown) {
+				s := m.sessions.shown[i]
+				preview := append([]string{titleStyle.Render("Selected session"), ""},
+					wrappedText(sessionTitle(s), m.width-width-2)...)
+				preview = append(preview, "", s.Harness.String(), textfmt.Printable(orDash(s.Folder)))
+				if s.RelatedTool != nil {
+					preview = append(preview, "", toolCounts(*s.RelatedTool))
+				}
+				preview = append(preview, "", "Enter opens the session.")
+				preview = preview[:min(len(preview), lipgloss.Height(view))]
+				view = lipgloss.JoinHorizontal(lipgloss.Top, lipgloss.NewStyle().Width(width).Render(view), "  ", cut.Render(strings.Join(preview, "\n")))
+			}
 		}
+		b.WriteString(view + "\n")
+	case m.sessions.search.value != "":
+		b.WriteString("No matching sessions." + m.emptyBody(1+m.sessionFilterRows()) + "\n")
+	default:
+		b.WriteString(m.emptyBody(m.sessionFilterRows()) + "\n")
 	}
 	b.WriteString(m.status() + "\n")
 	b.WriteString(m.help())
@@ -371,82 +518,12 @@ func (m Model) sessionsView() string {
 
 // sortLabel says how the sessions are ordered.
 func (m Model) sortLabel() string {
-	s := m.sessions.sort
-	if s.col < 0 {
+	columns := m.sessions.table.Columns()
+	col := m.sessions.sort.col
+	if col < 0 || col >= len(columns) {
 		return "  most recent first"
 	}
-	return "  sorted by " + sessionsGrid(nil).headers[s.col] + arrow(s.desc)
-}
-
-// detailBody is the visible part of the session detail.
-func (m Model) detailBody() string {
-	d := m.sessions.detail
-	switch {
-	case d.err != nil:
-		return errorStyle.Render("error: "+textfmt.Printable(d.err.Error())) + strings.Repeat("\n", max(0, d.display-1))
-	case !d.loaded:
-		return "loading…" + strings.Repeat("\n", max(0, d.display-1))
-	}
-	return d.visible()
-}
-
-// detailLines is the body of a session's detail: what it cost and ran on, the tools it called, the subagents
-// it started and its prompts in order with their signals. Text from the logs is made printable and cut to width.
-func detailLines(d reporting.SessionDetail, width int) []string {
-	var out []string
-	add := func(format string, args ...any) { out = append(out, fmt.Sprintf(format, args...)) }
-	section := func(title string) { out = append(out, "", titleStyle.Render(title)) }
-
-	add("%s", titleStyle.Render(textfmt.Printable(sessionTitle(d.SessionSummary))))
-	add("%s · %s · %s", d.Harness, textfmt.Printable(orDash(d.Folder)), span(d.SessionSummary))
-	add("$%.2f · %s requests (%s failed) · %s subagents · %s prompts, average %s characters",
-		float64(d.Cost), textfmt.Number(d.Requests), textfmt.Number(d.Failed), textfmt.Number(int64(d.SubagentCount)),
-		textfmt.Number(d.PromptCount), avgText(d.SessionSummary))
-
-	section("MODELS")
-	mg := usageGrid("MODEL", d.Models)
-	mg.headers, mg.numeric = append(mg.headers, "SHARE"), append(mg.numeric, true)
-	for i := range mg.rows {
-		mg.rows[i] = append(mg.rows[i], cell{fmt.Sprintf("%.0f%%", d.ModelShare(d.Models[i])*100), 0})
-	}
-	out = append(out, plainTable(mg)...)
-
-	section("TOOLS")
-	if len(d.Tools) == 0 {
-		out = append(out, "no tool calls")
-	} else {
-		out = append(out, plainTable(toolsGrid(d.Tools))...)
-	}
-
-	section("SUBAGENTS")
-	if len(d.Subagents) == 0 {
-		out = append(out, "none")
-	} else {
-		sg := grid{headers: []string{"TYPE", "TITLE", "REQUESTS", "COST"}, numeric: []bool{false, false, true, true}}
-		for _, s := range d.Subagents {
-			sg.rows = append(sg.rows, []cell{textCell(s.AgentType), textCell(textfmt.Head(sessionTitle(reporting.SessionSummary{Title: s.Title}), 60)),
-				countCell(s.Requests), {fmt.Sprintf("$%.2f", float64(s.Cost)), float64(s.Cost)}})
-		}
-		out = append(out, plainTable(sg)...)
-	}
-
-	section("PROMPTS")
-	if len(d.Prompts) == 0 {
-		out = append(out, "none")
-	}
-	for i, p := range d.Prompts {
-		meta := fmt.Sprintf("#%d · %s · %s characters", i+1, timeText(p.At, "01-02 15:04:05"), textfmt.Number(int64(p.Chars)))
-		if tags := signalTags(p.Signals); tags != "" {
-			meta += " · " + errorStyle.Render(tags)
-		}
-		out = append(out, meta, "    "+textfmt.Head(textfmt.Printable(strings.Join(strings.Fields(p.Text), " ")), max(10, width-4)))
-	}
-
-	cut := lipgloss.NewStyle().MaxWidth(max(1, width))
-	for i, l := range out {
-		out[i] = cut.Render(l)
-	}
-	return out
+	return "  sorted by " + strings.TrimSpace(columns[col].Title)
 }
 
 func orDash(s string) string {
@@ -474,29 +551,3 @@ func avgText(s reporting.SessionSummary) string {
 
 // signalTags names the signals of a prompt, nothing when it shows none.
 func signalTags(s reporting.PromptSignals) string { return strings.Join(s.Tags(), " · ") }
-
-// plainTable draws g as aligned text lines, every row: the detail scrolls.
-func plainTable(g grid) []string {
-	widths := make([]int, len(g.headers))
-	for i, h := range g.headers {
-		widths[i] = lipgloss.Width(h)
-		for _, r := range g.rows {
-			widths[i] = max(widths[i], lipgloss.Width(r[i].text))
-		}
-	}
-	line := func(cells func(i int) string) string {
-		parts := make([]string, len(widths))
-		for i := range widths {
-			parts[i] = pad(cells(i), widths[i], g.numeric[i])
-			if !g.numeric[i] {
-				parts[i] += strings.Repeat(" ", max(0, widths[i]-lipgloss.Width(parts[i])))
-			}
-		}
-		return strings.TrimRight(strings.Join(parts, "  "), " ")
-	}
-	out := []string{headerStyle.UnsetPadding().Render(line(func(i int) string { return g.headers[i] }))}
-	for _, r := range g.rows {
-		out = append(out, line(func(i int) string { return r[i].text }))
-	}
-	return out
-}

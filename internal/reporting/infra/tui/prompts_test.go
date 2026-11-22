@@ -138,16 +138,19 @@ func TestThePromptsViewShowsTheReview(t *testing.T) {
 	// Given the review of four flagged prompts, two of them the same ask
 	m := inPrompts(t, samplePrompts())
 
-	// Then the view tells how many there are, the ask that came back with its hint, the folders and each prompt with its signals
-	view := m.View()
-	for _, want := range []string{
-		"Usage [Prompts]", "4 flagged prompts in 3 sessions",
-		"RECURRING", "Repeated 2 times in 2 sessions: consider writing this down.",
-		"FOLDERS", "/work/api", "—",
-		"PROMPTS", "WHY IS THE BUILD STILL BROKEN??", "yelling 5 · anguish 2", "title of claude:a · /work/api",
-	} {
-		if !strings.Contains(view, want) {
-			t.Errorf("prompts view lacks %q:\n%s", want, view)
+	views := []struct {
+		model Model
+		wants []string
+	}{
+		{m, []string{"Usage [Prompts]", "4 flagged prompts in 3 sessions", "[Flagged]", "WHY IS THE BUILD STILL BROKEN??", "yelling 5 · anguish 2", "title of claude:a · /work/api"}},
+		{press(t, m, "right"), []string{"[Recurring]", "Repeated 2 times in 2 sessions: consider writing this down."}},
+		{press(t, m, "left"), []string{"[Folders]", "/work/api", "—"}},
+	}
+	for _, view := range views {
+		for _, want := range view.wants {
+			if !strings.Contains(view.model.View(), want) {
+				t.Errorf("prompts view lacks %q:\n%s", want, view.model.View())
+			}
 		}
 	}
 }
@@ -247,7 +250,7 @@ func TestALongReviewScrollsAndStopsAtItsEnds(t *testing.T) {
 	m = press(t, m, "g")
 
 	// Then the end shows the oldest prompt, one more key goes nowhere, and the top is back
-	if !strings.Contains(end, "prompt number 00") || strings.Contains(end, "60 flagged prompts") {
+	if !strings.Contains(end, "prompt number 00") || strings.Contains(end, "prompt number 59") {
 		t.Errorf("end of the review:\n%s", end)
 	}
 	if again := press(t, send(t, m, tea.KeyMsg{Type: tea.KeyEnd}), "j").View(); !strings.Contains(again, "prompt number 00") {
@@ -261,7 +264,7 @@ func TestALongReviewScrollsAndStopsAtItsEnds(t *testing.T) {
 func TestThePromptsViewShowsSignalsBesideLongMetadata(t *testing.T) {
 	prompt := flaggedAt("claude:a", "/"+strings.Repeat("f", 39), "keep this file", 0, domain.PromptSignals{Negation: 1})
 	prompt.Title = strings.Repeat("t", 40)
-	view := strings.Join(reviewLines(domain.NewPromptReview([]domain.FlaggedPrompt{prompt}), 80), "\n")
+	view := send(t, inPrompts(t, &fakePrompts{flagged: []domain.FlaggedPrompt{prompt}}), tea.WindowSizeMsg{Width: 80, Height: 24}).View()
 	if !strings.Contains(view, "negation 1") {
 		t.Fatalf("signal lost at 80 columns:\n%s", view)
 	}

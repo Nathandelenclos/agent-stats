@@ -11,11 +11,13 @@ func (m *Model) layoutHelp() {
 		return
 	}
 	m.helpPager.display = max(1, m.height-3)
-	lines := []string{
-		"e           Expand current view",
-		"Esc         Restore layout or go back",
+	lines := []string{"Esc         Restore layout or go back"}
+	if m.dashboard.open {
+		lines = append(lines, "g           Charts and daily values")
+	} else {
+		lines = append(lines, "e           Expand current view")
 	}
-	if m.mode == usageMode && !m.dailyOpen {
+	if m.mode == usageMode && !m.dailyOpen && !m.dashboard.open {
 		lines = append(lines, "1–5         Select a usage table", "g           Charts and daily values")
 	}
 	if m.modeEnabled(catalogMode) && m.mode != usageMode && m.mode != catalogMode {
@@ -36,8 +38,12 @@ func (m *Model) layoutHelp() {
 }
 
 func (m Model) helpView() string {
+	title := modeNames[m.mode]
+	if m.dashboard.open {
+		title = "Dashboard"
+	}
 	return lipgloss.NewStyle().MaxWidth(m.width).Render(strings.Join([]string{
-		titleStyle.Render("Keyboard shortcuts · " + modeNames[m.mode]),
+		titleStyle.Render("Keyboard shortcuts · " + title),
 		"",
 		m.helpPager.visible(),
 		"↑↓ scroll · Esc / ? close · q quit",
