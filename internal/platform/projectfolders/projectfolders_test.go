@@ -152,6 +152,25 @@ func TestAFolderIsResolvedUnderTheLinksOfTheOnesThatExist(t *testing.T) {
 	}
 }
 
+func TestADotDotAfterALinkGoesUpFromWhereTheLinkLeads(t *testing.T) {
+	// Given a link in the app to a folder of another project, and a folder next to that target that was deleted
+	dir := tree(t)
+	app := mkdir(t, dir, "a")
+	target := mkdir(t, dir, "b", "sub")
+	link := filepath.Join(app, "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+
+	// When a path that goes through the link, up one folder and down into the deleted one is resolved
+	got := Resolve(link + "/../gone")
+
+	// Then the ".." is taken from the target of the link, so the path lies in the other project, not in the app
+	if want := filepath.Join(dir, "b", "gone"); got != want {
+		t.Errorf("Resolve = %q, want %q", got, want)
+	}
+}
+
 // indexOf is a database whose usage_folders holds folders, as the index's published view does.
 func indexOf(t *testing.T, folders ...string) *sql.DB {
 	t.Helper()
