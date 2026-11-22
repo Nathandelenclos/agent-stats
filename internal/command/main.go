@@ -70,7 +70,10 @@ func indexForReport(run indexRun, progress func(indexing.IndexReport)) error {
 }
 
 // Run executes agent-stats using the process arguments and standard streams.
-func Run() error {
+func Run(analysisSkill string) error {
+	if len(os.Args) > 1 && os.Args[1] == "skill" {
+		return runSkill(os.Args[2:], analysisSkill, os.Stdout, os.Stderr)
+	}
 	if len(os.Args) > 1 && os.Args[1] == "query" {
 		return runQuery(context.Background(), os.Args[2:], os.Stdout, os.Stderr)
 	}

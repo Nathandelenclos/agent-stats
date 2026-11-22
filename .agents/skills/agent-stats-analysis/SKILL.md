@@ -5,7 +5,7 @@ description: Analyze indexed coding-agent activity with the local agent-stats CL
 
 # Analyze agent activity
 
-Run `agent-stats query --help` and `agent-stats query <dataset> --help`. Use the repository's `./agent-stats` when working in its checkout, or an installed binary with the `query` command. On Nathan's Mac, the local checkout is `~/Projects/agent-stats`.
+Run `agent-stats query --help` and `agent-stats query <dataset> --help`. Use the repository's `./agent-stats` when working in its checkout, or an installed binary with the `query` command.
 
 Start with the requested question, period, and scope. Keep `--project PATH` or `--all`, `--since`, and any `--harness` consistent when crossing datasets. The CLI reads the existing index directly and returns a JSON envelope with the effective scope, period start and `data`. An empty result in the current project stays empty. Use `--all` for analyses requested across projects. With a missing index, explain that the analysis needs indexed sessions.
 

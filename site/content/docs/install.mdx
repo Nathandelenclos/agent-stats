@@ -37,6 +37,28 @@ Download the Windows ZIP for your CPU from [GitHub Releases](https://github.com/
 </Tab>
 </Tabs>
 
+## Install the analysis kit
+
+The analysis kit combines the CLI and its bundled `agent-stats-analysis` skill. Use a build newer than v0.9.0.
+
+On macOS, install both with Homebrew and the skill command.
+
+```sh
+brew install nathandelenclos/tap/agent-stats && agent-stats skill install
+```
+
+On Linux or Windows, install the binary above, then run the same skill command.
+
+```sh
+agent-stats skill install
+```
+
+The command prints the installed path. The default is `~/.agents/skills/agent-stats-analysis/SKILL.md`.
+If your coding agent reads skills from a different directory, pass that directory with `--dir`.
+An identical installation reports that the skill is already installed. Use `--force` to replace a different regular file with the bundled version.
+
+[Use the skill to analyze indexed activity](/docs/cli/#agent-analysis).
+
 ## Verify the installation
 
 ```sh

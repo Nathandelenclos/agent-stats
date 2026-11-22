@@ -37,7 +37,7 @@ func TestPlainAddsDailyUsageWithoutChangingOtherReportFormats(t *testing.T) {
 			os.Stdout = stdout
 			os.Args = append([]string{"agent-stats", "--no-sync", "--all", "--db", filepath.Join(dir, "index.db")}, tt.flags...)
 			flag.CommandLine = flag.NewFlagSet("agent-stats", flag.ContinueOnError)
-			if err := Run(); err != nil {
+			if err := Run(testAnalysisSkill); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := stdout.Seek(0, io.SeekStart); err != nil {

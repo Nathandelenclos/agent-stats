@@ -36,6 +36,7 @@ The text report gives the project scope in its first line. JSON follows the same
 | `agent-stats prompts` | [Review flagged and recurring prompts](/docs/prompts/). Defaults to seven days. |
 | `agent-stats catalog` | [List installed items](/docs/catalog-and-quotas/#catalog) and recorded usage. |
 | `agent-stats query` | [Read indexed activity as JSON](#agent-analysis) for a script or coding agent. |
+| `agent-stats skill install` | [Install the bundled analysis skill](/docs/install/#install-the-analysis-kit). |
 | `agent-stats quota record-claude` | [Record Claude Code quota windows](/docs/catalog-and-quotas/#account-quotas) from status-line JSON on stdin. |
 
 ## Agent analysis
@@ -60,7 +61,7 @@ The envelope includes `schemaVersion`, `dataset`, `scope`, `since`, and `data`. 
 
 Run `agent-stats query <dataset> --help` for dataset flags. Where supported, use `--limit` and `--offset` to page through results. Use `--excerpts` on `session` or `prompts` to include prompt previews. To read one prompt, pass its session ID, position, and revision to `query prompt`.
 
-Use the [agent-stats-analysis skill](https://github.com/Nathandelenclos/agent-stats/blob/main/.agents/skills/agent-stats-analysis/SKILL.md) with a coding agent. For example, ask it to explain a cost increase by checking request volume, model mix, and cache usage, then cite the sessions or calls that substantiate the answer. Estimated costs, missing timings, and dated quota readings should be labeled as such.
+[Install the analysis kit](/docs/install/#install-the-analysis-kit) to use the [agent-stats-analysis skill](https://github.com/Nathandelenclos/agent-stats/blob/main/.agents/skills/agent-stats-analysis/SKILL.md) with a coding agent. For example, ask it to explain a cost increase by checking request volume, model mix, and cache usage, then cite the sessions or calls that substantiate the answer. Estimated costs, missing timings, and dated quota readings should be labeled as such.
 
 ## Dashboard
 

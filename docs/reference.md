@@ -168,6 +168,19 @@ Costs are in USD, timestamps are Unix milliseconds (`0` when unknown). When ther
 index or a range without activity), a group or tool list with no entry is printed as `null`, not as `[]`: read an
 absent or `null` list as empty.
 
+## Install the analysis kit
+
+Install a binary with the skill installer. On macOS, Homebrew and the installer can run in one command.
+
+```sh
+brew install nathandelenclos/tap/agent-stats && agent-stats skill install
+```
+
+On Linux or Windows, install the release binary first, then run `agent-stats skill install`.
+The installer writes the bundled skill to `~/.agents/skills/agent-stats-analysis/SKILL.md` by default
+and prints its path. Pass `--dir DIR` if your coding agent reads skills from a different directory.
+Identical contents count as already installed. An existing customized regular file requires `--force` to replace.
+
 ## Querying the index
 
 `agent-stats query` reads the existing SQLite index and writes one JSON object to stdout.

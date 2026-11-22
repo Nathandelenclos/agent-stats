@@ -19,6 +19,8 @@ The [release downloads](https://github.com/Nathandelenclos/agent-stats/releases/
 
 See [how to verify a download](docs/reference.md#verify-a-release) for checksums and build attestations.
 
+For coding agents, [install the analysis kit](docs/reference.md#install-the-analysis-kit) with `agent-stats skill install` after installing a binary that includes the installer.
+
 <details>
 <summary>Install with Go</summary>
 
