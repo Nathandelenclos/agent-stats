@@ -771,6 +771,27 @@ func TestGoReleaserPublishesTheChosenBody(t *testing.T) {
 	}
 }
 
+func TestTheReleaseWaitsForNativeLinuxPackageChecks(t *testing.T) {
+	release := jobWithoutComments(t, "release")
+	smoke := jobWithoutComments(t, "linux-packages")
+	publish := jobWithoutComments(t, "publish")
+	if !strings.Contains(release, "subject-checksums: dist/checksums.txt") ||
+		!strings.Contains(release, "linux_packages_id: ${{ steps.linux-packages.outputs.artifact-id }}") ||
+		!strings.Contains(smoke, "artifact-ids: ${{ needs.release.outputs.linux_packages_id }}") {
+		t.Error("the Linux checks do not consume the attested release job's artifacts by ID")
+	}
+	if !strings.Contains(smoke, "permissions: {}") {
+		t.Error("the Linux package checks have repository permissions")
+	}
+	if strings.Contains(release, "--draft=false") ||
+		!strings.Contains(publish, "needs: [plan, linux-packages]") ||
+		!strings.Contains(publish, "--draft=false") ||
+		strings.Contains(publish, "always()") || strings.Contains(publish, "continue-on-error") ||
+		strings.Contains(smoke, "continue-on-error") {
+		t.Error("the release can be published without successful Linux package checks")
+	}
+}
+
 func TestTheSummaryJobHandsOverOnlyTheSummary(t *testing.T) {
 	notes := jobWithoutComments(t, "release-notes")
 	if strings.Contains(notes, "releasenotes compose") || strings.Contains(notes, "body.md") || strings.Contains(notes, "release-body") {

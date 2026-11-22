@@ -39,6 +39,18 @@ archives:
       - src: web/package-lock.json
         dst: web/package-lock.json
 
+nfpms:
+  - ids: [agent-stats]
+    formats: [deb, rpm, apk]
+    file_name_template: "{{ .PackageName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    homepage: https://github.com/Nathandelenclos/agent-stats
+    maintainer: Nathan Delenclos <91780909+Nathandelenclos@users.noreply.github.com>
+    description: Usage statistics for AI coding agents based on local session logs
+    license: MIT
+    contents:
+      - src: LICENSE
+        dst: /usr/share/doc/agent-stats/copyright
+
 checksum:
   name_template: checksums.txt
   algorithm: sha256

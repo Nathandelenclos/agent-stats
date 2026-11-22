@@ -3,15 +3,12 @@
 # It is called by ci.yml, after every check passed, on each push to main. So the commit this run is for (GITHUB_SHA)
 # is the commit CI validated, and it is also the one that is tagged, built and named by the provenance attestation.
 # The binaries are built once, by GoReleaser, from that commit. The web front is built from the same commit by a job that
-# can only read, and the job that tags, publishes and signs receives the result as an artifact: it runs no front tooling.
+# can only read, and the job that creates the draft receives the result as an artifact: it runs no front tooling.
 #
-# Four jobs, from the least to the most privileged. `front` and `plan` only read. `plan` decides whether there is
-# something to release and writes the git-cliff notes. `release-notes` only reads too, and is the only job that receives the
-# OpenAI key: it turns the commit subjects of those notes into a short summary (tools/releasenotes) and hands over that
-# summary alone. `release` tags, builds, signs and publishes, and never sees the key: it downloads the front, the notes and
-# the summary by the artifact ID their job reported (never by name), checks the summary again and publishes it above the
-# notes, or the git-cliff notes alone if there is none (the summary is an extra, never a condition of the release).
-# The publishing job compiles and runs nothing of tools/: that code runs in the job that cannot write.
+# Les jobs `front` et `plan` lisent le dépôt. `plan` décide s'il faut publier et écrit les notes git-cliff.
+# Seul `release-notes` reçoit la clé OpenAI pour produire un résumé facultatif. `release` récupère les artefacts
+# par ID, vérifie le résumé, crée le tag et atteste les fichiers du brouillon. `linux-packages` installe et lance
+# les paquets attestés sans droits sur le dépôt. `publish` rend le brouillon public après ces vérifications.
 #
 # Catch-up design: the next version and the notes are computed from ALL the Conventional Commits since the last tag
 # (git-cliff, see cliff.toml), up to this run's commit. A run therefore releases everything releasable up to its own
@@ -339,7 +336,7 @@ jobs:
   # succeeded", and the tests that follow keep what the release does need: the front and a release to make. A cancelled
   # run publishes nothing.
   release:
-    name: Tag and publish
+    name: Tag, build and attest
     needs: [front, plan, release-notes]
     if: ${{ !cancelled() && needs.plan.result == 'success' && needs.front.result == 'success' && needs.plan.outputs.release == 'true' }}
     runs-on: ubuntu-latest
@@ -349,6 +346,8 @@ jobs:
       id-token: write # sign the build provenance attestation
       attestations: write
       actions: read # read the size of the summary artifact before it is downloaded
+    outputs:
+      linux_packages_id: ${{ steps.linux-packages.outputs.artifact-id }}
     steps:
       # The commit CI validated (the default ref is the pushed commit), with the whole history and the tags (GoReleaser
       # needs both). The token is kept to push the tag; no step builds or installs third-party code (the front
@@ -497,6 +496,74 @@ jobs:
         with:
           subject-checksums: dist/checksums.txt
 
+      - name: Hand over the native Linux packages
+        id: linux-packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-packages
+          path: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.apk
+            dist/checksums.txt
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+          retention-days: 30
+
+  linux-packages:
+    name: Test Linux packages (${{ matrix.arch }})
+    needs: [plan, release]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    permissions: {}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Require the Linux package artifact ID
+        if: needs.release.outputs.linux_packages_id == ''
+        run: |
+          echo "::error::The release job reported no Linux package artifact."
+          exit 1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.release.outputs.linux_packages_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/linux-packages
+      - name: Install and run on Debian, Fedora and Alpine
+        working-directory: ${{ runner.temp }}/linux-packages
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          smoke() {
+            local format=$1 image=$2 install=$3
+            local package="agent-stats_${VERSION#v}_linux_${ARCH}.${format}"
+            awk -v package="$package" '$2 == package' checksums.txt | sha256sum --check --strict
+            docker run --rm --network none --platform "linux/$ARCH" --entrypoint /bin/sh \
+              --mount "type=bind,src=$PWD/$package,dst=/package.$format,readonly" \
+              "$image" -ec "$install /package.$format; agent-stats --help"
+          }
+          smoke deb debian:13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 'dpkg --install'
+          smoke rpm fedora:44@sha256:15da97ed9aa94dd3d92c3925eb89520f6c80e07ea7ee24cba848d1f8b6912b3e 'rpm --install'
+          # apk exige cette option pour un fichier local sans signature APK. Son SHA-256 est vérifié juste avant.
+          smoke apk alpine:3.23@sha256:469c9ea410b9215eaee7976ba6c0639039b444be8e5d638f7abbada189971eb2 'apk add --allow-untrusted'
+
+  publish:
+    name: Publish
+    needs: [plan, linux-packages]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
