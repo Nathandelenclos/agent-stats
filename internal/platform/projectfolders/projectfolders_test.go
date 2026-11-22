@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -168,6 +169,56 @@ func TestADotDotAfterALinkGoesUpFromWhereTheLinkLeads(t *testing.T) {
 	// Then the ".." is taken from the target of the link, so the path lies in the other project, not in the app
 	if want := filepath.Join(dir, "b", "gone"); got != want {
 		t.Errorf("Resolve = %q, want %q", got, want)
+	}
+}
+
+// ignoresCase skips the test on a volume that tells "app" from "APP": there, a folder written in another case is another folder.
+func ignoresCase(t *testing.T, dir, name string) {
+	t.Helper()
+	if _, err := os.Lstat(filepath.Join(dir, strings.ToUpper(name))); err != nil {
+		t.Skip("this volume is case-sensitive")
+	}
+}
+
+func TestAFolderWrittenInAnotherCaseIsTheOneOnDiskOnAVolumeThatIgnoresCase(t *testing.T) {
+	// Given a project folder and a sub-folder created as MyApp and Web, on a volume that ignores case
+	dir := tree(t)
+	app := mkdir(t, dir, "MyApp")
+	sub := mkdir(t, app, "Web")
+	ignoresCase(t, dir, "MyApp")
+
+	// When a path to the sub-folder is resolved in lower case, through a link written in lower case too
+	link := filepath.Join(dir, "shortcut")
+	if err := os.Symlink(strings.ToLower(sub), link); err != nil {
+		t.Fatal(err)
+	}
+
+	// Then it is the name the folder has on disk, whichever the case it was written in
+	for name, in := range map[string]string{"lower case": strings.ToLower(sub), "upper case": filepath.Join(dir, "MYAPP", "WEB"), "a link": link} {
+		if got := Resolve(in); got != sub {
+			t.Errorf("%s: Resolve(%q) = %q, want %q", name, in, got, sub)
+		}
+	}
+}
+
+func TestAProjectGivenInAnotherCaseKeepsTheFoldersTheLogsWroteInTheirOwn(t *testing.T) {
+	// Given sessions that logged their folder in the case it has on disk and in another one, on a volume that ignores case
+	dir := tree(t)
+	app := mkdir(t, dir, "MyApp")
+	mkdir(t, dir, "Other")
+	ignoresCase(t, dir, "MyApp")
+	db := indexOf(t, app, strings.ToLower(app)+"/web", dir+"/Other")
+
+	// When the project is given in yet another case
+	p, err := Of(filepath.Join(dir, "MYAPP"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Folders(db, p)
+
+	// Then it is the project on disk, and both spellings of its folder are in it
+	if want := fmt.Sprint([]string{app, strings.ToLower(app) + "/web"}); err != nil || fmt.Sprint(got) != want || p.Root() != app {
+		t.Errorf("project %q, folders = %v, %v, want %s", p.Root(), got, err, want)
 	}
 }
 

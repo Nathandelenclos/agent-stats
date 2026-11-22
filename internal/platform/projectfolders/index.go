@@ -21,12 +21,13 @@ func Folders(q Querier, p kernel.Project) ([]string, error) {
 	}
 	defer rows.Close()
 	within := []string{}
+	r := newResolver()
 	for rows.Next() {
 		var folder string
 		if err := rows.Scan(&folder); err != nil {
 			return nil, err
 		}
-		if p.Contains(Resolve(folder)) {
+		if p.Contains(r.resolve(folder)) {
 			within = append(within, folder)
 		}
 	}
