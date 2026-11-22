@@ -68,6 +68,31 @@ git-cliff would not have computed for that commit. Those checks come from the wo
 consumers verify the attestation as the README says rather than trust them. The tag must carry the workflow file with
 this entry, which is the case for every tag the pipeline creates. A tag is never moved or deleted.
 
+### AI summary in the release notes
+
+A release body starts with a `## Summary` written by the OpenAI API, followed by the git-cliff notes, which stay whole.
+If there is no summary, the body is the git-cliff notes alone, as before.
+
+How it works (`release.yml`, `tools/releasenotes`):
+
+- The `plan` job writes the git-cliff notes. The `release-notes` job, which can only read, builds `tools/releasenotes` and
+  runs it. Only that job receives the key, only in the environment of the one step that calls the API. The job that tags,
+  signs and publishes never sees it: it runs `releasenotes compose`, which puts the summary above the notes.
+- The API receives the subject lines of the notes (group titles and `- ` items, at most 6 000 bytes, angle brackets and
+  control characters removed) and fixed instructions. No code, no file, no diff. One call to the Responses API
+  (`store: false`, `max_output_tokens: 800`, 30 s timeout), plus one retry on a network error, a 429 or a 5xx.
+- Commit subjects are untrusted: the repository is public. The reply is kept only if it is plain Markdown of at most
+  1 500 characters with no HTML, `@`, heading, image, code block or control character, and no link except to this
+  repository. Otherwise it is dropped whole, not repaired. `compose` checks the summary again before publishing.
+- Nothing here can stop a release. With no key, an API error, a timeout or a rejected reply, the step logs a notice
+  (`AI release summary skipped: <reason>`, a fixed text that never carries the API answer) and the release goes out with
+  its notes alone. The job is also `continue-on-error`.
+
+To turn it off: delete the `OPENAI_API_KEY` repository secret, or set the repository variable `AI_RELEASE_NOTES` to `off`
+(the key is then not passed to the job). To change the model, edit `OPENAI_MODEL` in the `release-notes` job
+(`gpt-5.4-mini`, a small model: a release sends about 2 000 input tokens at most and gets at most 800 back, one call
+plus at most one retry; check the price on OpenAI's pricing page). If the key leaks, revoke it in the OpenAI dashboard and set a new secret: no release depends on it.
+
 **1.0.0** is a deliberate decision, and goes through the same pipeline: do not create the tag or the release by hand,
 a hand-made release has no binaries and no attestation. In the pull request that declares the CLI and `--json`
 contracts stable, set `breaking_always_bump_major = true` in `cliff.toml` and title the pull request `feat!: ...`
