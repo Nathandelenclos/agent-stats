@@ -170,9 +170,9 @@ func TestParseSkillNameAcceptsThePlainAndPluginQualifiedNamesAHarnessLogs(t *tes
 func TestParseSkillNameRefusesWhatIsNotTheNameOfASkill(t *testing.T) {
 	// Given text a log could hold in the place of a skill name: nothing, a leading dash, a control sequence, a line break, a very long run
 	for _, text := range []string{"", "-lead", "bad\x1b[2J", "new\nline", strings.Repeat("x", 129)} {
-		// When it is read, then it is refused
-		if _, valid := ParseSkillName(text); valid {
-			t.Errorf("ParseSkillName(%q) accepted", text)
+		// When it is read, then it is refused and no part of it comes back as a name
+		if name, valid := ParseSkillName(text); valid || name != "" {
+			t.Errorf("ParseSkillName(%q) = %q, %v; want it refused with no name", text, name, valid)
 		}
 	}
 }

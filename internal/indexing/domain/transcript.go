@@ -181,8 +181,12 @@ type ToolCall struct {
 var declaredSkill = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 _.:-]{0,127}$`)
 
 // ParseSkillName accepts the name of a skill as a harness logs it: "review" or "plugin:review".
+// A refused text comes back empty, so a caller that skips the check still never holds an unvalidated name.
 func ParseSkillName(name string) (string, bool) {
-	return name, declaredSkill.MatchString(name)
+	if !declaredSkill.MatchString(name) {
+		return "", false
+	}
+	return name, true
 }
 
 // Prompt is one message typed by a human (or sent by a parent agent to a subagent).
