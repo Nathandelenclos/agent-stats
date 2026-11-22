@@ -25,9 +25,16 @@ type fakeActivity struct {
 	err    error
 }
 
+// Activity answers like the index: what the logs say, limited to the harness asked for.
 func (f *fakeActivity) Activity(q domain.Filter) (domain.Activity, error) {
 	f.filter = q
-	return f.act, f.err
+	var out domain.Activity
+	for _, s := range f.act.Skills {
+		if q.Harness.IsZero() || s.Harness == q.Harness {
+			out.Skills = append(out.Skills, s)
+		}
+	}
+	return out, f.err
 }
 
 func skill(t *testing.T, h kernel.Harness, n string) domain.Item {
@@ -66,17 +73,26 @@ func TestCatalogCoversEveryHarnessAndPassesTheFilterToTheActivity(t *testing.T) 
 	}
 }
 
-func TestCatalogOfOneHarnessLooksAtThatHarnessOnly(t *testing.T) {
-	// Given an inventory and a harness filter
-	inv := &fakeInventory{}
-	act := &fakeActivity{}
+func TestCatalogOfOneHarnessShowsThatHarnessOnly(t *testing.T) {
+	// Given skills installed and used in two harnesses
+	inv := &fakeInventory{byHarness: map[kernel.Harness]Installed{
+		kernel.Claude: {Items: []domain.Item{skill(t, kernel.Claude, "review")}},
+		kernel.Codex:  {Items: []domain.Item{skill(t, kernel.Codex, "review")}},
+	}}
+	act := &fakeActivity{act: domain.Activity{Skills: []domain.SkillActivity{
+		{Harness: kernel.Claude, Skill: "review", Calls: 5},
+		{Harness: kernel.Codex, Skill: "review", Calls: 3},
+	}}}
 
-	// When the catalogue is built for Codex
-	_, err := BuildCatalog{Inventory: inv, Activity: act}.Run(Query{Harness: kernel.Codex})
+	// When the catalogue is built for Claude Code
+	c, err := BuildCatalog{Inventory: inv, Activity: act}.Run(Query{Harness: kernel.Claude})
 
-	// Then only Codex is inventoried and the activity is limited to it
-	if err != nil || len(inv.asked) != 1 || inv.asked[0] != kernel.Codex || act.filter.Harness != kernel.Codex {
-		t.Errorf("asked %v, filter %+v, err %v", inv.asked, act.filter, err)
+	// Then it lists the Claude skill alone, with the Claude uses
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Entries) != 1 || c.Entries[0].Harness != kernel.Claude || c.Entries[0].Uses != 5 {
+		t.Errorf("entries: %+v", c.Entries)
 	}
 }
 
