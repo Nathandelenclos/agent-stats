@@ -522,20 +522,24 @@ func TestOnlyFilesOfTheFrontAreServed(t *testing.T) {
 	}
 }
 
-func TestSyncProgressTellsWhetherIndexingIsOffRunningOrDone(t *testing.T) {
-	// Given a server without indexing (--no-sync)
-	off := newRig(t)
+func TestSyncProgressSaysIndexingIsOffWithoutIt(t *testing.T) {
+	// Given a server started without indexing (--no-sync)
+	r := newRig(t)
 
 	// When the page asks where indexing stands
-	// Then it is told it is off
-	if got := decode[syncStatus](t, off.get("/api/sync")); got.State != syncDisabled {
+	got := decode[syncStatus](t, r.get("/api/sync"))
+
+	// Then it is told that indexing is off
+	if got.State != syncDisabled {
 		t.Errorf("without sync: %+v", got)
 	}
+}
 
+func TestSyncProgressShowsTheFilesIndexedWhileRunningThenWhatWasSkipped(t *testing.T) {
 	// Given a server whose indexing is blocked after 12 files
 	release := make(chan struct{})
 	progressed := make(chan struct{})
-	on := newRig(t, func(o *Options) {
+	r := newRig(t, func(o *Options) {
 		o.Sync = func(progress func(int)) (string, error) {
 			progress(12)
 			close(progressed)
@@ -544,14 +548,14 @@ func TestSyncProgressTellsWhetherIndexingIsOffRunningOrDone(t *testing.T) {
 		}
 	})
 	done := make(chan struct{})
-	go func() { on.handler.sync.run(on.handler.opts.Sync); close(done) }()
+	go func() { r.handler.sync.run(r.handler.opts.Sync); close(done) }()
 	<-progressed
 
 	// When the page asks while it runs, then after it ends
-	running := decode[syncStatus](t, on.get("/api/sync"))
+	running := decode[syncStatus](t, r.get("/api/sync"))
 	close(release)
 	<-done
-	finished := decode[syncStatus](t, on.get("/api/sync"))
+	finished := decode[syncStatus](t, r.get("/api/sync"))
 
 	// Then it sees the progress, then the end with the note about what was skipped
 	if running.State != syncRunning || running.Indexed != 12 || running.FinishedAt != 0 {
