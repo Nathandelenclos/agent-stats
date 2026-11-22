@@ -25,10 +25,6 @@ import (
 // maxGeminiBytes bounds a conversation: it is held in memory to replay it, unlike the line logs of other harnesses.
 var maxGeminiBytes int64 = 256 << 20
 
-// ErrConversationUnreadable reports a Gemini CLI conversation that cannot be used: not JSON, truncated, or with no
-// usable session id. What the JSON decoder says is kept as text, so that nothing above this reader depends on its errors.
-var ErrConversationUnreadable = errors.New("conversation unreadable")
-
 // geminiProvider is the provider of every Gemini CLI request: the CLI only talks to Google's API.
 const geminiProvider = "google"
 
@@ -420,25 +416,6 @@ func geminiFolder(chats string) string {
 	return folder
 }
 
-// text is the text of a message content: a string, or a list of parts that hold some.
-func geminiText(raw json.RawMessage) string {
-	var s string
-	if json.Unmarshal(raw, &s) == nil {
-		return s
-	}
-	var parts []struct {
-		Text string `json:"text"`
-	}
-	if json.Unmarshal(raw, &parts) != nil {
-		return ""
-	}
-	var b strings.Builder
-	for _, p := range parts {
-		b.WriteString(p.Text)
-	}
-	return b.String()
-}
-
 func (c *geminiConversation) transcript(path string) (domain.Transcript, error) {
 	p := domain.Transcript{Session: domain.Session{Harness: kernel.Gemini, AgentType: domain.MainAgent}}
 	if !geminiSessionID.MatchString(c.meta.SessionID) {
@@ -477,7 +454,7 @@ func (c *geminiConversation) transcript(path string) (domain.Transcript, error) 
 		p.Session.Span(ts)
 		switch m.Type {
 		case "user":
-			if pr, ok := domain.NewPrompt(m.ID, ts, geminiText(m.Content)); ok {
+			if pr, ok := domain.NewPrompt(m.ID, ts, messageText(m.Content)); ok {
 				p.Prompts = append(p.Prompts, pr)
 			}
 		case "gemini":

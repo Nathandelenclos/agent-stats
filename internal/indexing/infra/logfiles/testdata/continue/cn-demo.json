@@ -1,0 +1,51 @@
+{
+  "sessionId": "cn-demo",
+  "title": "Demo session",
+  "workspaceDirectory": "/demo",
+  "chatModelTitle": "Display name",
+  "usage": { "promptTokens": 9000, "completionTokens": 8000, "totalCost": 42 },
+  "history": [
+    { "message": { "role": "user", "content": "List the examples." }, "contextItems": [] },
+    {
+      "message": {
+        "role": "assistant",
+        "content": "",
+        "toolCalls": [
+          { "id": "call-one", "type": "function", "function": { "name": "mcp__demo__lookup", "arguments": "{}" } }
+        ],
+        "usage": {
+          "prompt_tokens": 100,
+          "completion_tokens": 10,
+          "total_tokens": 110,
+          "prompt_tokens_details": { "cached_tokens": 40 },
+          "completion_tokens_details": { "reasoning_tokens": 3 },
+          "model": "demo-a",
+          "cost_cents": 2
+        }
+      },
+      "contextItems": [],
+      "toolCallStates": [
+        {
+          "toolCallId": "call-one",
+          "toolCall": { "id": "call-one", "type": "function", "function": { "name": "mcp__demo__lookup", "arguments": "{}" } },
+          "status": "errored",
+          "output": [{ "content": "No examples.", "name": "Tool Result", "description": "Tool execution result" }]
+        }
+      ]
+    },
+    {
+      "message": {
+        "role": "assistant",
+        "content": "Here is an example.",
+        "usage": {
+          "prompt_tokens": 20,
+          "completion_tokens": 5,
+          "prompt_tokens_details": { "cached_tokens": 30, "cache_read_tokens": 30, "cache_write_tokens": 10 },
+          "model": "demo-b"
+        }
+      },
+      "contextItems": []
+    },
+    { "message": { "role": "assistant", "content": "Done." }, "contextItems": [] }
+  ]
+}

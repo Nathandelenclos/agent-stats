@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	indexing "github.com/Nathandelenclos/agent-stats/internal/indexing/application"
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/infra/logfiles"
@@ -305,5 +306,65 @@ func TestTwoGeminiFilesOfOneSessionGiveTheSameSessionWhateverTheOrderTheyAppearI
 	// Then the session and its prompts are those of the file that goes on, in both indexes
 	if a, b := shown(freshDB), shown(updatedDB); a != b || !strings.HasPrefix(a, "Add a cache to the loader ") {
 		t.Errorf("fresh index: %s, updated index: %s", a, b)
+	}
+}
+
+func TestContinueUsageReachesTheReport(t *testing.T) {
+	// Given a cn snapshot, its index, a nested copy and a separate extension usage stream
+	home := t.TempDir()
+	root := filepath.Join(home, ".continue", "sessions")
+	snapshot, err := os.ReadFile("internal/indexing/infra/logfiles/testdata/continue/cn-demo.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, raw := range map[string][]byte{
+		filepath.Join(root, "cn-demo.json"):                                            snapshot,
+		filepath.Join(root, "nested", "cn-demo.json"):                                  snapshot,
+		filepath.Join(root, "sessions.json"):                                           []byte(`[{"sessionId":"cn-demo","dateCreated":"1770000000000"}]`),
+		filepath.Join(home, ".continue", "dev_data", "0.2.0", "tokensGenerated.jsonl"): []byte(`{"promptTokens":9999,"generatedTokens":9999}`),
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// When the normal source list is indexed and the report is filtered to Continue
+	dbPath := filepath.Join(t.TempDir(), "index.db")
+	rep, _ := moreIndex(t, home, dbPath)
+	if rep.Indexed != 1 || len(rep.Errors) != 0 {
+		t.Fatalf("index: %+v", rep)
+	}
+	reader, err := usagedb.OpenReadOnly(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	h, err := kernel.ParseHarness("continue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := (reporting.BuildReport{Queries: reader}).Run(context.Background(), reporting.Query{Harness: h})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Then the snapshot contributes only its per-response usage and one tool call
+	got := report.Total
+	if got.Requests != 2 || got.Input != 80 || got.Output != 15 || got.CacheRead != 70 ||
+		got.CacheWrite != 10 || got.Cost != 0.02 || got.Unpriced != 1 || !got.First.IsZero() ||
+		len(report.Tools) != 1 {
+		t.Fatalf("report: %+v", report)
+	}
+	recent, err := (reporting.BuildReport{Queries: reader}).Run(context.Background(),
+		reporting.Query{Harness: h, Since: time.Unix(1, 0)})
+	if err != nil || recent.Total.Requests != 0 || len(recent.Tools) != 0 {
+		t.Fatalf("dated report: %+v, %v", recent, err)
+	}
+	session := sessionShown(t, dbPath, "continue:cn-demo")
+	if len(session.Prompts) != 1 || session.Prompts[0].Text != "List the examples." || session.Requests != 2 {
+		t.Fatalf("session: %+v", session)
 	}
 }

@@ -414,7 +414,7 @@ func TestMetaGivesTheFiltersTheServerOpensOn(t *testing.T) {
 	got := decode[metaJSON](t, r.get("/api/meta"))
 
 	// Then it learns every harness and the defaults
-	if strings.Join(got.Harnesses, ",") != "claude,codex,omp,pi,opencode,kilo,gemini,copilot,zed,grok,cursor,goose,vscode-chat,cline" || got.Defaults.Since != "30d" || got.Defaults.Harness != "pi" {
+	if strings.Join(got.Harnesses, ",") != "claude,codex,omp,pi,opencode,kilo,gemini,copilot,zed,grok,cursor,goose,vscode-chat,cline,continue" || got.Defaults.Since != "30d" || got.Defaults.Harness != "pi" {
 		t.Errorf("meta = %+v", got)
 	}
 }

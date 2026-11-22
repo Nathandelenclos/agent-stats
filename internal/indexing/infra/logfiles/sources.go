@@ -19,6 +19,7 @@ type Source struct {
 	Root    string
 	Match   func(path string) bool
 	Parse   Parser
+	open    func(path string) (*os.File, error) // optional stricter opener for a source
 	// Database, when set, makes Root the directory of SQLite databases that hold the sessions of the harness,
 	// instead of a tree of logs: Match and Parse are not used.
 	Database sessionDatabase
@@ -56,6 +57,7 @@ func DefaultSources(home string) []Source {
 		grokSource(filepath.Join(envOr("GROK_HOME", filepath.Join(home, ".grok")), "sessions")),
 		{Harness: kernel.Cursor, Root: filepath.Join(home, ".cursor", "projects"), cursorUser: cursorUserDir(home)},
 		{Harness: kernel.Goose, Root: filepath.Join(home, ".local", "share", "goose", "sessions"), Database: gooseDatabase{}},
+		continueSource(filepath.Join(home, ".continue", "sessions")),
 	}
 	codeUser := codeUserDir(home)
 	sources = append(sources, vscodeChatSources(codeUser)...)
@@ -65,6 +67,22 @@ func DefaultSources(home string) []Source {
 // GeminiSource reads the conversations of Gemini CLI under root, the "tmp" directory of its home.
 func GeminiSource(root string) Source {
 	return Source{Harness: kernel.Gemini, Root: root, Match: IsGeminiConversation, Parse: ParseGemini, Beside: geminiBeside}
+}
+
+func continueSource(root string) Source {
+	root = filepath.Clean(root)
+	return Source{Harness: kernel.Continue, Root: root, Parse: ParseContinue, open: openContinueSession,
+		Match: func(path string) bool {
+			return filepath.Dir(path) == root && isContinueSession(filepath.Base(path))
+		},
+	}
+}
+
+func (s Source) read(path string) (domain.Transcript, error) {
+	if s.open != nil {
+		return parseFile(path, s.Parse, s.open)
+	}
+	return ParseFile(path, s.Parse)
 }
 
 func envOr(key, def string) string {
@@ -156,7 +174,7 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 				problems = append(problems, fmt.Errorf("%s: %w", path, err))
 				return nil
 			}
-			readers[path] = func() (domain.Transcript, error) { return ParseFile(path, src.Parse) }
+			readers[path] = func() (domain.Transcript, error) { return src.read(path) }
 			files = append(files, application.LogFile{Path: path, Harness: src.Harness, Revision: fileRevision(info) + besideRevision(src, path), WeightBytes: logWeight(path, info.Size())})
 			return nil
 		})
