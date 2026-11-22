@@ -14,8 +14,9 @@ const selectClass = "min-h-9 rounded-md border border-border bg-bg px-2 text-ink
 export function FilterBar({ meta, value, onChange }: { meta: Meta; value: Filters; onChange: (next: Filters) => void }) {
   const periodId = useId();
   const harnessId = useId();
-  // A period given on the command line that is not a preset (a date, 12h…) stays selectable.
-  const periods = presets.some((p) => p.value === value.since) ? presets : [{ value: value.since, label: `Since ${value.since}` }, ...presets];
+  // The period given on the command line, when it is not a preset (a date, 12h…), stays selectable whichever period is chosen.
+  const extra = [...new Set([meta.defaults.since, value.since])].filter((since) => !presets.some((p) => p.value === since));
+  const periods = [...extra.map((since) => ({ value: since, label: `Since ${since}` })), ...presets];
   return (
     <form className="flex flex-wrap items-end gap-4" onSubmit={(e) => e.preventDefault()}>
       <div className="flex flex-col gap-1">
