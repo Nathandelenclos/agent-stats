@@ -232,3 +232,20 @@ func TestProgressIsReportedEveryFiftyLogsWhateverTheBatch(t *testing.T) {
 		t.Errorf("progress at %v, %v; want 50, 100", seen, err)
 	}
 }
+
+func TestIndexSessionsReportsErrorsInTheOrderOfTheList(t *testing.T) {
+	// Given logs of which the first and the third cannot be read, the second cannot be saved and one is fine
+	logs := manyLogs(4)
+	logs.problems = []error{errors.New("unreadable: permission denied")}
+	logs.readErr = map[string]error{"log-00": errors.New("unexpected EOF"), "log-02": errors.New("bad zstd")}
+	store := &fakeStore{known: map[string]LogFile{}, saved: map[string]IndexedTranscript{}, failOn: "log-01"}
+
+	// When they are indexed in one batch
+	rep, err := IndexSessions{Logs: logs, Store: store, Prices: flatPrices{}, Workers: 3}.Run(nil)
+
+	// Then the errors come in the order of the files, as in a run that handles them one by one
+	want := []string{"unreadable: permission denied", "log-00: unexpected EOF", "log-01: disk full", "log-02: bad zstd"}
+	if err != nil || !slices.Equal(rep.Errors, want) || rep.Indexed != 1 {
+		t.Errorf("report = %+v, %v; want errors %v", rep, err, want)
+	}
+}

@@ -59,15 +59,29 @@ func (uc IndexSessions) Run(progress func(IndexReport)) (IndexReport, error) {
 	if batch <= 0 {
 		batch = defaultSaveBatch
 	}
-	var pending []IndexedLog
+	var pending []readLog // in the order of the list: failures stay in it, so errors are reported in that order
 	flush := func() {
-		for i, err := range uc.Store.Save(pending) {
+		var batch []IndexedLog
+		for _, p := range pending {
+			if p.err == nil {
+				batch = append(batch, IndexedLog{File: p.file, Transcript: p.indexed})
+			}
+		}
+		var saved []error
+		if len(batch) > 0 {
+			saved = uc.Store.Save(batch)
+		}
+		for _, p := range pending {
+			err := p.err
+			if err == nil {
+				err, saved = saved[0], saved[1:]
+			}
 			if err != nil {
-				rep.Errors = append(rep.Errors, fmt.Sprintf("%s: %v", pending[i].File.Path, err))
+				rep.Errors = append(rep.Errors, fmt.Sprintf("%s: %v", p.file.Path, err))
 				continue
 			}
 			rep.Indexed++
-			rep.SkippedLines += pending[i].Transcript.SkippedLines
+			rep.SkippedLines += p.indexed.Transcript.SkippedLines
 			if progress != nil && rep.Indexed%50 == 0 {
 				progress(rep)
 			}
@@ -75,13 +89,8 @@ func (uc IndexSessions) Run(progress func(IndexReport)) (IndexReport, error) {
 		pending = pending[:0]
 	}
 	take := uc.readAhead(changed)
-	for _, f := range changed {
-		r := take()
-		if r.err != nil {
-			rep.Errors = append(rep.Errors, fmt.Sprintf("%s: %v", f.Path, r.err))
-			continue
-		}
-		if pending = append(pending, IndexedLog{File: f, Transcript: r.indexed}); len(pending) == batch {
+	for range changed {
+		if pending = append(pending, take()); len(pending) == batch {
 			flush()
 		}
 	}
@@ -91,8 +100,9 @@ func (uc IndexSessions) Run(progress func(IndexReport)) (IndexReport, error) {
 
 const defaultSaveBatch = 64
 
-// readResult is what reading one log gave: its indexed transcript, or why that failed.
-type readResult struct {
+// readLog is a log read: its indexed transcript, or why that failed.
+type readLog struct {
+	file    LogFile
 	indexed IndexedTranscript
 	err     error
 }
@@ -138,11 +148,11 @@ func (w *window) leave(size int64) {
 // readAhead starts reading, parsing and pricing files in the background and returns take, which hands over
 // the results one at a time in the order of files; take must be called once per file. The workers run ahead
 // of the caller within readAheadBytes.
-func (uc IndexSessions) readAhead(files []LogFile) (take func() readResult) {
+func (uc IndexSessions) readAhead(files []LogFile) (take func() readLog) {
 	workers := min(max(uc.Workers, 1), len(files))
-	results := make([]chan readResult, len(files)) // one per file, so results come out in order
+	results := make([]chan readLog, len(files)) // one per file, so results come out in order
 	for i := range results {
-		results[i] = make(chan readResult, 1)
+		results[i] = make(chan readLog, 1)
 	}
 	next := make(chan int)
 	ahead := newWindow(uc.readAheadBytes())
@@ -156,7 +166,7 @@ func (uc IndexSessions) readAhead(files []LogFile) (take func() readResult) {
 	for range workers {
 		go func() {
 			for i := range next {
-				var r readResult
+				r := readLog{file: files[i]}
 				t, err := uc.Logs.Read(files[i])
 				if err != nil {
 					r.err = err
@@ -168,7 +178,7 @@ func (uc IndexSessions) readAhead(files []LogFile) (take func() readResult) {
 		}()
 	}
 	i := 0
-	return func() readResult {
+	return func() readLog {
 		r := <-results[i]
 		ahead.leave(files[i].Size)
 		i++
