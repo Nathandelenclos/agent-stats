@@ -75,6 +75,9 @@ func main() {
 
 func run() error {
 	termquiet.Restore()
+	if len(os.Args) > 1 && os.Args[1] == "catalog" {
+		return runCatalog(os.Args[2:], os.Stdout, os.Stderr)
+	}
 	defaultDB := ""
 	if cache, err := os.UserCacheDir(); err == nil {
 		defaultDB = filepath.Join(cache, "agent-stats", "index.db")

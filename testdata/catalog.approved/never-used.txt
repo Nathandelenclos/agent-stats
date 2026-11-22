@@ -1,0 +1,28 @@
+
+claude · 22 installed, 12 never used
+KIND    ITEM              SCOPE         USES  UNIT         LAST USED
+mcp     inline-server     plugin:demo   0     calls        never
+mcp     local-db          project       0     calls        never
+mcp     project-server    project       0     calls        never
+mcp     remote            user          0     calls        never
+skill   frontmatter-name  user          0     loads        never
+skill   named:kept        plugin:named  0     loads        never
+skill   no-frontmatter    user          0     loads        never
+skill   project-skill     project       0     loads        never
+agent   demo:checker      plugin:demo   0     requests     never
+agent   plain-agent       user          0     requests     never
+agent   project-agent     project       0     requests     never
+plugin  named@market      user          0     invocations  never
+
+codex · 9 installed, 1 never used
+KIND  ITEM         SCOPE  USES  UNIT   LAST USED
+mcp   quoted.name  user   0     calls  never
+
+omp · 5 installed, 1 never used
+KIND  ITEM            SCOPE    USES  UNIT   LAST USED
+mcp   project-server  project  0     calls  never
+--- stderr ---
+skipped ~/.claude/plugins/installed_plugins.json: plugin escape@market: install path points outside its directory
+skipped plugin manifest@market: .claude-plugin/plugin.json: a declared server file points outside its plugin
+skipped ~/.claude/plugins/installed_plugins.json: plugin missing@market: not installed, its install path is not an existing directory
+skipped plugin named@market: .claude-plugin/plugin.json: malformed

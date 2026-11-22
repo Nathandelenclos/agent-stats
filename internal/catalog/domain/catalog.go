@@ -1,0 +1,444 @@
+// Package domain models the catalogue: what a harness has installed (skills, agents, MCP servers, plugins)
+// and what the session logs say was used, linked so that unused items stand out. It does no I/O.
+package domain
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+)
+
+// Kind is what an item is. Use the variables below.
+type Kind struct{ name string }
+
+var (
+	MCPServer = Kind{"mcp"}
+	Skill     = Kind{"skill"}
+	Agent     = Kind{"agent"}
+	Plugin    = Kind{"plugin"}
+	Tool      = Kind{"tool"} // a built-in tool, known only from the logs
+)
+
+// Kinds lists the kinds in display order.
+var Kinds = []Kind{MCPServer, Skill, Agent, Plugin, Tool}
+
+// String returns the kind name.
+func (k Kind) String() string { return k.name }
+
+// Scope is where an item is defined. Use the variables below.
+type Scope struct{ name string }
+
+var (
+	ScopeUser    = Scope{"user"}
+	ScopeProject = Scope{"project"}
+	ScopePlugin  = Scope{"plugin"}
+	ScopeLogs    = Scope{"logs"} // not found in any configuration: seen in the session logs only
+)
+
+// String returns the scope name.
+func (s Scope) String() string { return s.name }
+
+// Unit is what the uses of an entry count. Use the variables below, or Entry.Unit.
+type Unit struct{ name string }
+
+var (
+	UnitCalls       = Unit{"calls"}       // tool calls: tools and MCP servers
+	UnitLoads       = Unit{"loads"}       // skill loads
+	UnitRequests    = Unit{"requests"}    // model requests made by the sessions of an agent: the index records no session count
+	UnitInvocations = Unit{"invocations"} // calls and loads together: plugins
+)
+
+// String returns the unit name.
+func (u Unit) String() string { return u.name }
+
+// MaxNameLen bounds an item name in bytes (real names are a few dozen).
+const MaxNameLen = 128
+
+// ErrInvalidName reports a name that is empty, too long, or holds characters a terminal could misread.
+var ErrInvalidName = errors.New("invalid item name")
+
+// Name is the name of an item: valid UTF-8 of printable characters, 1 to MaxNameLen bytes. Build it with NewName;
+// the zero Name means "none".
+type Name struct{ s string }
+
+// NewName validates s. Control and format characters (escape sequences, newlines, bidirectional overrides) are refused.
+func NewName(s string) (Name, error) {
+	if s == "" || len(s) > MaxNameLen || !utf8.ValidString(s) {
+		return Name{}, fmt.Errorf("%w: %d bytes", ErrInvalidName, len(s))
+	}
+	for _, r := range s {
+		if !unicode.IsPrint(r) {
+			return Name{}, fmt.Errorf("%w: unprintable character %U", ErrInvalidName, r)
+		}
+	}
+	return Name{s}, nil
+}
+
+// String returns the name.
+func (n Name) String() string { return n.s }
+
+// IsZero reports the zero Name.
+func (n Name) IsZero() bool { return n.s == "" }
+
+// Item is something a harness has installed.
+type Item struct {
+	Harness kernel.Harness
+	Kind    Kind
+	Name    Name
+	Scope   Scope
+	// Origin is the plugin an item comes from, the zero Name for the others. A plugin item belongs to the plugin
+	// that carries its own name.
+	Origin Name
+	// Source says where the item is defined: a path, as the adapter chooses to show it. It never holds a secret.
+	Source   string
+	Disabled bool
+}
+
+// Plugin is the short name of the plugin an item comes from, empty for the others.
+func (i Item) Plugin() string {
+	if i.Origin.IsZero() {
+		return ""
+	}
+	return PluginName(i.Origin)
+}
+
+// identity is what makes two definitions the same item.
+func (i Item) identity() [5]string {
+	return [5]string{i.Harness.String(), i.Kind.name, i.Name.s, i.Scope.name, i.Origin.s}
+}
+
+// Filter restricts activity to what happened since a time (zero: all) and optionally one harness (empty: all).
+type Filter struct {
+	Since   time.Time
+	Harness kernel.Harness
+}
+
+// ToolActivity is the logged calls of one tool; Server is its MCP server, empty for a built-in tool.
+type ToolActivity struct {
+	Harness kernel.Harness
+	Name    string
+	Server  string
+	Calls   int64
+	Last    time.Time
+}
+
+// AgentActivity is what the sessions of one agent type did: the model requests they made.
+type AgentActivity struct {
+	Harness   kernel.Harness
+	AgentType string
+	Requests  int64
+	Last      time.Time
+}
+
+// SkillActivity is the logged loads of one skill.
+type SkillActivity struct {
+	Harness kernel.Harness
+	Skill   string
+	Calls   int64
+	Last    time.Time
+}
+
+// Activity is what the session logs say was used.
+type Activity struct {
+	Tools  []ToolActivity
+	Agents []AgentActivity
+	Skills []SkillActivity
+	// PendingSkillLoads flags the harnesses with a Skill call whose skill the index has not recorded yet: its log is not
+	// read again since the index records skills, so the loads counted per skill are incomplete and the usage of skills is unknown.
+	PendingSkillLoads map[kernel.Harness]bool
+	// UnnamedSkillCalls counts the Skill calls that named no valid skill, per harness (their Skill is empty). They are
+	// credited to no installed skill, and leave the usage of skills known: the logs did record them, as unnamed.
+	UnnamedSkillCalls []SkillActivity
+}
+
+// UnnamedSkillEntry is the name under which the Skill calls that named no valid skill are listed. It cannot be the
+// name of a skill a harness logs (those start with a letter or a digit).
+const UnnamedSkillEntry = "(unnamed Skill calls)"
+
+// Entry is one line of the catalogue: an item, or a tool, server, agent or skill seen in the logs but defined nowhere
+// the catalogue looks. Uses is how many times the logs show it at work, counted in its Unit.
+type Entry struct {
+	Item
+	Uses int64
+	Last time.Time
+	// Tracked is false when the logs do not tell this kind of item apart, or do not yet for now (a Skill call without
+	// its skill name awaits re-reading, see Activity.PendingSkillLoads), or when a call under a short name that
+	// several plugin items answer to could be this one's: Uses is then unknown, not zero.
+	Tracked bool
+	// pending marks an item whose Tracked is false because its usage is not settled yet, not because the logs cannot
+	// tell it apart: a plugin that carries one is not reported unused either.
+	pending bool
+}
+
+// Unit is what Uses counts for this kind of entry.
+func (e Entry) Unit() Unit {
+	switch e.Kind {
+	case Skill:
+		return UnitLoads
+	case Agent:
+		return UnitRequests
+	case Plugin:
+		return UnitInvocations
+	}
+	return UnitCalls
+}
+
+// Installed reports whether a configuration defines the entry.
+func (e Entry) Installed() bool { return e.Scope != ScopeLogs }
+
+// Unused reports an enabled, installed entry that the logs show was never used.
+func (e Entry) Unused() bool { return e.Installed() && !e.Disabled && e.Tracked && e.Uses == 0 }
+
+// tracked reports whether the index records usage of kind for harness h: tool calls everywhere, but the agent type
+// of a subagent session and the skill a Skill call loads only for Claude Code (the others log neither by name).
+func tracked(h kernel.Harness, k Kind) bool {
+	switch k {
+	case MCPServer, Tool:
+		return true
+	case Agent, Skill:
+		return h == kernel.Claude
+	}
+	return false
+}
+
+// Link builds the catalogue: every installed item with its usage, then what the logs show of things no configuration
+// defines. An item defined twice in the same place (same harness, kind, name, scope and origin) counts once. Items
+// defined in several scopes each show the usage of their name. Entries come ordered by harness, kind, then most used.
+func Link(items []Item, a Activity) []Entry {
+	var entries []Entry
+	seen := map[[5]string]bool{}
+	claimedTool := map[int]bool{}
+	claimedAgent := map[int]bool{}
+	claimedSkill := map[int]bool{}
+	bare := bareNames(items)
+	for _, it := range items {
+		if seen[it.identity()] {
+			continue
+		}
+		seen[it.identity()] = true
+		maybe := false // a call under a short name that is not this item's alone is logged
+		e := Entry{Item: it, Tracked: tracked(it.Harness, it.Kind) && !(it.Kind == Skill && a.PendingSkillLoads[it.Harness])}
+		switch it.Kind {
+		case MCPServer:
+			for i, t := range a.Tools {
+				if t.Harness == it.Harness && t.Server != "" && serverMatches(it, t.Server) {
+					e.add(t.Calls, t.Last)
+					claimedTool[i] = true
+				}
+			}
+		case Skill:
+			for i, s := range a.Skills {
+				ok := bare[bareKey(it.Harness, it.Kind, s.Skill)] == 1
+				if s.Harness == it.Harness && nameMatches(it, s.Skill, ok) {
+					e.add(s.Calls, s.Last)
+					claimedSkill[i] = true
+				}
+				maybe = maybe || couldBe(it, s.Harness, s.Skill, ok)
+			}
+		case Agent:
+			for i, g := range a.Agents {
+				ok := bare[bareKey(it.Harness, it.Kind, g.AgentType)] == 1
+				if g.Harness == it.Harness && nameMatches(it, g.AgentType, ok) {
+					e.add(g.Requests, g.Last)
+					claimedAgent[i] = true
+				}
+				maybe = maybe || couldBe(it, g.Harness, g.AgentType, ok)
+			}
+		}
+		e.pending = it.Kind == Skill && a.PendingSkillLoads[it.Harness]
+		if maybe && e.Uses == 0 { // with a count of its own the item stays as counted, which is then a lower bound
+			e.Tracked, e.pending = false, true
+		}
+		entries = append(entries, e)
+	}
+	entries = withPluginUsage(entries)
+
+	servers := map[[2]string]int{} // (harness, server) -> index in entries, for an MCP server the logs alone name
+	for i, t := range a.Tools {
+		switch {
+		case claimedTool[i]:
+		case t.Server == "":
+			entries = append(entries, logged(t.Harness, Tool, t.Name, t.Calls, t.Last))
+		default:
+			k := [2]string{t.Harness.String(), t.Server}
+			i, ok := servers[k]
+			if !ok {
+				i = len(entries)
+				servers[k] = i
+				entries = append(entries, logged(t.Harness, MCPServer, t.Server, 0, time.Time{}))
+			}
+			entries[i].add(t.Calls, t.Last)
+		}
+	}
+	for i, g := range a.Agents {
+		if !claimedAgent[i] && g.AgentType != "main" && g.AgentType != "subagent" { // those two name no agent
+			entries = append(entries, logged(g.Harness, Agent, g.AgentType, g.Requests, g.Last))
+		}
+	}
+	for i, s := range a.Skills {
+		if !claimedSkill[i] {
+			entries = append(entries, logged(s.Harness, Skill, s.Skill, s.Calls, s.Last))
+		}
+	}
+	for _, u := range a.UnnamedSkillCalls {
+		entries = append(entries, logged(u.Harness, Skill, UnnamedSkillEntry, u.Calls, u.Last))
+	}
+	sortEntries(entries)
+	return entries
+}
+
+// Tally counts the installed entries of a harness and, among them, those the logs show never used.
+type Tally struct{ Installed, Unused int }
+
+// TallyByHarness counts the installed and the unused entries of each harness.
+func TallyByHarness(entries []Entry) map[kernel.Harness]Tally {
+	out := map[kernel.Harness]Tally{}
+	for _, e := range entries {
+		t := out[e.Harness]
+		if e.Installed() {
+			t.Installed++
+		}
+		if e.Unused() {
+			t.Unused++
+		}
+		out[e.Harness] = t
+	}
+	return out
+}
+
+// couldBe reports whether a call logged under the short name that several plugin items answer to (bareOK false) may
+// be it: the call is then credited to none of them, and the usage of each is unknown.
+func couldBe(it Item, h kernel.Harness, logged string, bareOK bool) bool {
+	return !bareOK && !it.Origin.IsZero() && h == it.Harness && logged == it.bareName() && logged != it.Name.s
+}
+
+func (e *Entry) add(calls int64, last time.Time) {
+	e.Uses += calls
+	if last.After(e.Last) {
+		e.Last = last
+	}
+}
+
+// logged is an entry for something the logs name and no configuration defines. A name a terminal could misread is
+// shown escaped rather than dropped: the figures are real.
+func logged(h kernel.Harness, k Kind, name string, uses int64, last time.Time) Entry {
+	n, err := NewName(name)
+	if err != nil {
+		n = Name{escaped(name)}
+	}
+	return Entry{Item: Item{Harness: h, Kind: k, Name: n, Scope: ScopeLogs}, Uses: uses, Last: last, Tracked: true}
+}
+
+// escaped turns what NewName refuses into something printable: unprintable or invalid characters become "?", cut to MaxNameLen bytes.
+func escaped(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if !unicode.IsPrint(r) {
+			r = '?'
+		}
+		if b.Len()+utf8.RuneLen(r) > MaxNameLen {
+			break
+		}
+		b.WriteRune(r)
+	}
+	if b.Len() == 0 {
+		return "?"
+	}
+	return b.String()
+}
+
+// withPluginUsage gives each plugin the invocations of the MCP servers and skills it carries. The model requests of
+// its agents are not added: they count something else. A plugin with none of those items, or none the logs can follow,
+// has unknown usage; so has one that carries an item whose usage is pending and shows no use yet.
+func withPluginUsage(entries []Entry) []Entry {
+	for i, p := range entries {
+		if p.Kind != Plugin {
+			continue
+		}
+		pending := false
+		for _, c := range entries {
+			if c.Origin == p.Name && c.Harness == p.Harness && c.Tracked && c.Kind != Agent {
+				entries[i].Tracked = true
+				entries[i].add(c.Uses, c.Last)
+			}
+			pending = pending || c.Origin == p.Name && c.Harness == p.Harness && c.pending && c.Kind != Agent
+		}
+		if pending && entries[i].Uses == 0 {
+			entries[i].Tracked = false
+		}
+	}
+	return entries
+}
+
+// PluginName is a plugin id without its marketplace: "name@marketplace" reads "name". The skills and agents a plugin
+// carries are named "name:skill" in the logs.
+func PluginName(id Name) string {
+	name, _, _ := strings.Cut(id.s, "@")
+	return name
+}
+
+// nameMatches reports whether a logged skill or agent name designates it. A plugin's items are logged as
+// "plugin:name", or sometimes by their own name alone: that short form designates the plugin's item only when
+// bareOK, that is when no other item of the harness answers to it.
+func nameMatches(it Item, logged string, bareOK bool) bool {
+	if logged == it.Name.s {
+		return true
+	}
+	if it.Origin.IsZero() || !bareOK {
+		return false
+	}
+	return logged == it.bareName()
+}
+
+// bareName is the name an item answers to without its plugin: "plugin:skill" is "skill".
+func (it Item) bareName() string {
+	if it.Origin.IsZero() {
+		return it.Name.s
+	}
+	return strings.TrimPrefix(it.Name.s, PluginName(it.Origin)+":")
+}
+
+// bareNames counts, per harness, kind and short name, the distinct items a logged short name could designate: the
+// items called exactly that and the plugin items whose own name is that.
+func bareNames(items []Item) map[[3]string]int {
+	out := map[[3]string]int{}
+	seen := map[[4]string]bool{}
+	for _, it := range items {
+		short := it.bareName()
+		id := [4]string{it.Harness.String(), it.Kind.name, short, it.Origin.s}
+		if !seen[id] {
+			seen[id] = true
+			out[bareKey(it.Harness, it.Kind, short)]++
+		}
+	}
+	return out
+}
+
+func bareKey(h kernel.Harness, k Kind, short string) [3]string {
+	return [3]string{h.String(), k.name, short}
+}
+
+// serverMatches reports whether a tool call logged under server belongs to the MCP server item. Claude Code writes
+// "mcp__<server>__<tool>" with the characters of the server name outside [A-Za-z0-9_-] turned into "_", and calls
+// a plugin's server "plugin_<plugin>_<server>".
+func serverMatches(it Item, logged string) bool {
+	name := it.Name.s
+	if logged == name || logged == normalizeServer(name) {
+		return true
+	}
+	return !it.Origin.IsZero() && logged == "plugin_"+normalizeServer(PluginName(it.Origin))+"_"+normalizeServer(name)
+}
+
+func normalizeServer(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '_' || r == '-' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			return r
+		}
+		return '_'
+	}, s)
+}

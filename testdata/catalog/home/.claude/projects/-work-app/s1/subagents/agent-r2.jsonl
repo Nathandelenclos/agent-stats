@@ -1,0 +1,2 @@
+{"type":"user","uuid":"s1","timestamp":"2026-01-05T11:00:00Z","cwd":"/work/app","message":{"role":"user","content":"Fixture subtask"}}
+{"type":"assistant","timestamp":"2026-01-05T11:00:00Z","message":{"id":"sm1","model":"claude-x","stop_reason":"end_turn","content":[{"type":"text","text":"done"}],"usage":{"input_tokens":1,"output_tokens":1}}}

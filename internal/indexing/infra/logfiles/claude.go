@@ -21,6 +21,23 @@ type claudeBlock struct {
 	ToolUseID string `json:"tool_use_id"`
 	Content   size   `json:"content"`
 	IsError   bool   `json:"is_error"`
+	Skill     string `json:"-"` // the skill a Skill call loads, read from its input; empty for any other block
+}
+
+// UnmarshalJSON fills the block as its tags say, then reads the skill of a Skill call: the input itself is
+// not kept, only its length, so the name has to be taken while it is there. Errors are swallowed as the
+// enclosing list of blocks swallows them: a block that does not fit is left as far as it was filled.
+func (b *claudeBlock) UnmarshalJSON(data []byte) error {
+	type plain claudeBlock // without the methods, so that it is not decoded through this one again
+	_ = json.Unmarshal(data, (*plain)(b))
+	if b.Name == "Skill" {
+		var in struct {
+			Input json.RawMessage `json:"input"`
+		}
+		_ = json.Unmarshal(data, &in)
+		b.Skill = claudeSkill(in.Input)
+	}
+	return nil
 }
 
 // claudeContent is a message's content: a plain string (what a person typed) or a list of blocks.
@@ -198,7 +215,11 @@ func ParseClaude(path string, r io.Reader) (domain.Transcript, error) {
 				}
 				server, name := domain.SplitMCPToolName(b.Name)
 				toolIndex[b.ID] = len(p.Tools)
-				p.Tools = append(p.Tools, domain.ToolCall{Key: b.ID, At: ts, Name: name, Server: server, ArgsChars: int(b.Input)})
+				call := domain.ToolCall{Key: b.ID, At: ts, Name: name, Server: server, ArgsChars: int(b.Input)}
+				if call.LoadsSkill() {
+					call.Skill = b.Skill
+				}
+				p.Tools = append(p.Tools, call)
 			}
 		case "user":
 			if l.Message == nil || l.IsMeta {
@@ -255,6 +276,20 @@ func firstText(blocks []claudeBlock) string {
 		}
 	}
 	return domain.UnspecifiedFailure
+}
+
+// claudeSkill reads the skill a Skill call loads from its input, empty when the input names none usable.
+func claudeSkill(input []byte) string {
+	var in struct {
+		Skill string `json:"skill"`
+	}
+	if json.Unmarshal(input, &in) != nil {
+		return ""
+	}
+	if name, ok := domain.ParseSkillName(in.Skill); ok {
+		return name
+	}
+	return ""
 }
 
 // maxMetaBytes bounds the subagent .meta.json read next to a transcript (real ones are a few hundred bytes).

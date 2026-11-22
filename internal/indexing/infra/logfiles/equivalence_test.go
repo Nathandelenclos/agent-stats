@@ -13,7 +13,7 @@ import (
 )
 
 // The contract of the scanner and of the decoders that replaced encoding/json's plain structs: for any
-// line, the transcript is the one commit 80bf4b1 made. These tests decode with the parsers of that commit
+// line, the transcript is the one commit 80bf4b1 made, but for the deliberate changes marked in legacy_test.go. These tests decode with the parsers of that commit
 // (legacy_test.go), not with the decoders they check, which is what the tests that merely switch the
 // scanner off cannot do: both sides of those use the same custom decoders.
 
@@ -78,8 +78,11 @@ func TestParsersReadLinesAsTheLegacyOnesDid(t *testing.T) {
 }
 
 // TestParsersMatchTheFrozenLegacyOutput checks the legacy oracle itself: testdata/legacy.golden was written
-// by a build of commit 80bf4b1, then regenerated once with the deliberate Codex session-span fix of d4a12c3
-// (session end times only), and the current parsers must still write the same.
+// by a build of commit 80bf4b1, then regenerated with the deliberate changes since (all marked in legacy_test.go): the
+// Codex session-span fix of d4a12c3 (session end times only), then, from the legacy oracle and not from the current
+// parsers, the skill of a Claude Skill call (the new Skill field of every tool call, set on Skill calls only)
+// and the MCP server split out of a Codex function call name (Name and Server of those calls only), with corpus
+// lines for both. The current parsers must still write the same.
 func TestParsersMatchTheFrozenLegacyOutput(t *testing.T) {
 	golden, err := os.ReadFile("testdata/legacy.golden")
 	if err != nil {

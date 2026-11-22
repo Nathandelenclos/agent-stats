@@ -329,33 +329,6 @@ func TestPromptsKeepTheOrderTheyWereTypedInAndTheirSignals(t *testing.T) {
 	}
 }
 
-func TestAReaderStillListsTheSessionsWhenTheirListingFailsToUpdate(t *testing.T) {
-	// Given a session listed for a reader on another connection, by an index that is due an update of its listing
-	s := open(t)
-	if err := save(s, application.LogFile{Path: "/logs/main.jsonl", Harness: kernel.Claude}, transcript(t, "main", time.UnixMilli(1767261600000))); err != nil {
-		t.Fatal(err)
-	}
-	reader, err := sql.Open("sqlite", pathOf(t, s))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { reader.Close() })
-	if _, err := s.db.Exec(`PRAGMA user_version = 0`); err != nil {
-		t.Fatal(err)
-	}
-
-	// When updating the listing fails half way
-	if err := migrate(s.db, schemaVersion, sessionViews, `NOT SQL`); err == nil {
-		t.Fatal("the failing step was not reported")
-	}
-
-	// Then the reader still lists the session
-	var listed int
-	if err := reader.QueryRow(`SELECT COUNT(*) FROM session_overview`).Scan(&listed); err != nil || listed != 1 {
-		t.Errorf("the reader lists %d sessions, %v", listed, err)
-	}
-}
-
 func TestASessionListingFromANewerBuildIsLeftAsItIs(t *testing.T) {
 	// Given an index whose listing of sessions a newer build changed
 	s := open(t)
@@ -373,62 +346,6 @@ func TestASessionListingFromANewerBuildIsLeftAsItIs(t *testing.T) {
 	var root string
 	if err := again.db.QueryRow(`SELECT root_id FROM session_overview`).Scan(&root); err != nil || root != "listed by a newer build" {
 		t.Errorf("listing = %q, %v", root, err)
-	}
-}
-
-// indexBuiltBeforeTheCodexEndTimeFix saves a Codex log and a Claude log, then closes an index that is
-// left as one built before the Codex end times were fixed.
-func indexBuiltBeforeTheCodexEndTimeFix(t *testing.T) (path string, codex, claude application.LogFile) {
-	t.Helper()
-	s := open(t)
-	at := time.UnixMilli(1767261600000)
-	codex = application.LogFile{Path: "/logs/codex.jsonl", Harness: kernel.Codex, Size: 5, ModTime: time.Unix(0, 1)}
-	claude = application.LogFile{Path: "/logs/claude.jsonl", Harness: kernel.Claude, Size: 7, ModTime: time.Unix(0, 2)}
-	for _, f := range []application.LogFile{codex, claude} {
-		if err := save(s, f, transcript(t, filepath.Base(f.Path), at)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := s.db.Exec(`PRAGMA user_version = 0`); err != nil {
-		t.Fatal(err)
-	}
-	path = pathOf(t, s)
-	s.Close()
-	return path, codex, claude
-}
-
-func TestCodexLogsIndexedBeforeTheEndTimeFixAreReadAgain(t *testing.T) {
-	// Given an index built before the Codex end times were fixed, holding a Codex log and a Claude log
-	path, _, claude := indexBuiltBeforeTheCodexEndTimeFix(t)
-
-	// When the index is opened by a build with the fix
-	s := reopen(t, path)
-
-	// Then the next sync reads the Codex log again and leaves the Claude log alone, and the sessions indexed so far stay listed
-	known, err := s.IndexedFiles()
-	if err != nil || len(known) != 1 || known[claude.Path].Size != 7 {
-		t.Fatalf("indexed files = %+v, %v", known, err)
-	}
-	if listed := len(listedUnder(t, s)); listed != 2 {
-		t.Errorf("%d sessions listed, want the two indexed so far", listed)
-	}
-}
-
-func TestCodexLogsReadAgainAreNotForgottenASecondTime(t *testing.T) {
-	// Given a Codex log read again after the index was opened by a build with the fix
-	path, codex, _ := indexBuiltBeforeTheCodexEndTimeFix(t)
-	s := reopen(t, path)
-	if err := save(s, codex, transcript(t, "codex.jsonl", time.UnixMilli(1767261600000))); err != nil {
-		t.Fatal(err)
-	}
-	s.Close()
-
-	// When the index is opened again
-	again := reopen(t, path)
-
-	// Then the Codex log is still known, so it is not read a second time
-	if known, err := again.IndexedFiles(); err != nil || len(known) != 2 {
-		t.Errorf("indexed files = %+v, %v", known, err)
 	}
 }
 

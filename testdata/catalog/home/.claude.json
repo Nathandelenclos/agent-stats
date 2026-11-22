@@ -1,0 +1,11 @@
+{
+  "numStartups": 3,
+  "mcpServers": {
+    "docs": {"command": "npx", "args": ["docs-mcp"], "env": {"DOCS_TOKEN": "SECRET-USER-TOKEN"}},
+    "remote": {"type": "http", "url": "https://fixture-user:SECRET-URL-PASSWORD@mcp.example.test/sse", "headers": {"Authorization": "Bearer SECRET-BEARER"}}
+  },
+  "projects": {
+    "/work/app": {"history": [], "mcpServers": {"local-db": {"command": "db-mcp", "env": {"DB_URL": "postgres://app:SECRET-DB-PASSWORD@localhost/app"}}}},
+    "/work/empty": {"mcpServers": {}}
+  }
+}

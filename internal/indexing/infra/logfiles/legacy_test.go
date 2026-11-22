@@ -2,7 +2,10 @@ package logfiles
 
 // The parsers of commit 80bf4b1, which decoded every line with encoding/json alone, kept verbatim (types and
 // functions renamed with a legacy prefix) as the oracle of the equivalence tests: whatever a line meant then,
-// it must still mean now. Do not edit them to follow the parsers.
+// it must still mean now. Do not edit them to follow the parsers. The deliberate changes since are marked
+// "deliberate change since 80bf4b1" at the line they change; each is written here the way the commit that made it
+// wrote it, never copied from the current parsers: the Codex session span (d4a12c3), the skill of a Claude Skill
+// call and the MCP server of a Codex function call.
 
 import (
 	"bufio"
@@ -158,7 +161,11 @@ func legacyParseClaude(path string, r io.Reader) (domain.Transcript, error) {
 				}
 				server, name := domain.SplitMCPToolName(b.Name)
 				toolIndex[b.ID] = len(p.Tools)
-				p.Tools = append(p.Tools, domain.ToolCall{Key: b.ID, At: ts, Name: name, Server: server, ArgsChars: len(b.Input)})
+				call := domain.ToolCall{Key: b.ID, At: ts, Name: name, Server: server, ArgsChars: len(b.Input)}
+				if server == "" && name == "Skill" { // deliberate change since 80bf4b1: the skill a Skill call loads
+					call.Skill = legacyClaudeSkill(b.Input)
+				}
+				p.Tools = append(p.Tools, call)
 			}
 		case "user":
 			if l.Message == nil || l.IsMeta {
@@ -207,6 +214,24 @@ func legacyAddClaudePrompt(p *domain.Transcript, key string, ts time.Time, text 
 		p.Prompts = append(p.Prompts, pr)
 	}
 }
+
+// legacyClaudeSkill is the skill a Skill call loads, empty when its input names none usable.
+func legacyClaudeSkill(input json.RawMessage) string {
+	var in struct {
+		Skill string `json:"skill"`
+	}
+	if json.Unmarshal(input, &in) != nil {
+		return ""
+	}
+	if legacyDeclaredSkill.MatchString(in.Skill) {
+		return in.Skill
+	}
+	return ""
+}
+
+// legacyDeclaredSkill is the name of a skill as the Skill call parsers accepted it, written here so that the oracle does not
+// share it with the parsers it checks.
+var legacyDeclaredSkill = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 _.:-]{0,127}$`)
 
 func legacyClaudeBlocks(raw json.RawMessage) []legacyClaudeBlock {
 	var blocks []legacyClaudeBlock
@@ -373,8 +398,9 @@ func legacyParseCodex(path string, r io.Reader) (domain.Transcript, error) {
 				if pl.Name == "exec_command" || pl.Name == "write_stdin" {
 					return
 				}
+				server, name := domain.SplitMCPToolName(pl.Name) // deliberate change since 80bf4b1: the MCP server is split out of the name
 				callIndex[pl.CallID] = len(p.Tools)
-				p.Tools = append(p.Tools, domain.ToolCall{Key: pl.CallID, At: ts, Name: pl.Name, ArgsChars: len(pl.Arguments)})
+				p.Tools = append(p.Tools, domain.ToolCall{Key: pl.CallID, At: ts, Name: name, Server: server, ArgsChars: len(pl.Arguments)})
 			case "function_call_output":
 				if i, ok := callIndex[pl.CallID]; ok {
 					p.Tools[i].ResultChars = len(pl.Output)

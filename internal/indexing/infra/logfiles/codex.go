@@ -165,8 +165,9 @@ func ParseCodex(path string, r io.Reader) (domain.Transcript, error) {
 				if pl.Name == "exec_command" || pl.Name == "write_stdin" {
 					return
 				}
+				server, name := domain.SplitMCPToolName(pl.Name)
 				callIndex[pl.CallID] = len(p.Tools)
-				p.Tools = append(p.Tools, domain.ToolCall{Key: pl.CallID, At: ts, Name: pl.Name, ArgsChars: int(pl.Arguments)})
+				p.Tools = append(p.Tools, domain.ToolCall{Key: pl.CallID, At: ts, Name: name, Server: server, ArgsChars: int(pl.Arguments)})
 			case "function_call_output":
 				if i, ok := callIndex[pl.CallID]; ok {
 					p.Tools[i].ResultChars = int(pl.Output)

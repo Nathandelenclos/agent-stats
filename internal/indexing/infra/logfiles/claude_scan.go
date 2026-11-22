@@ -141,7 +141,8 @@ func (c *claudeContent) scan(raw []byte) bool {
 
 func (s *scanner) claudeBlock(b *claudeBlock) bool {
 	var m seen
-	return s.object(func(key []byte) bool {
+	var input []byte // the input as written, for the skill of a Skill call
+	ok := s.object(func(key []byte) bool {
 		switch string(key) {
 		case "type":
 			return m.first(0) && s.setText(&b.Type)
@@ -152,7 +153,15 @@ func (s *scanner) claudeBlock(b *claudeBlock) bool {
 		case "name":
 			return m.first(3) && s.setText(&b.Name)
 		case "input":
-			return m.first(4) && s.setSize((*int)(&b.Input))
+			if !m.first(4) {
+				return false
+			}
+			start := s.i
+			if !s.setSize((*int)(&b.Input)) {
+				return false
+			}
+			input = s.b[start:s.i]
+			return true
 		case "tool_use_id":
 			return m.first(5) && s.setText(&b.ToolUseID)
 		case "content":
@@ -162,4 +171,8 @@ func (s *scanner) claudeBlock(b *claudeBlock) bool {
 		}
 		return !foldsToField(key, claudeBlockFields) && s.value()
 	})
+	if ok && b.Name == "Skill" {
+		b.Skill = claudeSkill(input)
+	}
+	return ok
 }

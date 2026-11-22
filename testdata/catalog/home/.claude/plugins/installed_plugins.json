@@ -1,0 +1,9 @@
+{"version": 2, "plugins": {
+  "demo@market": [{"scope": "user", "installPath": "@HOME@/.claude/plugins/cache/demo", "version": "1.0.0"}],
+  "off@market": [{"scope": "user", "installPath": "@HOME@/.claude/plugins/cache/off"}],
+  "escape@market": [{"scope": "user", "installPath": "/etc"}],
+  "missing@market": [{"scope": "user", "installPath": "@HOME@/.claude/plugins/cache/SECRET-MISSING"}],
+  "manifest@market": [{"scope": "user", "installPath": "@HOME@/.claude/plugins/cache/manifest"}],
+  "named@market": [{"scope": "user", "installPath": "@HOME@/.claude/plugins/cache/SECRET-INSTALL-DIR"}],
+  "elsewhere@market": [{"scope": "project", "projectPath": "/work/other", "installPath": "@HOME@/.claude/plugins/cache/demo"}]
+}}

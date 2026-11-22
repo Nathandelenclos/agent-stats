@@ -1,0 +1,5 @@
+name = "planner"
+description = "Fixture agent"
+
+[settings]
+name = "not the agent name"

@@ -57,24 +57,18 @@ CREATE INDEX IF NOT EXISTS tool_calls_ts ON tool_calls (ts);
 CREATE INDEX IF NOT EXISTS prompts_ts ON prompts (ts);
 CREATE INDEX IF NOT EXISTS sessions_started ON sessions (started_at);
 -- Published read model: the only part of the index other contexts may read. Prompt texts stay private,
--- except in session_prompts, which exists to show a session's own prompts.
+-- except in session_prompts, which exists to show a session's own prompts. usage_tool_calls is defined by
+-- migration, as it gained a column (see addSkill).
 CREATE VIEW IF NOT EXISTS usage_requests AS
 	SELECT r.ts, r.model, r.input, r.output, r.cache_read, r.cache_write, r.cost, r.priced, r.duration_ms, r.ttft_ms, r.error,
 		s.harness, s.agent_type, s.folder
 	FROM requests r JOIN sessions s ON s.id = r.session_id;
-CREATE VIEW IF NOT EXISTS usage_tool_calls AS
-	SELECT t.ts, t.name, t.server, t.args_chars, t.result_chars, t.is_error, t.duration_ms, s.harness
-	FROM tool_calls t JOIN sessions s ON s.id = t.session_id;
 -- position is the prompt's place in its session: rows are inserted in log order.
 CREATE VIEW IF NOT EXISTS session_prompts AS
 	SELECT p.session_id, p.rowid AS position, p.ts, p.text, p.chars, p.words, p.yelling, p.profanity, p.anguish, p.negation,
 		p.repetition, p.blame
 	FROM prompts p;
 `
-
-// schemaVersion is the index's user_version once migrate has brought it up to date. 0 is an index from before
-// migrations: it is migrated when opened, never twice.
-const schemaVersion = 1
 
 // forgetCodexLogs makes the next sync read every Codex log again: a Codex session indexed before its end was
 // taken from its last tool call or prompt ended too late, and an unchanged log is not read twice.
@@ -121,10 +115,60 @@ CREATE VIEW session_tool_calls AS
 	FROM tool_calls t JOIN session_overview o ON o.id = t.session_id;
 `
 
-// migrate runs steps in one transaction if the index is older than version, then records version: another
+// A migration brings the index up by one version. It runs inside migrate's transaction, so it must not manage one.
+type migration func(ctx context.Context, conn *sql.Conn) error
+
+// sqlSteps is a migration made of statements only.
+func sqlSteps(steps ...string) migration {
+	return func(ctx context.Context, conn *sql.Conn) error {
+		for _, step := range steps {
+			if _, err := conn.ExecContext(ctx, step); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+}
+
+// migrations is the history of the index, oldest first. An index's user_version is how many of them it has run: 0 is
+// an index from before migrations, and a fresh one runs them all on empty tables. Append a migration, never edit one,
+// for an index that has run it is not migrated again. Each one sees the index as the previous ones left it.
+var migrations = []migration{
+	sqlSteps(sessionViews, forgetCodexLogs),
+	sqlSteps(recordSkills),
+}
+
+// recordSkills makes the index record the skill each Skill call loads. It is a table of its own, not a column of
+// tool_calls: a build from before it writes tool_calls with positional statements that a column more would refuse,
+// so that build keeps writing an index this one has migrated (its Skill calls then await their log, see below).
+//
+// The published usage_tool_calls says, in its skill column, what the index knows of a call:
+//   - on a Skill call (no server): the skill it loaded; "" when it named no valid skill; NULL while the index has no
+//     record of it, because its log was not read again since the index records skills (a pending call);
+//   - on any other call: "".
+//
+// The files holding a Skill call are forgotten, so that the next indexing reads them again and records them.
+// So are those holding a call named "mcp__<server>__<tool>" under no server, how a Codex function call was
+// recorded before the server was split out of its name.
+const recordSkills = `
+CREATE TABLE tool_call_skills (
+	file TEXT NOT NULL, session_id TEXT NOT NULL, key TEXT NOT NULL, skill TEXT NOT NULL,
+	PRIMARY KEY (session_id, key)) WITHOUT ROWID;
+CREATE INDEX tool_call_skills_file ON tool_call_skills (file);
+DELETE FROM files WHERE path IN (SELECT file FROM tool_calls WHERE name = 'Skill' AND server = '');
+DELETE FROM files WHERE path IN (SELECT file FROM tool_calls WHERE server = '' AND name LIKE 'mcp\_\_%' ESCAPE '\');
+DROP VIEW IF EXISTS usage_tool_calls;
+CREATE VIEW usage_tool_calls AS
+	SELECT t.ts, t.name, t.server, CASE WHEN t.name = 'Skill' AND t.server = '' THEN k.skill ELSE '' END AS skill,
+		t.args_chars, t.result_chars, t.is_error, t.duration_ms, s.harness
+	FROM tool_calls t JOIN sessions s ON s.id = t.session_id
+		LEFT JOIN tool_call_skills k ON k.session_id = t.session_id AND k.key = t.key;
+`
+
+// migrate runs, in one transaction, the migrations the index has not run, then records how many it has run: another
 // connection keeps reading the previous state until it commits, and a failure leaves it untouched.
-// An index that is up to date is not locked for writing.
-func migrate(db *sql.DB, version int, steps ...string) (err error) {
+// An index that is up to date, or made by a newer build, is not locked for writing and not touched.
+func migrate(db *sql.DB, migrations []migration) (err error) {
 	ctx := context.Background()
 	conn, err := db.Conn(ctx)
 	if err != nil {
@@ -135,7 +179,7 @@ func migrate(db *sql.DB, version int, steps ...string) (err error) {
 		err = conn.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&v)
 		return v, err
 	}
-	if v, err := userVersion(); err != nil || v >= version {
+	if v, err := userVersion(); err != nil || v >= len(migrations) {
 		return err
 	}
 	if _, err := conn.ExecContext(ctx, `PRAGMA busy_timeout = 5000`); err != nil {
@@ -150,18 +194,20 @@ func migrate(db *sql.DB, version int, steps ...string) (err error) {
 			conn.ExecContext(ctx, `ROLLBACK`)
 		}
 	}()
-	if v, err := userVersion(); err != nil || v >= version { // migrated by the other process meanwhile
-		if err == nil {
-			_, err = conn.ExecContext(ctx, `COMMIT`)
-		}
+	v, err := userVersion() // read again under the lock: another process may have migrated, or a newer build upgraded, meanwhile
+	if err != nil {
 		return err
 	}
-	for _, step := range steps {
-		if _, err := conn.ExecContext(ctx, step); err != nil {
+	if v >= len(migrations) {
+		_, err = conn.ExecContext(ctx, `COMMIT`)
+		return err
+	}
+	for ; v < len(migrations); v++ {
+		if err := migrations[v](ctx, conn); err != nil {
 			return err
 		}
 	}
-	if _, err := conn.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, version)); err != nil {
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, len(migrations))); err != nil {
 		return err
 	}
 	_, err = conn.ExecContext(ctx, `COMMIT`)
@@ -200,7 +246,7 @@ func Open(o Options) (*SQLiteIndex, error) {
 		db.Close()
 		return nil, err
 	}
-	if err := migrate(db, schemaVersion, sessionViews, forgetCodexLogs); err != nil {
+	if err := migrate(db, migrations); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -252,11 +298,11 @@ func (s *SQLiteIndex) IndexedFiles() (map[string]application.LogFile, error) {
 
 // statements are the prepared statements that write one log, bound to the transaction of a batch.
 type statements struct {
-	deletes                              [4]*sql.Stmt // sessions, requests, tool_calls, prompts: the rows of a file
-	session, request, tool, prompt, file *sql.Stmt
+	deletes                                     [5]*sql.Stmt // the rows of a file, in each of deletedTables
+	session, request, tool, skill, prompt, file *sql.Stmt
 }
 
-var deletedTables = [...]string{"sessions", "requests", "tool_calls", "prompts"}
+var deletedTables = [...]string{"sessions", "requests", "tool_calls", "tool_call_skills", "prompts"}
 
 func prepare(tx *sql.Tx) (st statements, err error) {
 	prep := func(query string) *sql.Stmt {
@@ -270,16 +316,22 @@ func prepare(tx *sql.Tx) (st statements, err error) {
 	for i, table := range deletedTables {
 		st.deletes[i] = prep(`DELETE FROM ` + table + ` WHERE file = ?`)
 	}
-	st.session = prep(`INSERT OR REPLACE INTO sessions VALUES (?,?,?,?,?,?,?,?,?,?)`)
-	st.request = prep(`INSERT OR REPLACE INTO requests VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-	st.tool = prep(`INSERT OR REPLACE INTO tool_calls VALUES (?,?,?,?,?,?,?,?,?,?)`)
-	st.prompt = prep(`INSERT OR REPLACE INTO prompts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-	st.file = prep(`INSERT OR REPLACE INTO files VALUES (?,?,?,?)`)
+	// Columns are named, so that a column another build adds to a table does not break these statements.
+	st.session = prep(`INSERT OR REPLACE INTO sessions (id, file, harness, parent_id, agent_type, title, folder, user, started_at, ended_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?)`)
+	st.request = prep(`INSERT OR REPLACE INTO requests (file, key, session_id, ts, model, provider, input, output, cache_read, cache_write, reasoning,
+		cost, priced, duration_ms, ttft_ms, stop_reason, error) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+	st.tool = prep(`INSERT OR REPLACE INTO tool_calls (file, key, session_id, ts, name, server, args_chars, result_chars, is_error, duration_ms)
+		VALUES (?,?,?,?,?,?,?,?,?,?)`)
+	st.skill = prep(`INSERT OR REPLACE INTO tool_call_skills (file, session_id, key, skill) VALUES (?,?,?,?)`)
+	st.prompt = prep(`INSERT OR REPLACE INTO prompts (file, key, session_id, ts, text, chars, words, yelling, profanity, anguish, negation, repetition, blame)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+	st.file = prep(`INSERT OR REPLACE INTO files (path, harness, size, mtime) VALUES (?,?,?,?)`)
 	return st, err
 }
 
 func (st statements) close() {
-	for _, stmt := range append(st.deletes[:], st.session, st.request, st.tool, st.prompt, st.file) {
+	for _, stmt := range append(st.deletes[:], st.session, st.request, st.tool, st.skill, st.prompt, st.file) {
 		if stmt != nil {
 			stmt.Close()
 		}
@@ -354,6 +406,11 @@ func (s *SQLiteIndex) saveLog(st statements, file application.LogFile, t applica
 	for _, c := range t.Tools {
 		if _, err := st.tool.Exec(path, c.Key, ss.ID.String(), kernel.UnixMilli(c.At), c.Name, c.Server, c.ArgsChars, c.ResultChars, c.IsError, nullMillis(c.Duration)); err != nil {
 			return err
+		}
+		if c.LoadsSkill() {
+			if _, err := st.skill.Exec(path, ss.ID.String(), c.Key, c.Skill); err != nil {
+				return err
+			}
 		}
 	}
 	for i, pr := range t.Prompts {

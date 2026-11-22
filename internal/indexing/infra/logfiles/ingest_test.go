@@ -322,6 +322,47 @@ func TestImpossibleCountsDropTheRequest(t *testing.T) {
 	}
 }
 
+func TestClaudeSkillCallsNameTheSkillTheyLoad(t *testing.T) {
+	// Given Skill calls with a plain name, a plugin name, a name that is not usable, no input, and an MCP tool called Skill
+	log := `{"type":"assistant","timestamp":"2026-01-01T10:00:02Z","message":{"id":"m1","model":"claude-x","content":[` +
+		`{"type":"tool_use","id":"a","name":"Skill","input":{"skill":"review"}},` +
+		`{"type":"tool_use","id":"b","name":"Skill","input":{"skill":"demo:audit","args":"x"}},` +
+		`{"type":"tool_use","id":"c","name":"Skill","input":{"skill":"bad\u001b[2J"}},` +
+		`{"type":"tool_use","id":"d","name":"Skill","input":{}},` +
+		`{"type":"tool_use","id":"e","name":"mcp__srv__Skill","input":{"skill":"not-a-skill-load"}},` +
+		`{"type":"tool_use","id":"f","name":"Read","input":{"skill":"not-a-skill-load"}}],` +
+		`"usage":{"input_tokens":1,"output_tokens":1}}}` + "\n"
+	// When the transcript is parsed
+	p := parse(t, ParseClaude, "/x/projects/-repo/abc.jsonl", log)
+
+	// Then only the usable skill names of Skill calls are kept
+	var got []string
+	for _, c := range p.Tools {
+		got = append(got, c.Name+"/"+c.Skill)
+	}
+	if want := "Skill/review Skill/demo:audit Skill/ Skill/ Skill/ Read/"; strings.Join(got, " ") != want {
+		t.Errorf("tools %q, want %q", got, want)
+	}
+}
+
+func TestCodexMCPFunctionCallNamesItsServer(t *testing.T) {
+	// Given a Codex rollout whose model called an MCP tool as a function call named "mcp__demo__read", with no McpToolCall event
+	log := `{"timestamp":"2026-01-01T10:00:00Z","type":"response_item","payload":{"type":"function_call","name":"mcp__demo__read","call_id":"c1","arguments":"{}"}}
+{"timestamp":"2026-01-01T10:00:01Z","type":"response_item","payload":{"type":"function_call","name":"wait","call_id":"c2","arguments":"{}"}}
+`
+	// When the transcript is parsed
+	p := parse(t, ParseCodex, "/x/rollout-3.jsonl", log)
+
+	// Then the call belongs to the server "demo" under the tool name "read", and another function call keeps its name and no server
+	var got []string
+	for _, c := range p.Tools {
+		got = append(got, c.Server+"/"+c.Name)
+	}
+	if want := "demo/read /wait"; strings.Join(got, " ") != want {
+		t.Errorf("tools %q, want %q", got, want)
+	}
+}
+
 func TestAClaudeLogUnderSubagentsStaysASubagentWhateverItsMetaDeclares(t *testing.T) {
 	// Given a subagent log whose meta file declares the type "main"
 	dir := filepath.Join(t.TempDir(), "sess1", "subagents")

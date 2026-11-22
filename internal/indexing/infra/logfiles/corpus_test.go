@@ -3,7 +3,7 @@ package logfiles
 import "strings"
 
 // The lines the equivalence tests feed to the parsers, written so that this file needs nothing from the
-// parsers: it was also run against the parsers of commit 80bf4b1 to record testdata/legacy.golden.
+// parsers: it is run against the legacy parsers of legacy_test.go to record testdata/legacy.golden.
 
 // corpusHarness is one parser's corpus: a log to start from, hand-written lines that once differed from
 // what encoding/json meant, and the objects in which generated lines repeat, null or retype each key.
@@ -75,6 +75,19 @@ var corpusHarnesses = []corpusHarness{
 			`{"type":"user","uuid":"u1","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"abc","content":null}]}}`,
 			`{"type":"user","uuid":"u1","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[1,2,3],"is_error":null}]}}`,
 			`{"type":"assistant","requestRef":"rq1","message":{"id":"m2","model":"claude-x","content":[{"type":"tool_use","id":"t2","name":"n","input":{"a":1},"input":null}]}}`,
+			`{"type":"assistant","requestRef":"rq1","message":{"id":"m2","model":"claude-x","content":[{"type":"tool_use","id":"t2","name":"Skill","input":{"skill":"review"}}]}}`,
+			`{"type":"assistant","requestRef":"rq1","message":{"id":"m2","model":"claude-x","content":[{"type":"tool_use","id":"t2","input":{"skill":"demo:audit","args":"x"},"name":"Skill"}]}}`,
+			`{"type":"assistant","requestRef":"rq1","message":{"id":"m2","model":"claude-x","content":[{"type":"tool_use","id":"t2","name":"Skill","input":{"Skill":"review"}}]}}`,
+			`{"type":"assistant","requestRef":"rq1","message":{"id":"m2","model":"claude-x","content":[{"type":"tool_use","id":"t2","name":"Skill","input":{"skill":"a","skill":"b"}}]}}`,
+			`{"type":"assistant","requestRef":"rq1","message":{"id":"m2","model":"claude-x","content":[{"type":"tool_use","id":"t2","name":"Skill","input":{"skill":"bad\u001b[2J"}}]}}`,
+			`{"type":"assistant","requestRef":"rq1","message":{"id":"m2","model":"claude-x","content":[{"type":"tool_use","id":"t2","name":"Skill","input":{"skill":7}}]}}`,
+			`{"type":"assistant","requestRef":"rq1","message":{"id":"m2","model":"claude-x","content":[{"type":"tool_use","id":"t2","name":"Skill","input":{}}]}}`,
+			`{"type":"assistant","requestRef":"rq1","message":{"id":"m2","model":"claude-x","content":[{"type":"tool_use","id":"t2","name":"Skill","input":null}]}}`,
+			`{"type":"assistant","requestRef":"rq1","message":{"id":"m2","model":"claude-x","content":[{"type":"tool_use","id":"t2","name":"Skill"}]}}`,
+			`{"type":"assistant","requestRef":"rq1","message":{"id":"m2","model":"claude-x","content":[{"type":"tool_use","id":"t2","name":"Skill","input":{"skill":"review"},"name":"Read"}]}}`,
+			`{"type":"assistant","requestRef":"rq1","message":{"id":"m2","model":"claude-x","content":[{"type":"tool_use","id":"t2","name":"Read","input":{"skill":"review"},"name":"Skill"}]}}`,
+			`{"type":"assistant","requestRef":"rq1","message":{"id":"m2","model":"claude-x","content":[{"type":"tool_use","id":"t2","name":"Skill","input":{"skill":"review"},"input":[1]}]}}`,
+			`{"type":"assistant","requestRef":"rq1","message":{"id":"m2","model":"claude-x","content":[{"type":"tool_use","id":"t2","name":"mcp__srv__Skill","input":{"skill":"review"}},{"type":"tool_use","id":"t3","name":"Read","input":{"skill":"review"}}]}}`,
 			`{"type":"assistant","message":{"id":"m3","model":"<synthetic>","content":"oops"},"isApiErrorMessage":true}`,
 			`{"type":"assistant","message":{"id":"m3","model":"<synthetic>","content":[{"type":"text","text":"a"}],"content":"b"},"isApiErrorMessage":true}`,
 			`{"type":"assistant","message":{"id":"m4","model":"x","usage":{"input_tokens":1},"usage":{"output_tokens":2}}}`,
@@ -102,6 +115,8 @@ var corpusHarnesses = []corpusHarness{
 				`"type":"tool_result","tool_use_id":"t1","content":"abc","is_error":false`, []string{"type", "tool_use_id", "content", "is_error", "text"}},
 			{around(`{"type":"assistant","requestRef":"rq1","message":{"id":"m2","model":"claude-x","content":[{$}]}}`),
 				`"type":"tool_use","id":"t2","name":"mcp__c__d","input":{"y":2}`, []string{"type", "id", "name", "input"}},
+			{around(`{"type":"assistant","requestRef":"rq1","message":{"id":"m2","model":"claude-x","content":[{$}]}}`),
+				`"type":"tool_use","id":"t2","name":"Skill","input":{"skill":"demo:audit","args":"x"}`, []string{"type", "id", "name", "input"}},
 		},
 	},
 	{
@@ -175,6 +190,11 @@ var corpusHarnesses = []corpusHarness{
 			`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"McpToolCall","id":"i3","tool":"t"},"item":{"type":"CommandExecution","aggregated_output":"abcd"}}}`,
 			`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"McpToolCall","id":"i3","tool":"t"}},"payload":{"type":"item_completed"}}`,
 			`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"McpToolCall","id":"i3","tool":"t"}},"payload":null}`,
+			`{"type":"response_item","payload":{"type":"function_call","name":"mcp__demo__read","call_id":"c2","arguments":"{}"}}`,
+			`{"type":"response_item","payload":{"type":"function_call","name":"mcp__demo","call_id":"c2","arguments":"{}"}}`,
+			`{"type":"response_item","payload":{"type":"function_call","name":"mcp__a__b__c","call_id":"c2","arguments":"{}"}}`,
+			`{"type":"response_item","payload":{"type":"function_call","name":"mcp__demo__read","name":"wait","call_id":"c2","arguments":"{}"}}`,
+			`{"type":"response_item","payload":{"type":"function_call","name":"wait","name":"mcp__demo__read","call_id":"c2","arguments":"{}"}}`,
 			`{"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"res","output":null}}`,
 			`{"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"res"},"payload":{"output":"r"}}`,
 			`{"type":"token_usage_record","payload":{"response_id":"r1","usage":{"input_tokens":10},"usage":{"output_tokens":3}}}`,
@@ -186,6 +206,8 @@ var corpusHarnesses = []corpusHarness{
 			{around(`{"type":"response_item",$}`), `"payload":{"type":"function_call_output","call_id":"c1","output":"res"}`, []string{"payload", "type"}},
 			{around(`{"type":"response_item","payload":{$}}`), `"type":"function_call","name":"s","call_id":"c2","arguments":"{}"`,
 				[]string{"type", "id", "cwd", "thread_source", "forked_from_id", "model", "name", "arguments", "call_id", "output", "response_id", "usage", "thread_settings", "info", "item"}},
+			{around(`{"type":"response_item","payload":{$}}`), `"type":"function_call","name":"mcp__demo__read","call_id":"c2","arguments":"{}"`,
+				[]string{"type", "name", "call_id", "arguments"}},
 			{around(`{"type":"response_item","payload":{$}}`), `"type":"function_call_output","call_id":"c1","output":"res"`,
 				[]string{"type", "call_id", "output", "name", "arguments"}},
 			{around(`{"type":"session_meta","payload":{$}}`), `"id":"s1","cwd":"/w","thread_source":"subagent","forked_from_id":"p1"`, []string{"id", "cwd", "thread_source", "forked_from_id", "type"}},
