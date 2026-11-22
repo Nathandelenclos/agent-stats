@@ -23,8 +23,9 @@ on:
 permissions:
   contents: read
 
-# One release at a time. A run waiting behind another may be replaced by a newer one: that is harmless, the newer run
-# covers the same commits (see above). The run in progress is never cancelled in the middle of a publication.
+# One release at a time. A run waiting behind another may be replaced by a newer one: that is harmless for new commits,
+# the newer run covers them (see above). It is not for the re-run of a failed run, which alone can finish its tag: start
+# it again if a push replaced it. The run in progress is never cancelled in the middle of a publication.
 concurrency:
   group: release
   cancel-in-progress: false
