@@ -122,7 +122,8 @@ The four values are input, output, cache read and cache write.
   (an untitled session is named after the first 80 characters of its first prompt), its working folder and
   `user@hostname` of the machine that read it. The file is created with mode `0600`, and the program creates its
   directory with mode `0700` when it is missing (`agent-stats` in the user cache directory by default). Treat it as
-  personal data: do not share it or put it in a backup you do not control.
+  personal data: do not share it or put it in a backup you do not control. On Windows the file modes are not
+  enforced: the access rules of your profile folder apply.
 - Reports (text and `--json`) and the `usage_requests` and `usage_tool_calls` views that other parts of the program
   read do not contain prompt texts or session titles. Nothing is sent anywhere.
 - Text read from logs is stripped of control characters before it reaches your terminal.
