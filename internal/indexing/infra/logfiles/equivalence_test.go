@@ -145,12 +145,16 @@ func TestParsersReadRealLogsAsTheLegacyOnesDid(t *testing.T) {
 	}
 	files := 0
 	for _, src := range DefaultSources(home) {
-		legacy := legacyParsePi(src.Harness)
+		var legacy Parser
 		switch src.Harness {
 		case kernel.Claude:
 			legacy = legacyParseClaude
 		case kernel.Codex:
 			legacy = legacyParseCodex
+		case kernel.Pi, kernel.OMP:
+			legacy = legacyParsePi(src.Harness)
+		default:
+			continue
 		}
 		filepath.WalkDir(src.Root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !src.Match(path) {

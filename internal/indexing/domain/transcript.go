@@ -143,6 +143,8 @@ type Request struct {
 	Model    string
 	Provider string
 	Tokens   kernel.Tokens
+	// PartialUsage means the log omits some classes of tokens, so listed rates cannot price this request.
+	PartialUsage bool
 	// LoggedCost is the cost the harness wrote itself; zero when it wrote none or wrote 0.
 	LoggedCost kernel.Cost
 	Duration   Duration
@@ -155,11 +157,14 @@ type Request struct {
 func (r Request) Failed() bool { return r.Failure != "" }
 
 // Cost returns what the request cost: the harness's own figure when it logged a positive one, otherwise
-// the listed price (listed, known). oh-my-pi logs 0 for some models it did bill tokens for (checked on
+// the listed price (listed, known) if usage is complete. oh-my-pi logs 0 for some models it did bill tokens for (checked on
 // real logs, 2026-11-21), so a logged 0 means "price it from the list". priced is false when neither is known.
 func (r Request) Cost(listed kernel.Cost, known bool) (cost kernel.Cost, priced bool) {
 	if !r.LoggedCost.IsZero() {
 		return r.LoggedCost, true
+	}
+	if r.PartialUsage {
+		return kernel.Cost{}, false
 	}
 	return listed, known
 }

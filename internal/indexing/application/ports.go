@@ -45,7 +45,7 @@ type IndexedTranscript struct {
 	Signals []domain.Signals // one per prompt
 }
 
-// PricedCost is the cost of one request; Priced is false when the model has no known price.
+// PricedCost is the cost of one request; Priced is false when its cost cannot be determined.
 type PricedCost struct {
 	Cost   kernel.Cost
 	Priced bool

@@ -34,7 +34,7 @@ func runServe(args []string) error {
 	dbPath := fs.String("db", defaultDB, "index database (default: agent-stats/index.db in the user cache directory)")
 	pricesPath := fs.String("prices", "", "JSON file overriding embedded prices: {\"model\": [input, output, cacheRead, cacheWrite]} in USD per token")
 	since := fs.String("since", "", "period the page opens on: 24h, 7d, 30d or 2006-01-02 (default: all)")
-	harness := fs.String("harness", "", "harness the page opens on: claude, codex, omp, pi (default: all)")
+	harness := fs.String("harness", "", "harness the page opens on: claude, codex, omp, pi, opencode, kilo, gemini, copilot (default: all)")
 	noSync := fs.Bool("no-sync", false, "skip re-reading the logs")
 	all := fs.Bool("all", false, "open the page on every project, not only the one of the current folder (it wins over --project)")
 	projectDir := fs.String("project", "", "the project the page offers: this folder or below it (default: the project of the current folder, if sessions worked in it)")

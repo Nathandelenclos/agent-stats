@@ -27,7 +27,7 @@ type Source struct {
 	Beside func(path string) string
 }
 
-// DefaultSources lists the standard log locations, honouring CLAUDE_CONFIG_DIR and CODEX_HOME.
+// DefaultSources lists the standard log locations, honouring each harness's supported overrides.
 func DefaultSources(home string) []Source {
 	claude := envOr("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
 	codex := envOr("CODEX_HOME", filepath.Join(home, ".codex"))
@@ -38,6 +38,7 @@ func DefaultSources(home string) []Source {
 	}
 	data := envOr("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 	openCodeData, kiloData := filepath.Join(data, "opencode"), filepath.Join(data, "kilo")
+	copilot := filepath.Join(envOr("COPILOT_HOME", filepath.Join(home, ".copilot")), "session-state")
 	return []Source{
 		{Harness: kernel.Claude, Root: filepath.Join(claude, "projects"), Match: jsonl, Parse: ParseClaude},
 		{Harness: kernel.Codex, Root: filepath.Join(codex, "sessions"), Match: rollout, Parse: ParseCodex},
@@ -47,6 +48,9 @@ func DefaultSources(home string) []Source {
 		{Harness: kernel.OpenCode, Root: openCodeData, Database: &OpenCodeDatabase{Prefix: "opencode", Override: os.Getenv("OPENCODE_DB")}},
 		{Harness: kernel.Kilo, Root: kiloData, Database: &OpenCodeDatabase{Prefix: "kilo", Fallback: "opencode", Override: os.Getenv("KILO_DB")}},
 		GeminiSource(filepath.Join(envOr("GEMINI_CLI_HOME", home), ".gemini", "tmp")),
+		{Harness: kernel.Copilot, Root: copilot, Parse: ParseCopilot, Match: func(path string) bool {
+			return filepath.Base(path) == "events.jsonl" && filepath.Dir(filepath.Dir(path)) == copilot
+		}},
 	}
 }
 
