@@ -59,7 +59,7 @@ func where(f domain.Filter, extra ...string) (string, []any) {
 	return " WHERE " + strings.Join(conds, " AND "), args
 }
 
-// Activity reads tool calls and agent types in one read transaction, so that indexing committing meanwhile cannot
+// Activity reads tool calls, agent types and skill loads in one read transaction, so that indexing committing meanwhile cannot
 // make them describe two states of the index.
 func (u *Usage) Activity(f domain.Filter) (domain.Activity, error) {
 	tx, err := u.db.Begin()
@@ -72,6 +72,9 @@ func (u *Usage) Activity(f domain.Filter) (domain.Activity, error) {
 		return domain.Activity{}, err
 	}
 	if a.Agents, err = agentActivity(tx, f); err != nil {
+		return domain.Activity{}, err
+	}
+	if a.Skills, err = skillActivity(tx, f); err != nil {
 		return domain.Activity{}, err
 	}
 	return a, nil
@@ -134,6 +137,30 @@ func agentActivity(q querier, f domain.Filter) ([]domain.AgentActivity, error) {
 		}
 		g.Last = fromMillis(last)
 		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
+func skillActivity(q querier, f domain.Filter) ([]domain.SkillActivity, error) {
+	cond, args := where(f, "skill <> ''")
+	rows, err := q.Query(`SELECT harness, skill, COUNT(*), MAX(ts) FROM usage_tool_calls`+cond+` GROUP BY 1, 2`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.SkillActivity
+	for rows.Next() {
+		var harness string
+		var s domain.SkillActivity
+		var last int64
+		if err := rows.Scan(&harness, &s.Skill, &s.Calls, &last); err != nil {
+			return nil, err
+		}
+		if s.Harness, err = harnessOf(harness); err != nil {
+			return nil, err
+		}
+		s.Last = fromMillis(last)
+		out = append(out, s)
 	}
 	return out, rows.Err()
 }

@@ -1,6 +1,6 @@
 === all ===
 
-claude · 18 installed, 12 never used
+claude · 18 installed, 10 never used
 KIND    ITEM              SCOPE        USES  LAST USED
 mcp     docs              user         2     2026-01-02
 mcp     claude_ai_Notes   logs         1     2026-01-05
@@ -9,19 +9,21 @@ mcp     inline-server     plugin:demo  0     never
 mcp     local-db          project      0     never
 mcp     project-server    project      0     never
 mcp     remote            user         0     never
-skill   demo:audit        plugin:demo  0     never
+skill   review-notes      user         2     2026-01-05
+skill   builtin-skill     logs         1     2026-01-05
+skill   demo:audit        plugin:demo  1     2026-01-05
 skill   frontmatter-name  user         0     never
 skill   no-frontmatter    user         0     never
 skill   project-skill     project      0     never
-skill   review-notes      user         0     never
 agent   Explore           logs         1     2026-01-05
 agent   reviewer          user         1     2026-01-02
 agent   demo:checker      plugin:demo  0     never
 agent   plain-agent       user         0     never
 agent   project-agent     project      0     never
-plugin  demo@market       user         1     2026-01-05
+plugin  demo@market       user         2     2026-01-05
 plugin  escape@market     user         ?     ?
 plugin  off@market (off)  user         ?     ?
+tool    Skill             logs         4     2026-01-05
 tool    Read              logs         1     2026-01-05
 
 codex · 9 installed, 1 never used
@@ -144,14 +146,38 @@ skipped /etc: points outside its directory
     {
       "harness": "claude",
       "kind": "skill",
+      "name": "review-notes",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.claude/skills/review-notes",
+      "installed": true,
+      "enabled": true,
+      "uses": 2,
+      "lastTs": 1767607208000
+    },
+    {
+      "harness": "claude",
+      "kind": "skill",
+      "name": "builtin-skill",
+      "scope": "logs",
+      "origin": "",
+      "source": "",
+      "installed": false,
+      "enabled": true,
+      "uses": 1,
+      "lastTs": 1767607209000
+    },
+    {
+      "harness": "claude",
+      "kind": "skill",
       "name": "demo:audit",
       "scope": "plugin",
       "origin": "demo@market",
       "source": "~/.claude/plugins/cache/demo/skills/audit",
       "installed": true,
       "enabled": true,
-      "uses": 0,
-      "lastTs": 0
+      "uses": 1,
+      "lastTs": 1767607207000
     },
     {
       "harness": "claude",
@@ -184,18 +210,6 @@ skipped /etc: points outside its directory
       "scope": "project",
       "origin": "",
       "source": "~/work/app/.claude/skills/project-skill",
-      "installed": true,
-      "enabled": true,
-      "uses": 0,
-      "lastTs": 0
-    },
-    {
-      "harness": "claude",
-      "kind": "skill",
-      "name": "review-notes",
-      "scope": "user",
-      "origin": "",
-      "source": "~/.claude/skills/review-notes",
       "installed": true,
       "enabled": true,
       "uses": 0,
@@ -270,8 +284,8 @@ skipped /etc: points outside its directory
       "source": "~/.claude/plugins/cache/demo",
       "installed": true,
       "enabled": true,
-      "uses": 1,
-      "lastTs": 1767607203000
+      "uses": 2,
+      "lastTs": 1767607207000
     },
     {
       "harness": "claude",
@@ -296,6 +310,18 @@ skipped /etc: points outside its directory
       "enabled": false,
       "uses": null,
       "lastTs": 0
+    },
+    {
+      "harness": "claude",
+      "kind": "tool",
+      "name": "Skill",
+      "scope": "logs",
+      "origin": "",
+      "source": "",
+      "installed": false,
+      "enabled": true,
+      "uses": 4,
+      "lastTs": 1767607209000
     },
     {
       "harness": "claude",
@@ -556,7 +582,7 @@ skipped /etc: points outside its directory
 }
 === claude only ===
 
-claude · 18 installed, 12 never used
+claude · 18 installed, 10 never used
 KIND    ITEM              SCOPE        USES  LAST USED
 mcp     docs              user         2     2026-01-02
 mcp     claude_ai_Notes   logs         1     2026-01-05
@@ -565,25 +591,27 @@ mcp     inline-server     plugin:demo  0     never
 mcp     local-db          project      0     never
 mcp     project-server    project      0     never
 mcp     remote            user         0     never
-skill   demo:audit        plugin:demo  0     never
+skill   review-notes      user         2     2026-01-05
+skill   builtin-skill     logs         1     2026-01-05
+skill   demo:audit        plugin:demo  1     2026-01-05
 skill   frontmatter-name  user         0     never
 skill   no-frontmatter    user         0     never
 skill   project-skill     project      0     never
-skill   review-notes      user         0     never
 agent   Explore           logs         1     2026-01-05
 agent   reviewer          user         1     2026-01-02
 agent   demo:checker      plugin:demo  0     never
 agent   plain-agent       user         0     never
 agent   project-agent     project      0     never
-plugin  demo@market       user         1     2026-01-05
+plugin  demo@market       user         2     2026-01-05
 plugin  escape@market     user         ?     ?
 plugin  off@market (off)  user         ?     ?
+tool    Skill             logs         4     2026-01-05
 tool    Read              logs         1     2026-01-05
 --- stderr ---
 skipped /etc: points outside its directory
 === since 2026-01-04 ===
 
-claude · 18 installed, 14 never used
+claude · 18 installed, 12 never used
 KIND    ITEM              SCOPE        USES  LAST USED
 mcp     claude_ai_Notes   logs         1     2026-01-05
 mcp     helper            plugin:demo  1     2026-01-05
@@ -592,19 +620,21 @@ mcp     inline-server     plugin:demo  0     never
 mcp     local-db          project      0     never
 mcp     project-server    project      0     never
 mcp     remote            user         0     never
-skill   demo:audit        plugin:demo  0     never
+skill   builtin-skill     logs         1     2026-01-05
+skill   demo:audit        plugin:demo  1     2026-01-05
+skill   review-notes      user         1     2026-01-05
 skill   frontmatter-name  user         0     never
 skill   no-frontmatter    user         0     never
 skill   project-skill     project      0     never
-skill   review-notes      user         0     never
 agent   Explore           logs         1     2026-01-05
 agent   demo:checker      plugin:demo  0     never
 agent   plain-agent       user         0     never
 agent   project-agent     project      0     never
 agent   reviewer          user         0     never
-plugin  demo@market       user         1     2026-01-05
+plugin  demo@market       user         2     2026-01-05
 plugin  escape@market     user         ?     ?
 plugin  off@market (off)  user         ?     ?
+tool    Skill             logs         3     2026-01-05
 tool    Read              logs         1     2026-01-05
 
 codex · 9 installed, 2 never used
@@ -638,17 +668,15 @@ tool    bash                                      logs   1     2026-01-05
 skipped /etc: points outside its directory
 === never used ===
 
-claude · 12 installed, 12 never used
+claude · 10 installed, 10 never used
 KIND   ITEM              SCOPE        USES  LAST USED
 mcp    inline-server     plugin:demo  0     never
 mcp    local-db          project      0     never
 mcp    project-server    project      0     never
 mcp    remote            user         0     never
-skill  demo:audit        plugin:demo  0     never
 skill  frontmatter-name  user         0     never
 skill  no-frontmatter    user         0     never
 skill  project-skill     project      0     never
-skill  review-notes      user         0     never
 agent  demo:checker      plugin:demo  0     never
 agent  plain-agent       user         0     never
 agent  project-agent     project      0     never
@@ -664,7 +692,7 @@ mcp   project-server  project  0     never
 skipped /etc: points outside its directory
 === no project ===
 
-claude · 15 installed, 9 never used
+claude · 15 installed, 7 never used
 KIND    ITEM              SCOPE        USES  LAST USED
 mcp     docs              user         2     2026-01-02
 mcp     claude_ai_Notes   logs         1     2026-01-05
@@ -672,17 +700,19 @@ mcp     helper            plugin:demo  1     2026-01-05
 mcp     inline-server     plugin:demo  0     never
 mcp     local-db          project      0     never
 mcp     remote            user         0     never
-skill   demo:audit        plugin:demo  0     never
+skill   review-notes      user         2     2026-01-05
+skill   builtin-skill     logs         1     2026-01-05
+skill   demo:audit        plugin:demo  1     2026-01-05
 skill   frontmatter-name  user         0     never
 skill   no-frontmatter    user         0     never
-skill   review-notes      user         0     never
 agent   Explore           logs         1     2026-01-05
 agent   reviewer          user         1     2026-01-02
 agent   demo:checker      plugin:demo  0     never
 agent   plain-agent       user         0     never
-plugin  demo@market       user         1     2026-01-05
+plugin  demo@market       user         2     2026-01-05
 plugin  escape@market     user         ?     ?
 plugin  off@market (off)  user         ?     ?
+tool    Skill             logs         4     2026-01-05
 tool    Read              logs         1     2026-01-05
 
 codex · 9 installed, 1 never used

@@ -24,9 +24,10 @@ func publishedIndex(t *testing.T) string {
 		sql  string
 		args []any
 	}{
-		{`CREATE TABLE usage_tool_calls (ts INTEGER, name TEXT, server TEXT, harness TEXT)`, nil},
+		{`CREATE TABLE usage_tool_calls (ts INTEGER, name TEXT, server TEXT, skill TEXT, harness TEXT)`, nil},
 		{`CREATE TABLE usage_requests (ts INTEGER, agent_type TEXT, harness TEXT)`, nil},
-		{`INSERT INTO usage_tool_calls VALUES (?, 'review', 'grace', 'claude'), (?, 'review', 'grace', 'claude'), (?, 'Read', '', 'claude'), (?, 'get_issue', 'github', 'codex')`, []any{ms(1), ms(3), ms(2), ms(2)}},
+		{`INSERT INTO usage_tool_calls VALUES (?, 'review', 'grace', '', 'claude'), (?, 'review', 'grace', '', 'claude'), (?, 'Read', '', '', 'claude'), (?, 'get_issue', 'github', '', 'codex'),
+			(?, 'Skill', '', 'grace-review', 'claude'), (?, 'Skill', '', 'grace-review', 'claude'), (?, 'Skill', '', '', 'claude')`, []any{ms(1), ms(3), ms(2), ms(2), ms(2), ms(4), ms(4)}},
 		{`INSERT INTO usage_requests VALUES (?, 'Explore', 'claude'), (?, 'main', 'claude'), (?, 'Explore', 'claude')`, []any{ms(1), ms(1), ms(4)}},
 	} {
 		if _, err := db.Exec(q.sql, q.args...); err != nil {
@@ -57,8 +58,11 @@ func TestActivityGroupsTheViewsPerHarnessAndName(t *testing.T) {
 			grace = x
 		}
 	}
-	if len(a.Tools) != 3 || grace.Calls != 2 || !grace.Last.Equal(time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)) || grace.Harness != kernel.Claude {
+	if len(a.Tools) != 4 || grace.Calls != 2 || !grace.Last.Equal(time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)) || grace.Harness != kernel.Claude {
 		t.Errorf("tools: %+v", a.Tools)
+	}
+	if len(a.Skills) != 1 || a.Skills[0].Skill != "grace-review" || a.Skills[0].Calls != 2 || !a.Skills[0].Last.Equal(time.Date(2026, 1, 4, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("skills: %+v", a.Skills)
 	}
 	var explore int64
 	for _, x := range a.Agents {
@@ -91,7 +95,7 @@ func TestActivityHonoursPeriodAndHarness(t *testing.T) {
 			t.Errorf("tool %+v", x)
 		}
 	}
-	if len(a.Tools) != 2 || len(a.Agents) != 1 || a.Agents[0].Requests != 1 {
+	if len(a.Tools) != 3 || len(a.Agents) != 1 || a.Agents[0].Requests != 1 || len(a.Skills) != 1 || a.Skills[0].Calls != 2 {
 		t.Errorf("activity: %+v", a)
 	}
 }
@@ -121,7 +125,7 @@ func TestUnknownHarnessInTheIndexIsRefused(t *testing.T) {
 	// Given a row naming a harness no slice knows
 	path := publishedIndex(t)
 	db, _ := sql.Open("sqlite", path)
-	if _, err := db.Exec(`INSERT INTO usage_tool_calls VALUES (1, 'x', '', 'vim')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO usage_tool_calls VALUES (1, 'x', '', '', 'vim')`); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()
