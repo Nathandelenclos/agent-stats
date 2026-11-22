@@ -25,12 +25,12 @@ type fakeSessions struct {
 	asked   []string
 }
 
-func (f *fakeSessions) Sessions(fl domain.Filter) ([]domain.SessionSummary, error) {
+func (f *fakeSessions) Sessions(_ context.Context, fl domain.Filter) ([]domain.SessionSummary, error) {
 	f.filters = append(f.filters, fl)
 	return f.list, f.err
 }
 
-func (f *fakeSessions) Session(id domain.SessionID) (domain.SessionDetail, error) {
+func (f *fakeSessions) Session(_ context.Context, id domain.SessionID) (domain.SessionDetail, error) {
 	f.asked = append(f.asked, id.String())
 	if d, ok := f.details[id.String()]; ok {
 		return d, nil

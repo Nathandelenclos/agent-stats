@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -84,7 +85,7 @@ func BenchmarkRealLogs(b *testing.B) {
 		}
 		defer usage.Close()
 		for range b.N {
-			if _, err := (reporting.BuildReport{Queries: usage}).Run(reporting.Query{}); err != nil {
+			if _, err := (reporting.BuildReport{Queries: usage}).Run(context.Background(), reporting.Query{}); err != nil {
 				b.Fatal(err)
 			}
 		}

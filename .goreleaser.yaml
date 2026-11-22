@@ -5,10 +5,9 @@ version: 2
 
 project_name: agent-stats
 
-# Future web front: dist/ is not versioned, build it here before compiling (and embed it in the binary).
-# before:
-#   hooks:
-#     - sh -c 'cd web && npm ci && npm run build'
+# The web front is not versioned. The workflow builds it in a job of its own and drops it in web/dist before this runs;
+# the `web` build tag below embeds web/dist in every binary, and the build fails without it. Nothing here builds the front:
+# this runs with the rights to publish and sign.
 
 builds:
   - id: agent-stats
@@ -19,6 +18,7 @@ builds:
       - CGO_ENABLED=0
     flags:
       - -trimpath
+      - -tags=web
     ldflags:
       - -s -w
     goos: [linux, darwin, windows]
@@ -34,6 +34,10 @@ archives:
     files:
       - LICENSE
       - README.md
+      # The front is bundled into the binary: its lockfile, shipped in the archive under its own name (syft only reads a
+      # file called package-lock.json), lets the SBOM below list the npm packages that are inside it, next to the Go modules.
+      - src: web/package-lock.json
+        dst: web/package-lock.json
 
 checksum:
   name_template: checksums.txt

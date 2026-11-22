@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -75,7 +76,7 @@ func (m Model) sessionsEnabled() bool { return m.lister.Queries != nil && m.show
 func (m Model) loadSessions() tea.Cmd {
 	lister, q, seq, period, harness := m.lister, m.query(), m.seq, m.period, m.harness
 	return func() tea.Msg {
-		list, err := lister.Run(q)
+		list, err := lister.Run(context.Background(), q)
 		return sessionsMsg{seq, period, harness, list, err}
 	}
 }
@@ -86,7 +87,7 @@ func (m *Model) loadDetail(id reporting.SessionID) tea.Cmd {
 	m.sessions.detailSeq++
 	seq := m.sessions.detailSeq
 	return func() tea.Msg {
-		d, err := shower.Run(id)
+		d, err := shower.Run(context.Background(), id)
 		return detailMsg{seq, id, d, err}
 	}
 }

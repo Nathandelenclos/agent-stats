@@ -253,7 +253,7 @@ func (m Model) query() reporting.Query {
 func (m Model) load() tea.Cmd {
 	reports, q, seq, period, harness := m.reports, m.query(), m.seq, m.period, m.harness
 	return func() tea.Msg {
-		r, err := reports.Run(q)
+		r, err := reports.Run(context.Background(), q)
 		return reportMsg{seq, period, harness, r, err}
 	}
 }
