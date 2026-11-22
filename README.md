@@ -114,10 +114,14 @@ The four values are input, output, cache read and cache write.
 - Everything runs locally. The program makes **no network request**; the price table is embedded in the binary. (Only the
   maintainers' `go generate` step downloads it, at development time.)
 - Logs are opened read-only and are never modified.
-- The index (`index.db`) holds counters and metadata, not conversations: token counts, costs and durations per
-  request; tool names, MCP server names and sizes per call; per-prompt counts (characters, words and a few
-  frustration signals) but **not the prompt text**; and, per session, its title, its working folder and
-  `user@hostname` of the machine that read it. Treat the file as personal data and do not share it.
+- The index (`index.db`) is more than counters: it stores the **full text of every prompt** you sent, so it can hold
+  anything you typed. It also holds token counts, costs and durations per request; tool names, MCP server names and
+  sizes per call; per-prompt counts (characters, words and a few frustration signals); and, per session, its title
+  (an untitled session is named after the first 80 characters of its first prompt), its working folder and
+  `user@hostname` of the machine that read it. The file is created with mode `0600` in a `0700` directory (the user
+  cache directory by default). Treat it as personal data: do not share it or put it in a backup you do not control.
+- Reports (text and `--json`) and the `usage_requests` and `usage_tool_calls` views that other parts of the program
+  read do not contain prompt texts or session titles. Nothing is sent anywhere.
 - Text read from logs is stripped of control characters before it reaches your terminal.
 - Reports can show folder paths and session-derived names. Review them before pasting a report in a public place.
 
