@@ -64,6 +64,9 @@ func main() {
 }
 
 func run() error {
+	if len(os.Args) > 1 && os.Args[1] == "serve" {
+		return runServe(os.Args[2:])
+	}
 	termquiet.Restore()
 	defaultDB := ""
 	if cache, err := os.UserCacheDir(); err == nil {
