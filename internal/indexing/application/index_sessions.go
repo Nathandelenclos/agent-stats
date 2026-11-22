@@ -19,7 +19,8 @@ type IndexSessions struct {
 	Logs   SessionLogs
 	Store  TranscriptStore
 	Prices PriceList
-	// Workers is how many logs are read at once; zero means one per CPU (GOMAXPROCS).
+	// Workers is how many logs are read at once; zero means three quarters of GOMAXPROCS (at least one),
+	// which leaves the writer, the garbage collector and an interface that is drawing a core to run on.
 	Workers int
 	// ReadAhead is how many bytes of logs may be read ahead of the writer; zero means 512 MiB.
 	ReadAhead int64
@@ -122,7 +123,8 @@ func (w *window) leave(size int64) {
 func (uc IndexSessions) readAhead(files []LogFile) (take func() readResult) {
 	workers := uc.Workers
 	if workers <= 0 {
-		workers = runtime.GOMAXPROCS(0)
+		cpus := runtime.GOMAXPROCS(0)
+		workers = max(1, cpus-cpus/4)
 	}
 	workers = min(workers, len(files))
 	results := make([]chan readResult, len(files)) // one per file, so results come out in order

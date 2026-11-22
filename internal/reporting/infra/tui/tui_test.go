@@ -570,6 +570,54 @@ func TestProgressReachesTheScreenWhileIndexingIsStillRunning(t *testing.T) {
 	close(release)
 }
 
+func TestProgressIsNotSentMoreOftenThanTheScreenNeedsIt(t *testing.T) {
+	// Given a sync that reports three counts at once, then one 200 ms later
+	clock := time.Unix(1000, 0)
+	m := New(Options{Reports: build(&fakeReports{}), Sync: func(progress func(int)) (string, error) {
+		progress(50)
+		progress(100)
+		progress(150)
+		clock = clock.Add(200 * time.Millisecond)
+		progress(200)
+		return "", nil
+	}})
+	m.now = func() time.Time { return clock }
+
+	// When the interface listens to it
+	var counts []int
+	msg := m.startSync()()
+	for {
+		p, ok := msg.(syncProgressMsg)
+		if !ok {
+			break
+		}
+		counts = append(counts, p.indexed)
+		msg = <-p.events
+	}
+
+	// Then the burst makes one message, and the later count another
+	if fmt.Sprint(counts) != "[50 200]" {
+		t.Errorf("progress messages = %v, want [50 200]", counts)
+	}
+}
+
+func TestEveryKeyAndMessageIsAnsweredWithoutQueryingTheIndex(t *testing.T) {
+	// Given an interface with its first report on screen
+	reports := &fakeReports{report: sampleReport()}
+	m := openWithSync(t, reports, &fakeSync{})
+	asked := len(reports.queries)
+
+	// When keys that only change the view are pressed and progress arrives
+	m = press(t, m, "tab", "s", "o", "right", "1")
+	m = send(t, m, syncProgressMsg{indexed: 50, events: make(chan tea.Msg)})
+	m = send(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	// Then the update loop queried nothing: only a command, run off the loop, asks the index
+	if len(reports.queries) != asked {
+		t.Errorf("the update loop made %d queries", len(reports.queries)-asked)
+	}
+}
+
 func TestFailedIndexingIsShownAndTheViewStillRefreshes(t *testing.T) {
 	reports := &fakeReports{report: sampleReport()}
 	m := openWithSync(t, reports, &fakeSync{err: errors.New("disk full")})

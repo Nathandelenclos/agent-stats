@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -144,13 +145,29 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(m.load(), m.startSync(), m.spinner.Tick)
 }
 
+// progressEvery is the shortest time between two progress messages: each one redraws the screen, and a
+// sync that indexes files by the hundred per second would otherwise keep the interface busy drawing counts.
+const progressEvery = 100 * time.Millisecond
+
 // startSync runs the sync off the UI loop and streams its progress back as messages.
 func (m Model) startSync() tea.Cmd {
-	sync := m.sync
+	index, now := m.sync, m.now
 	return func() tea.Msg {
 		events := make(chan tea.Msg, 8)
 		go func() {
-			note, err := sync(func(n int) {
+			var mu sync.Mutex
+			var last time.Time // when the latest progress message was sent
+			note, err := index(func(n int) {
+				mu.Lock()
+				t := now()
+				skip := !last.IsZero() && t.Sub(last) < progressEvery
+				if !skip {
+					last = t
+				}
+				mu.Unlock()
+				if skip {
+					return
+				}
 				select {
 				case events <- syncProgressMsg{n, events}:
 				default: // the screen is behind: the next count will do
