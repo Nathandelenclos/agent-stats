@@ -316,11 +316,16 @@ func (m *Model) layout() {
 		}
 		rows[i] = row
 	}
-	cursor := m.table.Cursor() // SetRows(nil) below resets it
-	m.table.SetRows(nil)       // bubbles/table indexes old rows by the new columns, so never leave them mismatched
+	if len(m.table.Columns()) != len(cols) {
+		// bubbles/table indexes the old rows by the new columns: never let their counts differ. Only a tab
+		// change gets here, and it starts at the top anyway; clearing on every resize would lose the scroll.
+		m.table.SetRows(nil)
+	}
 	m.table.SetColumns(cols)
-	m.table.SetRows(rows)
-	m.table.SetCursor(cursor) // clamped by the table: a shorter report must not leave the cursor past its end
+	m.table.SetRows(rows) // keeps the cursor and the scroll, clamped to a shorter report
+	if m.table.Cursor() < 0 { // emptied above, or the report had no row
+		m.table.SetCursor(0)
+	}
 	m.table.SetWidth(m.width)
 	m.table.SetHeight(max(4, m.height-chromeLines))
 	s := table.DefaultStyles()
@@ -430,7 +435,7 @@ var emptyMessages = [tabCount]string{harnessTab: noRequests, modelTab: noRequest
 const noRequests = "No requests in this range."
 
 // empty reports whether the current tab has nothing to tabulate.
-func (m Model) empty() bool { return len(m.grid().rows) == 0 }
+func (m Model) empty() bool { return len(m.table.Rows()) == 0 }
 
 // emptyBody fills the table's place while there is nothing to tabulate.
 func (m Model) emptyBody() string {

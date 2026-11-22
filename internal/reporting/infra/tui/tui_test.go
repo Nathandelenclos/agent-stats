@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -721,5 +722,28 @@ func TestTitleFollowsTheFiltersOnceTheirReportArrives(t *testing.T) {
 	m = answer(t, m, cmd)
 	if view := m.View(); !strings.Contains(view, "harness: claude") {
 		t.Errorf("title lacks the new filter:\n%s", view)
+	}
+}
+
+func TestResizingKeepsTheSelectedRowOnScreen(t *testing.T) {
+	// Given a tab longer than the screen, scrolled down to its 20th row
+	r := sampleReport()
+	r.ByHarness = nil
+	for i := range 40 {
+		r.ByHarness = append(r.ByHarness, group(fmt.Sprintf("row-%02d", i), usage(int64(40-i), 0, 10, 10, 0, 1)))
+	}
+	m := start(t, &fakeReports{report: r})
+	m = send(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	for range 19 {
+		m = press(t, m, "j")
+	}
+	selected := strings.TrimSpace(m.table.SelectedRow()[0])
+
+	// When the terminal is widened by a column
+	m = send(t, m, tea.WindowSizeMsg{Width: 81, Height: 24})
+
+	// Then the selected row is still on screen
+	if !strings.Contains(m.View(), selected) {
+		t.Errorf("%s left the screen after resizing:\n%s", selected, m.View())
 	}
 }
