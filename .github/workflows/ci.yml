@@ -38,6 +38,10 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Build the web front
         run: go generate ./web
+      # The front's own tests (Vitest, in jsdom), run on the dependencies the build just installed.
+      - name: Test the web front
+        working-directory: web
+        run: npm test
       # Both flavours of the binary: the plain build embeds the notice that says how to build the front, the web tag
       # embeds the front just built.
       - name: Vet
