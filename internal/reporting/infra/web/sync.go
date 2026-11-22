@@ -29,20 +29,34 @@ type syncStatus struct {
 	FinishedAt int64  `json:"finishedAt"` // Unix milliseconds, 0 while running
 }
 
-// syncer runs the indexing once, in the background, and lets handlers read its progress.
+// syncer runs one indexing job at a time and lets handlers read its progress.
 type syncer struct {
 	mu     sync.Mutex
+	jobs   sync.WaitGroup
 	status syncStatus
 	now    func() time.Time
 	log    logf
 }
 
-func newSyncer(enabled bool, now func() time.Time, log logf) *syncer {
-	s := &syncer{now: now, log: log, status: syncStatus{State: syncDisabled}}
-	if enabled {
-		s.status.State = syncRunning
+func newSyncer(now func() time.Time, log logf) *syncer {
+	return &syncer{now: now, log: log, status: syncStatus{State: syncDisabled}}
+}
+
+// start returns the running job, starting it if there is none. The server drains request handlers
+// before it waits for jobs, so there can be no new start during the wait.
+func (s *syncer) start(ctx context.Context, index Sync) syncStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if index == nil || ctx.Err() != nil || s.status.State == syncRunning {
+		return s.status
 	}
-	return s
+	s.status = syncStatus{State: syncRunning, StartedAt: s.now().UnixMilli()}
+	s.jobs.Add(1)
+	go func() {
+		defer s.jobs.Done()
+		s.run(ctx, index)
+	}()
+	return s.status
 }
 
 func (s *syncer) snapshot() syncStatus {
@@ -60,7 +74,6 @@ func (s *syncer) update(fn func(*syncStatus)) {
 // run indexes with sync and records its progress. The failure is logged in full; the page only learns that it failed,
 // since the message may name files of the user's home. A stop asked through ctx is not a failure worth a log line.
 func (s *syncer) run(ctx context.Context, sync Sync) {
-	s.update(func(st *syncStatus) { st.StartedAt = s.now().UnixMilli() })
 	note, err := sync(ctx, func(n int) { s.update(func(st *syncStatus) { st.Indexed = n }) })
 	s.update(func(st *syncStatus) {
 		st.FinishedAt = s.now().UnixMilli()

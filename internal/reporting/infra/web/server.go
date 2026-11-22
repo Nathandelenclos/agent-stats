@@ -59,6 +59,7 @@ const defaultShutdownGrace = 5 * time.Second
 // Server is the HTTP handler of the web interface.
 type Server struct {
 	opts       Options
+	indexCtx   context.Context
 	port       string // the port listened on, which Host headers must carry
 	sync       *syncer
 	log        logf
@@ -83,7 +84,7 @@ func New(o Options, addr net.Addr) *Server {
 		s.log = o.Log.Printf
 	}
 	_, s.port, _ = net.SplitHostPort(addr.String())
-	s.sync = newSyncer(o.Sync != nil, s.now, s.log)
+	s.sync = newSyncer(s.now, s.log)
 	s.mux = http.NewServeMux()
 	s.mux.HandleFunc("/api/meta", s.meta)
 	s.mux.HandleFunc("/api/sync", s.syncProgress)
@@ -156,13 +157,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Detail: "this server answers requests addressed to localhost, 127.0.0.1 or [::1] on its own port"}.write(w)
 		return
 	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		h.Set("Allow", "GET, HEAD")
+	syncRoute := r.URL.Path == "/api/sync"
+	reindex := syncRoute && r.Method == http.MethodPost
+	if r.Method != http.MethodGet && r.Method != http.MethodHead && !reindex {
+		allow := "GET, HEAD"
+		if syncRoute {
+			allow += ", POST"
+		}
+		h.Set("Allow", allow)
 		problem{Type: problemMethodNotAllowed, Title: "Method not allowed", Status: http.StatusMethodNotAllowed}.write(w)
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/api/") {
-		if !fromOwnPage(r.Header.Get("Sec-Fetch-Site")) {
+		site := r.Header.Get("Sec-Fetch-Site")
+		if !fromOwnPage(site) || (reindex && site != "same-origin") {
 			problem{Type: problemForeignOrigin, Title: "Request not made by this page refused", Status: http.StatusForbidden}.write(w)
 			return
 		}
@@ -241,6 +249,7 @@ func Serve(ctx context.Context, ln net.Listener, o Options) error {
 	defer endRequests()
 	ctx, cancel := context.WithCancel(ctx) // also ends the indexing when the server stops on its own, on an error
 	s := New(o, ln.Addr())
+	s.indexCtx = ctx
 	var errLog *log.Logger = o.Log
 	if errLog == nil {
 		errLog = log.New(io.Discard, "", 0)
@@ -255,14 +264,11 @@ func Serve(ctx context.Context, ln net.Listener, o Options) error {
 		MaxHeaderBytes:    16 << 10,
 		ErrorLog:          errLog,
 	}
-	indexed := make(chan struct{})
-	go func() {
-		defer close(indexed)
-		if o.Sync != nil {
-			s.sync.run(ctx, s.indexing())
-		}
+	s.sync.start(ctx, s.indexing())
+	defer func() {
+		cancel()
+		s.sync.jobs.Wait()
 	}()
-	defer func() { cancel(); <-indexed }()
 	var shutdownErr error
 	done := make(chan struct{})
 	go func() {

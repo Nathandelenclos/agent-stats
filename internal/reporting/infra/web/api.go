@@ -187,6 +187,23 @@ func (s *Server) syncProgress(w http.ResponseWriter, r *http.Request) {
 		bad.write(w)
 		return
 	}
+	if r.Method == http.MethodPost {
+		if r.ContentLength != 0 {
+			problem{Type: problemInvalidParameter, Title: "The request must have no body", Status: http.StatusBadRequest}.write(w)
+			return
+		}
+		index := s.indexing()
+		if index == nil {
+			problem{Type: problemIndexingDisabled, Title: "Indexing is disabled", Status: http.StatusConflict}.write(w)
+			return
+		}
+		if s.indexCtx == nil || s.indexCtx.Err() != nil {
+			problem{Type: problemStopping, Title: "Server stopping", Status: http.StatusServiceUnavailable}.write(w)
+			return
+		}
+		writeJSON(w, s.log, s.sync.start(s.indexCtx, index))
+		return
+	}
 	writeJSON(w, s.log, s.sync.snapshot())
 }
 

@@ -264,7 +264,8 @@ func TestTheProjectFoundWhenIndexingEndsIsTheOneTheMetaNamesAndThePageOpensOn(t 
 	}
 
 	// When the indexing ends
-	r.handler.sync.run(context.Background(), r.handler.indexing())
+	r.handler.sync.start(context.Background(), r.handler.indexing())
+	r.handler.sync.jobs.Wait()
 
 	// Then the meta names the project and the page opens on it
 	if got := decode[metaJSON](t, r.get("/api/meta")); got.Project != "app" || got.Defaults.Scope != "current" {
@@ -280,7 +281,8 @@ func TestTheProjectFoundWhenIndexingEndsCanBeAskedFor(t *testing.T) {
 	}
 
 	// When the indexing ends
-	r.handler.sync.run(context.Background(), r.handler.indexing())
+	r.handler.sync.start(context.Background(), r.handler.indexing())
+	r.handler.sync.jobs.Wait()
 
 	// Then the page can ask for the project
 	if rec := r.get("/api/report?project=current"); rec.Code != http.StatusOK {
@@ -293,7 +295,8 @@ func TestThePageIsToldTheIndexingEndedOnlyOnceTheProjectIsDecided(t *testing.T) 
 	r, seen := indexingThatFindsTheApp(t)
 
 	// When the indexing runs
-	r.handler.sync.run(context.Background(), r.handler.indexing())
+	r.handler.sync.start(context.Background(), r.handler.indexing())
+	r.handler.sync.jobs.Wait()
 
 	// Then the page read it as still running while the project was decided, and as done after: it never sees the end
 	// of the indexing before the scope it opens on
@@ -309,7 +312,8 @@ func TestADetectionThatFailsLeavesTheScopeOfTheServerAsItWas(t *testing.T) {
 	r.handler.opts.Detect = func() (kernel.Project, error) { return kernel.Project{}, errors.New("boom") }
 
 	// When the indexing ends
-	r.handler.sync.run(context.Background(), r.handler.indexing())
+	r.handler.sync.start(context.Background(), r.handler.indexing())
+	r.handler.sync.jobs.Wait()
 
 	// Then the page still opens on the app, and the failure is logged, not shown
 	if got := decode[metaJSON](t, r.get("/api/meta")); got.Project != "app" || got.Defaults.Scope != "current" {

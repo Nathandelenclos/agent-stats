@@ -155,7 +155,7 @@ agent-stats serve --no-sync --addr 127.0.0.1:8080
 harness and model, and sortable tables per harness, model, folder, agent type and tool. The page follows the system
 light or dark theme (or a choice made on the page), works on a narrow screen and with the keyboard, and keeps the filters
 in its address. Each chart has its values behind it (a table, or the table of the same name below).
-Like the terminal view, it indexes the logs in the background and shows the progress; the figures refresh when it ends.
+Like the terminal view, it indexes the logs in the background and shows the progress. Use **Re-index** to refresh the index again. The figures refresh when indexing ends.
 Press Ctrl-C to stop it.
 
 Started from a project (see [Per-project view](#per-project-view)), `serve` opens on that project: the header says
@@ -186,7 +186,8 @@ Unknown or repeated parameters are refused with `400`.
 | `/api/report?since=&harness=&project=` | The `--json` report (same fields), plus `daily`: one entry per local day with activity, oldest first, `key` being `2006-01-02`. Lists are `[]` when empty, never `null`. |
 | `/api/sessions?since=&harness=&project=&limit=` | The most recent sessions (`limit` 1 to 1000, default 100) with their usage, models and subagent count, without the prompts. `count` and `total` cover every matching session, and add up to the report of the same scope. `title` is the session title, which for an untitled session is the start of its first prompt. |
 | `/api/meta` | The harness names, the name of the project the server runs in (`project`, `""` when it found none), and the period, harness and scope (`defaults.scope`: `current` or `all`) the page opens on. |
-| `/api/sync` | The background indexing: `state` (`running`, `done`, `failed`, or `disabled` with `--no-sync`), files `indexed`, and what was skipped. |
+| `GET /api/sync` | The background indexing: `state` (`running`, `done`, `failed`, or `disabled` with `--no-sync`), files `indexed`, and what was skipped. |
+| `POST /api/sync` | Starts another indexing run or returns the run already in progress. Requires a same-origin browser request and no body or query parameters. |
 
 ### Security
 
@@ -200,7 +201,7 @@ page open in your browser, so `serve` is restrictive by default:
 - A request is answered only if its `Host` header is `localhost`, `127.0.0.1` or `[::1]` with the listening port. A web
   page that makes your browser reach the server under another name (DNS rebinding) gets `403`. `--allow-remote` lifts
   this check, since the server is then meant to be reached by other names.
-- Only `GET` and `HEAD` are answered; nothing the API does changes the index. Requests that a browser marks
+- The API accepts reads and exposes one write, `POST /api/sync`. The write requires `Sec-Fetch-Site: same-origin`. Reads that a browser marks
   `Sec-Fetch-Site` other than `same-origin` or `none` (so `cross-site` and `same-site`, which includes another local
   application on another port) are refused on `/api`. Clients that send no such header, like curl, are answered.
 - No CORS header is ever sent, so other origins cannot read the API from a browser.

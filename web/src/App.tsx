@@ -194,9 +194,10 @@ export function App() {
 
   // The figures were read from a partial index while it ran, and the server may have learned its project from it: ask again when it ends.
   const syncState = sync.data?.state;
+  const syncFinishedAt = sync.data?.finishedAt;
   useEffect(() => {
-    if (syncState === "done") void queryClient.invalidateQueries({ queryKey: ["meta"] }).then(() => queryClient.invalidateQueries({ queryKey: ["report"] }));
-  }, [syncState, queryClient]);
+    if (syncState === "done" || syncState === "failed") void queryClient.invalidateQueries({ queryKey: ["meta"] }).then(() => queryClient.invalidateQueries({ queryKey: ["report"] }));
+  }, [syncState, syncFinishedAt, queryClient]);
   return (
     <>
       <a
