@@ -58,16 +58,26 @@ func BenchmarkRealLogs(b *testing.B) {
 		}
 	})
 
+	// The warm and report runs need a full index; build it only when one of them is selected.
 	path := filepath.Join(b.TempDir(), "index.db")
-	db := open(path)
-	index(db)
+	var db *sqlite.SQLiteIndex
+	full := func() {
+		if db == nil {
+			db = open(path)
+			index(db)
+		}
+	}
 	b.Run("warm", func(b *testing.B) {
+		full()
+		b.ResetTimer()
 		for range b.N {
 			// A log an agent is writing right now (this session's, for one) changes between the runs.
 			b.ReportMetric(float64(index(db).Indexed), "reindexed")
 		}
 	})
 	b.Run("report", func(b *testing.B) {
+		full()
+		b.ResetTimer()
 		usage, err := usagedb.OpenReadOnly(path)
 		if err != nil {
 			b.Fatal(err)

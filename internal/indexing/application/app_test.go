@@ -2,6 +2,10 @@ package application
 
 import (
 	"errors"
+	"fmt"
+	"slices"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,23 +18,37 @@ type fakeLogs struct {
 	problems []error
 	reads    map[string]domain.Transcript
 	readErr  map[string]error
-	read     []string
+	onRead   func(path string) // runs inside Read, before it answers
+
+	mu   sync.Mutex
+	read []string
 }
 
 func (l *fakeLogs) List() ([]LogFile, []error, error) { return l.files, l.problems, nil }
 func (l *fakeLogs) Read(f LogFile) (domain.Transcript, error) {
+	l.mu.Lock()
 	l.read = append(l.read, f.Path)
+	l.mu.Unlock()
+	if l.onRead != nil {
+		l.onRead(f.Path)
+	}
 	return l.reads[f.Path], l.readErr[f.Path]
 }
 
 type fakeStore struct {
-	known map[string]LogFile
-	saved map[string]IndexedTranscript
+	known  map[string]LogFile
+	saved  map[string]IndexedTranscript
+	order  []string     // paths in the order they were saved
+	onSave func(string) // runs inside Save
 }
 
 func (s *fakeStore) IndexedFiles() (map[string]LogFile, error) { return s.known, nil }
 func (s *fakeStore) Save(f LogFile, t IndexedTranscript) error {
+	if s.onSave != nil {
+		s.onSave(f.Path)
+	}
 	s.saved[f.Path] = t
+	s.order = append(s.order, f.Path)
 	return nil
 }
 
@@ -74,8 +92,8 @@ func TestIndexSessionsIndexesOnlyNewOrChangedLogs(t *testing.T) {
 	if rep.Scanned != 4 || rep.Indexed != 2 || rep.SkippedLines != 2 || len(rep.Errors) != 2 {
 		t.Errorf("report = %+v", rep)
 	}
-	if len(logs.read) != 3 || logs.read[0] != "grown" {
-		t.Errorf("read %v, want grown, new, broken", logs.read)
+	if slices.Sort(logs.read); !slices.Equal(logs.read, []string{"broken", "grown", "new"}) {
+		t.Errorf("read %v, want broken, grown, new", logs.read)
 	}
 	c := store.saved["grown"].Costs
 	if len(c) != 3 || c[0].Cost.USD() != 3 || !c[0].Priced || c[1].Cost.USD() != 0.5 || c[2].Priced {
@@ -83,5 +101,85 @@ func TestIndexSessionsIndexesOnlyNewOrChangedLogs(t *testing.T) {
 	}
 	if s := store.saved["new"].Signals; len(s) != 2 || !s[1].Repeated {
 		t.Errorf("signals = %+v", s)
+	}
+}
+
+func manyLogs(n int) *fakeLogs {
+	logs := &fakeLogs{reads: map[string]domain.Transcript{}}
+	for i := range n {
+		path := fmt.Sprintf("log-%02d", i)
+		logs.files = append(logs.files, LogFile{Path: path, Size: 10})
+		logs.reads[path] = domain.Transcript{SkippedLines: 1}
+	}
+	return logs
+}
+
+func TestIndexSessionsSavesInTheOrderOfTheListWhateverTheOrderOfReading(t *testing.T) {
+	// Given the first log is slow to read and the others are fast, so reads complete out of order
+	logs := manyLogs(20)
+	logs.readErr = map[string]error{"log-03": errors.New("unexpected EOF")}
+	release := make(chan struct{})
+	var fastDone atomic.Int32
+	logs.onRead = func(path string) {
+		if path == "log-00" {
+			<-release
+			return
+		}
+		if fastDone.Add(1) == 5 { // later logs were read while it waits (the window holds 8 logs): it may finish now
+			close(release)
+		}
+	}
+	store := &fakeStore{known: map[string]LogFile{}, saved: map[string]IndexedTranscript{}}
+
+	// When they are indexed by several workers
+	rep, err := IndexSessions{Logs: logs, Store: store, Prices: flatPrices{}, Workers: 4, ReadAhead: 80}.Run(nil)
+
+	// Then they are saved and reported in the order of the list, as a sequential run would
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	for _, f := range logs.files {
+		if f.Path != "log-03" {
+			want = append(want, f.Path)
+		}
+	}
+	if !slices.Equal(store.order, want) {
+		t.Errorf("saved %v, want %v", store.order, want)
+	}
+	if rep.Scanned != 20 || rep.Indexed != 19 || rep.SkippedLines != 19 || len(rep.Errors) != 1 {
+		t.Errorf("report = %+v", rep)
+	}
+}
+
+func TestIndexSessionsReadsOnlyAFewBytesOfLogsAheadOfTheWriter(t *testing.T) {
+	// Given a store that is slow to save
+	logs := manyLogs(40)
+	saving := make(chan struct{})
+	store := &fakeStore{known: map[string]LogFile{}, saved: map[string]IndexedTranscript{}}
+	var readsWhenFirstSaved int
+	store.onSave = func(path string) {
+		if path == "log-00" {
+			time.Sleep(50 * time.Millisecond) // let the workers run as far ahead as they may
+			logs.mu.Lock()
+			readsWhenFirstSaved = len(logs.read)
+			logs.mu.Unlock()
+			close(saving)
+		}
+	}
+
+	// When 3 workers index 40 logs of 10 bytes with room for 50 bytes
+	if _, err := (IndexSessions{Logs: logs, Store: store, Prices: flatPrices{}, Workers: 3, ReadAhead: 50}).Run(nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// Then no more than 6 logs were read before the first one was saved: 5 fit in the window,
+	// and the first left it when the writer took it
+	<-saving
+	if readsWhenFirstSaved > 6 {
+		t.Errorf("%d logs read before the first was saved, want at most 6", readsWhenFirstSaved)
+	}
+	if len(store.saved) != 40 {
+		t.Errorf("saved %d logs, want 40", len(store.saved))
 	}
 }

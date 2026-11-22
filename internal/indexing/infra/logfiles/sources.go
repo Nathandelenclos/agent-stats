@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/application"
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
@@ -46,9 +47,11 @@ func envOr(key, def string) string {
 }
 
 // FileSessionLogs reads session logs from the harnesses' directories on the local disk.
+// Read may be called from several goroutines at once, as IndexSessions does.
 type FileSessionLogs struct {
 	Sources []Source
-	parsers map[string]Parser
+	mu      sync.RWMutex
+	parsers map[string]Parser // by path, as of the last List
 }
 
 // NewFileSessionLogs reads the logs found under sources.
@@ -60,6 +63,7 @@ func NewFileSessionLogs(sources []Source) *FileSessionLogs {
 func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 	var files []application.LogFile
 	var problems []error
+	parsers := map[string]Parser{}
 	for _, src := range l.Sources {
 		err := filepath.WalkDir(src.Root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
@@ -80,7 +84,7 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 				problems = append(problems, fmt.Errorf("%s: %w", path, err))
 				return nil
 			}
-			l.parsers[path] = src.Parse
+			parsers[path] = src.Parse
 			files = append(files, application.LogFile{Path: path, Harness: src.Harness, Size: info.Size(), ModTime: info.ModTime()})
 			return nil
 		})
@@ -88,12 +92,17 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 			return files, problems, err
 		}
 	}
+	l.mu.Lock()
+	l.parsers = parsers
+	l.mu.Unlock()
 	return files, problems, nil
 }
 
 // Read parses a file returned by List.
 func (l *FileSessionLogs) Read(f application.LogFile) (domain.Transcript, error) {
+	l.mu.RLock()
 	p, ok := l.parsers[f.Path]
+	l.mu.RUnlock()
 	if !ok {
 		return domain.Transcript{}, fmt.Errorf("%s was not listed", f.Path)
 	}
