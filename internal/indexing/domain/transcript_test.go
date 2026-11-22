@@ -157,16 +157,22 @@ func TestNewDurationKeepsOnlyBoundedValues(t *testing.T) {
 	}
 }
 
-func TestParseSkillName(t *testing.T) {
-	// Given the names a harness logs for skills, then plain and plugin-qualified ones pass, anything else is refused
-	for _, ok := range []string{"review", "demo:audit", "claude-api", "a.b_c d"} {
-		if _, valid := ParseSkillName(ok); !valid {
-			t.Errorf("ParseSkillName(%q) refused", ok)
+func TestParseSkillNameAcceptsThePlainAndPluginQualifiedNamesAHarnessLogs(t *testing.T) {
+	// Given the names a harness logs for the skills it loads
+	for _, name := range []string{"review", "demo:audit", "claude-api", "a.b_c d"} {
+		// When one is read, then it is accepted
+		if _, valid := ParseSkillName(name); !valid {
+			t.Errorf("ParseSkillName(%q) refused", name)
 		}
 	}
-	for _, bad := range []string{"", "-lead", "bad\x1b[2J", "new\nline", strings.Repeat("x", 129)} {
-		if _, valid := ParseSkillName(bad); valid {
-			t.Errorf("ParseSkillName(%q) accepted", bad)
+}
+
+func TestParseSkillNameRefusesWhatIsNotTheNameOfASkill(t *testing.T) {
+	// Given text a log could hold in the place of a skill name: nothing, a leading dash, a control sequence, a line break, a very long run
+	for _, text := range []string{"", "-lead", "bad\x1b[2J", "new\nline", strings.Repeat("x", 129)} {
+		// When it is read, then it is refused
+		if _, valid := ParseSkillName(text); valid {
+			t.Errorf("ParseSkillName(%q) accepted", text)
 		}
 	}
 }

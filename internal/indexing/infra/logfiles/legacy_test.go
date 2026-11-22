@@ -223,11 +223,15 @@ func legacyClaudeSkill(input json.RawMessage) string {
 	if json.Unmarshal(input, &in) != nil {
 		return ""
 	}
-	if name, ok := domain.ParseSkillName(in.Skill); ok {
-		return name
+	if legacyDeclaredSkill.MatchString(in.Skill) {
+		return in.Skill
 	}
 	return ""
 }
+
+// legacyDeclaredSkill is the name of a skill as commit 1fcf976 accepted it, written here so that the oracle does not
+// share it with the parsers it checks.
+var legacyDeclaredSkill = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 _.:-]{0,127}$`)
 
 func legacyClaudeBlocks(raw json.RawMessage) []legacyClaudeBlock {
 	var blocks []legacyClaudeBlock
