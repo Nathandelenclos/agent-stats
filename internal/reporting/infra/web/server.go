@@ -26,6 +26,7 @@ type logf func(format string, args ...any)
 // Options configures the server.
 type Options struct {
 	Reports         reporting.BuildTimelineReport
+	ActivitySeries  reporting.ListActivitySeries
 	TokenRates      func(string) (TokenRates, bool)
 	Sessions        reporting.ListSessions
 	RelatedSessions reporting.ListRelatedSessions
@@ -107,6 +108,7 @@ func New(o Options, addr net.Addr) *Server {
 	s.mux.HandleFunc("/api/meta", s.meta)
 	s.mux.HandleFunc("/api/sync", s.syncProgress)
 	s.mux.HandleFunc("/api/report", s.report)
+	s.mux.HandleFunc("/api/activity-series", s.activitySeries)
 	s.mux.HandleFunc("/api/model-activity", s.modelActivity)
 	s.mux.HandleFunc("/api/tool-models", s.toolModels)
 	s.mux.HandleFunc("/api/sessions", s.sessions)

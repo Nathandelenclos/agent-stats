@@ -35,8 +35,9 @@ type ErrorSignature struct {
 
 // RequestFilter narrows the indexed calls shown in the request journal.
 type RequestFilter struct {
-	FailedOnly   bool
-	Signature    string
-	Search       string
-	SearchErrors bool // local server only: provider error text can contain private data
+	FailedOnly      bool
+	Signature       string
+	Search          string
+	SearchErrors    bool   // local server only: provider error text can contain private data
+	Model, Provider string // when Model is set, the provider is matched exactly, including the empty provider
 }

@@ -39,8 +39,8 @@ type sessionRequestsJSON struct {
 }
 
 func (s *Server) sessionRequests(w http.ResponseWriter, r *http.Request) {
-	const failedParam, signatureParam, searchParam = "failed", "signature", "q"
-	p, bad := s.parseParamsBounded(r, 1024, paramSince, paramHarness, paramProject, paramLimit, paramOffset, failedParam, signatureParam, searchParam)
+	const failedParam, signatureParam, searchParam, modelParam, providerParam = "failed", "signature", "q", "model", "provider"
+	p, bad := s.parseParamsBounded(r, 1024, paramSince, paramHarness, paramProject, paramLimit, paramOffset, failedParam, signatureParam, searchParam, modelParam, providerParam)
 	if bad != nil {
 		bad.write(w)
 		return
@@ -69,7 +69,19 @@ func (s *Server) sessionRequests(w http.ResponseWriter, r *http.Request) {
 		invalidParameter(searchParam, "use at most 200 bytes").write(w)
 		return
 	}
-	filter := reporting.RequestFilter{FailedOnly: failed == "1", Signature: signature, Search: search, SearchErrors: s.localOnly}
+	model, provider := values.Get(modelParam), values.Get(providerParam)
+	if (values.Has(modelParam) && model == "") || len(model) > 256 {
+		invalidParameter(modelParam, "use the model name shown in the report, up to 256 bytes").write(w)
+		return
+	}
+	if len(provider) > 128 || (values.Has(providerParam) && model == "") {
+		invalidParameter(providerParam, "supply a model and use at most 128 bytes").write(w)
+		return
+	}
+	filter := reporting.RequestFilter{
+		FailedOnly: failed == "1", Signature: signature, Search: search, SearchErrors: s.localOnly,
+		Model: model, Provider: provider,
+	}
 	rows, err := s.opts.SessionRequests.Run(r.Context(), id, p.query, filter, p.limit+1, p.offset)
 	if errors.Is(err, reporting.ErrSessionNotFound) {
 		sessionMissing(w)

@@ -19,7 +19,7 @@ func TestSessionRequestsFiltersAndErrorPrivacy(t *testing.T) {
 		r := newRig(t, func(o *Options) {
 			o.AllowRemote = remote
 			o.SessionRequests.Queries = requestIndex(func(id domain.SessionID, f domain.Filter, filter domain.RequestFilter, limit, offset int) ([]domain.SessionRequest, error) {
-				if id.String() != "claude:root/sub" || f.Harness.String() != "claude" || !filter.FailedOnly || filter.Search != "opus" || filter.SearchErrors == remote || limit != 3 || offset != 2 {
+				if id.String() != "claude:root/sub" || f.Harness.String() != "claude" || !filter.FailedOnly || filter.Search != "opus" || filter.Model != "opus" || filter.Provider != "anthropic" || filter.SearchErrors == remote || limit != 3 || offset != 2 {
 					t.Fatalf("unexpected query: %v, %+v, %+v, %d, %d", id, f, filter, limit, offset)
 				}
 				return []domain.SessionRequest{{Error: "private failure"}, {Model: "opus"}, {Model: "next"}}, nil
@@ -27,13 +27,14 @@ func TestSessionRequestsFiltersAndErrorPrivacy(t *testing.T) {
 		})
 
 		target := sessionBase + "/requests"
-		got := decode[sessionRequestsJSON](t, r.get(target+"?harness=claude&failed=1&limit=2&offset=2&q=opus"))
+		got := decode[sessionRequestsJSON](t, r.get(target+"?harness=claude&failed=1&limit=2&offset=2&q=opus&model=opus&provider=anthropic"))
 		if len(got.Requests) != 2 || !got.HasMore || !got.Requests[0].Failed {
 			t.Fatalf("unexpected page: %+v", got)
 		}
 		if (got.Requests[0].Error != "") == remote {
 			t.Fatalf("remote=%v error detail=%q", remote, got.Requests[0].Error)
 		}
+		wantProblem(t, r.get(target+"?provider=anthropic"), http.StatusBadRequest, problemInvalidParameter)
 		wantProblem(t, r.get(target+"?offset=-1"), http.StatusBadRequest, problemInvalidParameter)
 	}
 }

@@ -107,7 +107,8 @@ func runServe(args []string) error {
 	defer stop()
 	sessions := usage.Sessions()
 	return web.Serve(ctx, ln, web.Options{
-		Reports: reporting.BuildTimelineReport{Queries: usage},
+		Reports:        reporting.BuildTimelineReport{Queries: usage},
+		ActivitySeries: reporting.ListActivitySeries{Queries: usage},
 		TokenRates: func(model string) (web.TokenRates, bool) {
 			rates, ok := prices.Lookup(model)
 			return web.TokenRates(rates.PerToken()), ok

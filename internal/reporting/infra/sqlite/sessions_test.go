@@ -356,6 +356,24 @@ func TestRequestJournalFiltersActivityRatherThanLastSessionActivity(t *testing.T
 	}
 }
 
+func TestRequestJournalMatchesTheExactModelAndProviderBeforePaging(t *testing.T) {
+	path := sessionsIndexed(t)
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE session_requests SET provider = '' WHERE session_id = 'codex:old'`); err != nil {
+		t.Fatal(err)
+	}
+	s := readTestSessions(t, path)
+	rows, err := s.SessionRequests(t.Context(), report.SessionID{}, report.Filter{},
+		report.RequestFilter{Model: "cheap", Provider: ""}, 1, 0)
+	if err != nil || len(rows) != 1 || rows[0].SessionID != "codex:old" {
+		t.Fatalf("model requests with unknown provider = %+v (%v)", rows, err)
+	}
+}
+
 func TestSessionTraceMergesPromptsCallsAndSubagentTools(t *testing.T) {
 	s := openSessions(t)
 	id, _ := report.NewSessionID("claude:main")

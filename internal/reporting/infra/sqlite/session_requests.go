@@ -34,6 +34,10 @@ func (s *SQLiteSessions) SessionRequests(ctx context.Context, id report.SessionI
 				args = append(args, f.Harness.String())
 			}
 		}
+		if filters.Model != "" {
+			condition += " AND r.model = ? AND COALESCE(r.provider, '') = ?"
+			args = append(args, filters.Model, filters.Provider)
+		}
 		if filters.FailedOnly {
 			condition += " AND r.error IS NOT NULL"
 		}
