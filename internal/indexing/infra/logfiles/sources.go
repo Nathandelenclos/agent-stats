@@ -24,7 +24,8 @@ type Source struct {
 	Database *OpenCodeDatabase
 	// Beside, when set, says what else than the log itself a transcript is made of (a file beside it): it is part of the
 	// log's revision, so that the log is read again when it changes.
-	Beside func(path string) string
+	Beside     func(path string) string
+	cursorUser string
 }
 
 // DefaultSources lists the standard log locations, honouring CLAUDE_CONFIG_DIR and CODEX_HOME.
@@ -47,6 +48,7 @@ func DefaultSources(home string) []Source {
 		{Harness: kernel.OpenCode, Root: openCodeData, Database: &OpenCodeDatabase{Prefix: "opencode", Override: os.Getenv("OPENCODE_DB")}},
 		{Harness: kernel.Kilo, Root: kiloData, Database: &OpenCodeDatabase{Prefix: "kilo", Fallback: "opencode", Override: os.Getenv("KILO_DB")}},
 		GeminiSource(filepath.Join(envOr("GEMINI_CLI_HOME", home), ".gemini", "tmp")),
+		{Harness: kernel.Cursor, Root: filepath.Join(home, ".cursor", "projects"), cursorUser: cursorUserDir(home)},
 	}
 }
 
@@ -67,8 +69,8 @@ func envOr(key, def string) string {
 type FileSessionLogs struct {
 	Sources []Source
 	mu      sync.RWMutex
-	parsers map[string]Parser // by path, as of the last List
-	dbLogs  map[string]dbLog  // the sessions of databases, by their path "<database>#<session id>"
+	readers map[string]func() (domain.Transcript, error) // by path, as of the last List
+	dbLogs  map[string]dbLog                             // the sessions of databases, by their path "<database>#<session id>"
 }
 
 // dbLog is a session that lives in a database.
@@ -81,16 +83,22 @@ type dbLog struct {
 
 // NewFileSessionLogs reads the logs found under sources.
 func NewFileSessionLogs(sources []Source) *FileSessionLogs {
-	return &FileSessionLogs{Sources: sources, parsers: map[string]Parser{}, dbLogs: map[string]dbLog{}}
+	return &FileSessionLogs{Sources: sources, dbLogs: map[string]dbLog{}}
 }
 
 // List walks every source. A harness that is not installed is not an error.
 func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 	var files []application.LogFile
 	var problems []error
-	parsers := map[string]Parser{}
+	readers := map[string]func() (domain.Transcript, error){}
 	dbLogs := map[string]dbLog{}
 	for _, src := range l.Sources {
+		if src.cursorUser != "" {
+			sessions, cursorProblems := listCursor(src.Root, src.cursorUser, readers)
+			files = append(files, sessions...)
+			problems = append(problems, cursorProblems...)
+			continue
+		}
 		if src.Database != nil {
 			for _, path := range src.Database.paths(src.Root) {
 				sessions, dbProblems := src.Database.list(path)
@@ -123,7 +131,7 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 				problems = append(problems, fmt.Errorf("%s: %w", path, err))
 				return nil
 			}
-			parsers[path] = src.Parse
+			readers[path] = func() (domain.Transcript, error) { return ParseFile(path, src.Parse) }
 			files = append(files, application.LogFile{Path: path, Harness: src.Harness, Revision: fileRevision(info) + besideRevision(src, path), WeightBytes: logWeight(path, info.Size())})
 			return nil
 		})
@@ -132,7 +140,7 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 		}
 	}
 	l.mu.Lock()
-	l.parsers, l.dbLogs = parsers, dbLogs
+	l.readers, l.dbLogs = readers, dbLogs
 	l.mu.Unlock()
 	return files, problems, nil
 }
@@ -153,7 +161,7 @@ func besideRevision(src Source, path string) string {
 // Read parses a file returned by List.
 func (l *FileSessionLogs) Read(f application.LogFile) (domain.Transcript, error) {
 	l.mu.RLock()
-	p, ok := l.parsers[f.Path]
+	read, ok := l.readers[f.Path]
 	db, inDB := l.dbLogs[f.Path]
 	l.mu.RUnlock()
 	if inDB {
@@ -162,5 +170,5 @@ func (l *FileSessionLogs) Read(f application.LogFile) (domain.Transcript, error)
 	if !ok {
 		return domain.Transcript{}, fmt.Errorf("%s was not listed", f.Path)
 	}
-	return ParseFile(f.Path, p)
+	return read()
 }

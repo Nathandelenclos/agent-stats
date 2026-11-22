@@ -29,7 +29,7 @@ func runCatalog(args []string, stdout, stderr io.Writer) error {
 	dbPath := fl.String("db", defaultDB, "index database (default: agent-stats/index.db in the user cache directory)")
 	pricesPath := fl.String("prices", "", "JSON file overriding embedded prices, used when indexing")
 	since := fl.String("since", "", "only count usage after this: 24h, 7d, 30d or 2006-01-02")
-	harness := fl.String("harness", "", "only one harness: claude, codex, omp, pi, opencode, kilo, gemini")
+	harness := fl.String("harness", "", "only one harness: claude, codex, omp, pi, opencode, kilo, gemini, cursor")
 	asJSON := fl.Bool("json", false, "print the catalog as JSON")
 	noSync := fl.Bool("no-sync", false, "skip re-reading the logs")
 	unused := fl.Bool("unused", false, "only installed items the logs never show in use")
