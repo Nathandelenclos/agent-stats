@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -178,5 +179,59 @@ func TestSnapshotReadsOneStateWhileTheIndexIsWritten(t *testing.T) {
 		return err
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestUsageByDayFollowsTheLocalCalendarOldestFirst(t *testing.T) {
+	// Given a clock in Tokyo (UTC+9), requests on both sides of its midnight, one in a later day and one with no known time
+	t.Setenv("TZ", "Asia/Tokyo")
+	path := indexed(t, time.UnixMilli(1))
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`DELETE FROM usage_requests`); err != nil {
+		t.Fatal(err)
+	}
+	tokyo := time.FixedZone("JST", 9*3600)
+	for _, ts := range []time.Time{
+		time.Date(2026, 1, 3, 0, 30, 0, 0, tokyo), // 2026-01-02 in UTC, 2026-01-03 in Tokyo
+		time.Date(2026, 1, 2, 23, 30, 0, 0, tokyo),
+		time.Date(2026, 1, 5, 12, 0, 0, 0, tokyo),
+	} {
+		if _, err := db.Exec(`INSERT INTO usage_requests VALUES (?, 'm', 1, 1, 0, 0, 1, 1, NULL, NULL, NULL, 'claude', 'main', NULL)`, ts.UnixMilli()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO usage_requests VALUES (0, 'm', 1, 1, 0, 0, 1, 1, NULL, NULL, NULL, 'claude', 'main', NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	r, err := OpenReadOnly(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	// When usage is grouped by day, with and without a period
+	all, err := r.UsageBy(report.Filter{}, report.ByDay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recent, err := r.UsageBy(report.Filter{Since: time.Date(2026, 1, 4, 0, 0, 0, 0, tokyo)}, report.ByDay)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Then the days are the user's, oldest first, the request without a time is on no day, and the period narrows them
+	var days []string
+	for _, g := range all {
+		days = append(days, g.Group)
+	}
+	if want := []string{"2026-01-02", "2026-01-03", "2026-01-05"}; !slices.Equal(days, want) {
+		t.Errorf("days = %v, want %v", days, want)
+	}
+	if len(recent) != 1 || recent[0].Group != "2026-01-05" {
+		t.Errorf("days since the 4th = %+v", recent)
 	}
 }

@@ -92,6 +92,7 @@ var groupColumns = map[report.Dimension]string{
 	report.ByModel:     "model",
 	report.ByFolder:    "COALESCE(folder, '')",
 	report.ByAgentType: "agent_type",
+	report.ByDay:       "strftime('%Y-%m-%d', r.ts / 1000, 'unixepoch', 'localtime')",
 }
 
 // COALESCE keeps an empty selection scannable as zeros.
@@ -122,16 +123,25 @@ func fromMillis(ms int64) time.Time {
 	return time.UnixMilli(ms)
 }
 
-// UsageBy groups requests along d, most expensive first.
+// UsageBy groups requests along d, most expensive first (days: oldest first).
 func (r reader) UsageBy(f report.Filter, d report.Dimension) ([]report.UsageGroup, error) {
 	col, ok := groupColumns[d]
 	if !ok {
 		return nil, fmt.Errorf("unknown usage dimension %d", d)
 	}
 	cond, args := where(f, "r.ts")
+	order := "SUM(r.cost) DESC, COUNT(*) DESC"
+	if d == report.ByDay {
+		order = "1"
+		if cond == "" {
+			cond = " WHERE r.ts > 0" // a request with an unknown time (0) has no day
+		} else {
+			cond += " AND r.ts > 0"
+		}
+	}
 	rows, err := r.q.Query(`SELECT `+col+`, `+usageCols+`
 		FROM usage_requests r`+cond+`
-		GROUP BY 1 ORDER BY SUM(r.cost) DESC, COUNT(*) DESC`, args...)
+		GROUP BY 1 ORDER BY `+order, args...)
 	if err != nil {
 		return nil, err
 	}
