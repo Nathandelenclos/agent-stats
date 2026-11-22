@@ -72,15 +72,19 @@ const (
 func TestSessionsOnATerminal(t *testing.T) {
 	// Given an index holding one session, and the interface open on a terminal
 	s := onATerminal(t, false, "--db", seedSession(t))
-	s.waitFor(t, usageModeOn, 10*time.Second)
+	s.waitFor(t, "[Dashboard]", 10*time.Second)
+	n := s.press(t, "\r")
+	s.waitForNew(t, n, usageModeOn)
 
 	// When the user presses m, the sessions appear under their own label
-	n := s.press(t, "m")
+	n = s.press(t, "m")
 	s.waitForNew(t, n, sessionsModeOn)
 	s.waitForNew(t, n, "fix build")
 
-	// When the user presses Enter, the session's prompts appear with their signals
+	// Open the detail, then its Prompts section.
 	n = s.press(t, "\r")
+	s.waitForNew(t, n, "browse session sections")
+	n = s.press(t, "5")
 	s.waitForNew(t, n, "fix the build")
 	s.waitForNew(t, n, "WHY IS IT STILL BROKEN??")
 	s.waitForNew(t, n, "yelling")
@@ -94,7 +98,7 @@ func TestSessionsOnATerminal(t *testing.T) {
 	s.waitForNew(t, n, promptsModeOn)
 	s.waitForNew(t, n, "1 flagged prompt in 1 session")
 	s.waitForNew(t, n, "yelling")
-	n = s.press(t, "m")
-	s.waitForNew(t, n, usageModeOn)
+	n = s.press(t, "0")
+	s.waitForNew(t, n, "[Dashboard]")
 	s.quit(t)
 }

@@ -173,8 +173,10 @@ func TestInterfaceHighlightsTheActiveTab(t *testing.T) {
 	// When the interface opens
 	s := onATerminal(t, false)
 
-	// Then the active tab is highlighted: the colour detection the program switched off while loading is back
-	s.waitFor(t, activeTabHighlight, 2*time.Second)
+	// Open Usage from the dashboard: the active tab is highlighted once the report is ready.
+	s.waitFor(t, "[Dashboard]", 2*time.Second)
+	n := s.press(t, "\r")
+	s.waitForNew(t, n, activeTabHighlight)
 	s.quit(t)
 }
 
