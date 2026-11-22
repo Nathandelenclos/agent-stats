@@ -20,6 +20,7 @@ type grid struct {
 	headers []string
 	numeric []bool // right-aligned columns
 	rows    [][]cell
+	ids     []string // what each row stands for, when it can be opened
 }
 
 func textCell(s string) cell { return cell{text: textfmt.Printable(s)} }
@@ -77,13 +78,17 @@ func (s sortState) next(g grid) sortState {
 	return sortState{col: col, desc: g.numeric[col]}
 }
 
-// sorted returns the rows ordered by s; equal rows keep the report's order.
-func (g grid) sorted(s sortState) [][]cell {
-	rows := slices.Clone(g.rows)
-	if s.col < 0 || s.col >= len(g.headers) {
-		return rows
+// order lists the indexes of the rows as s orders them; equal rows keep the report's order.
+func (g grid) order(s sortState) []int {
+	idx := make([]int, len(g.rows))
+	for i := range idx {
+		idx[i] = i
 	}
-	slices.SortStableFunc(rows, func(a, b []cell) int {
+	if s.col < 0 || s.col >= len(g.headers) {
+		return idx
+	}
+	slices.SortStableFunc(idx, func(i, j int) int {
+		a, b := g.rows[i], g.rows[j]
 		var c int
 		if g.numeric[s.col] {
 			c = cmpFloat(a[s.col].n, b[s.col].n)
@@ -95,7 +100,25 @@ func (g grid) sorted(s sortState) [][]cell {
 		}
 		return c
 	})
+	return idx
+}
+
+// sorted returns the rows ordered by s.
+func (g grid) sorted(s sortState) [][]cell {
+	var rows [][]cell
+	for _, i := range g.order(s) {
+		rows = append(rows, g.rows[i])
+	}
 	return rows
+}
+
+// sortedIDs returns the ids of the rows in the order sorted shows them.
+func (g grid) sortedIDs(s sortState) []string {
+	var ids []string
+	for _, i := range g.order(s) {
+		ids = append(ids, g.ids[i])
+	}
+	return ids
 }
 
 func cmpFloat(a, b float64) int {

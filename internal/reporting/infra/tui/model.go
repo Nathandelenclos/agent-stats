@@ -42,6 +42,9 @@ var (
 // chromeLines is what the view draws besides the table: title, tabs, two summary lines, status and help.
 const chromeLines = 7
 
+// detailChromeLines is what a session's detail draws besides its body: title, heading, status and help, and a spare line.
+const detailChromeLines = 5
+
 // period is a span of activity to report, ending now.
 type period struct {
 	label string
@@ -81,6 +84,8 @@ type syncDoneMsg struct {
 // Model is the Bubble Tea model of the interface.
 type Model struct {
 	reports reporting.BuildReport
+	lister  reporting.ListSessions // without queries, the sessions mode is off
+	shower  reporting.ShowSession
 	sync    Sync // nil when indexing is off
 	now     func() time.Time
 
@@ -97,6 +102,8 @@ type Model struct {
 	syncErr  error
 	spinner  spinner.Model
 
+	mode          mode
+	sessions      sessionsState
 	tab           tab
 	sorts         [tabCount]sortState // each tab keeps its own order
 	report        reporting.Report
@@ -109,7 +116,7 @@ type Model struct {
 // New returns the model for o. Its Init asks for the first report.
 func New(o Options) Model {
 	t := table.New(table.WithFocused(true))
-	m := Model{reports: o.Reports, sync: o.Sync, syncing: o.Sync != nil, spinner: spinner.New(spinner.WithSpinner(spinner.MiniDot)), now: time.Now, table: t, width: 80, height: 24, periods: periods}
+	m := Model{reports: o.Reports, lister: o.Sessions, shower: o.Session, sessions: newSessionsState(), sync: o.Sync, syncing: o.Sync != nil, spinner: spinner.New(spinner.WithSpinner(spinner.MiniDot)), now: time.Now, table: t, width: 80, height: 24, periods: periods}
 	m.period = len(periods) - 1 // all
 	if o.SinceLabel != "" {
 		m.period = -1
@@ -180,6 +187,12 @@ func (m Model) load() tea.Cmd {
 func (m Model) reload() (Model, tea.Cmd) {
 	m.seq++
 	m.pending = true
+	if m.mode == sessionsMode {
+		if m.sessions.detail.open { // the session on screen may have grown too
+			return m, tea.Batch(m.loadSessions(), m.loadDetail(m.sessions.detail.id))
+		}
+		return m, m.loadSessions()
+	}
 	return m, m.load()
 }
 
@@ -187,7 +200,9 @@ func (m Model) reload() (Model, tea.Cmd) {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width, m.height = msg.Width, msg.Height
+		if msg.Width > 0 && msg.Height > 0 { // a terminal that reports no size (a bare pseudo-terminal) keeps the default
+			m.width, m.height = msg.Width, msg.Height
+		}
 		m.layout()
 		return m, nil
 	case reportMsg:
@@ -201,6 +216,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.shown.period, m.shown.harness = msg.period, msg.harness
 		}
 		m.layout()
+		return m, nil
+	case sessionsMsg:
+		if msg.seq != m.seq {
+			return m, nil
+		}
+		m.pending = false
+		m.err = msg.err
+		if msg.err == nil {
+			m.sessions.list, m.sessions.loaded = msg.list, true
+			m.shown.period, m.shown.harness = msg.period, msg.harness
+		}
+		m.layout()
+		return m, nil
+	case detailMsg:
+		if d := &m.sessions.detail; d.open && d.id == msg.id {
+			d.err = msg.err
+			if msg.err == nil {
+				d.data, d.loaded = msg.detail, true
+			}
+			m.layout()
+		}
 		return m, nil
 	case syncProgressMsg:
 		m.indexed = msg.indexed
@@ -222,6 +258,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.mode == sessionsMode {
+		if m.sessions.detail.open {
+			return m.detailKey(msg)
+		}
+		return m.sessionsKey(msg)
+	}
 	switch k := msg.String(); k {
 	case "q", "ctrl+c":
 		return m, tea.Quit
@@ -231,12 +273,10 @@ func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.selectTab((m.tab + tabCount - 1) % tabCount)
 	case "1", "2", "3", "4", "5":
 		m.selectTab(tab(k[0] - '1'))
+	case "m":
+		return m.switchMode()
 	case "r":
-		if m.sync == nil || m.syncing {
-			return m, nil
-		}
-		m.syncing, m.indexed, m.syncNote, m.syncErr = true, 0, "", nil
-		return m, tea.Batch(m.startSync(), m.spinner.Tick)
+		return m.reindex()
 	case "p":
 		m.period = (m.period + 1) % len(m.periods)
 		return m.reload()
@@ -261,6 +301,15 @@ func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// reindex starts a sync when indexing is on and none is running.
+func (m Model) reindex() (Model, tea.Cmd) {
+	if m.sync == nil || m.syncing {
+		return m, nil
+	}
+	m.syncing, m.indexed, m.syncNote, m.syncErr = true, 0, "", nil
+	return m, tea.Batch(m.startSync(), m.spinner.Tick)
+}
+
 func (m *Model) selectTab(t tab) {
 	m.tab = t
 	m.layout()
@@ -283,10 +332,28 @@ func (m Model) grid() grid {
 	return usageGrid("HARNESS", r.ByHarness)
 }
 
-// layout fills the table with the current tab and fits it to the terminal.
+// layout fills the tables with the current report and fits them to the terminal.
 func (m *Model) layout() {
-	g := m.grid()
-	g.rows = g.sorted(m.sorts[m.tab])
+	fit(&m.table, m.grid(), m.sorts[m.tab], m.width, m.height)
+	sg := sessionsGrid(m.sessions.list)
+	m.sessions.ids = nil
+	for _, id := range sg.sortedIDs(m.sessions.sort) {
+		sid, _ := reporting.NewSessionID(id) // listed sessions have an identity
+		m.sessions.ids = append(m.sessions.ids, sid)
+	}
+	fit(&m.sessions.table, sg, m.sessions.sort, m.width, m.height)
+	if d := &m.sessions.detail; d.open {
+		d.display = max(4, m.height-detailChromeLines)
+		if d.loaded {
+			d.lines = detailLines(d.data, m.width)
+		}
+		d.scrollBy(0) // a longer terminal or a shorter body leaves no empty page
+	}
+}
+
+// fit fills t with the rows of g ordered by s and fits it to a terminal of the given size.
+func fit(t *table.Model, g grid, s sortState, width, height int) {
+	g.rows = g.sorted(s)
 	widths := make([]int, len(g.headers))
 	for i, h := range g.headers {
 		widths[i] = lipgloss.Width(h) + 1 // room for the sort arrow
@@ -295,7 +362,7 @@ func (m *Model) layout() {
 		}
 	}
 	// The first column takes what the others leave; each column also pays two cells of padding.
-	rest := m.width
+	rest := width
 	for i := 1; i < len(widths); i++ {
 		rest -= widths[i] + 2
 	}
@@ -305,7 +372,7 @@ func (m *Model) layout() {
 	for i, h := range g.headers {
 		cols[i] = table.Column{Title: pad(h, widths[i], g.numeric[i]), Width: widths[i]}
 	}
-	if s := m.sorts[m.tab]; s.col >= 0 {
+	if s.col >= 0 {
 		cols[s.col].Title = pad(g.headers[s.col]+arrow(s.desc), widths[s.col], g.numeric[s.col])
 	}
 	rows := make([]table.Row, len(g.rows))
@@ -316,22 +383,22 @@ func (m *Model) layout() {
 		}
 		rows[i] = row
 	}
-	if len(m.table.Columns()) != len(cols) {
+	if len(t.Columns()) != len(cols) {
 		// bubbles/table indexes the old rows by the new columns: never let their counts differ. Only a switch
 		// to a tab with another column count gets here (selectTab puts the cursor back at the top anyway);
 		// clearing on every resize would lose the scroll.
-		m.table.SetRows(nil)
+		t.SetRows(nil)
 	}
-	m.table.SetColumns(cols)
-	m.table.SetRows(rows)     // keeps the cursor and the scroll, clamped to a shorter report
-	if m.table.Cursor() < 0 { // emptied above, or the report had no row
-		m.table.SetCursor(0)
+	t.SetColumns(cols)
+	t.SetRows(rows)     // keeps the cursor and the scroll, clamped to a shorter report
+	if t.Cursor() < 0 { // emptied above, or the report had no row
+		t.SetCursor(0)
 	}
-	m.table.SetWidth(m.width)
-	m.table.SetHeight(max(4, m.height-chromeLines))
-	s := table.DefaultStyles()
-	s.Header, s.Selected, s.Cell = headerStyle, selectedStyle, lipgloss.NewStyle().Padding(0, 1)
-	m.table.SetStyles(s)
+	t.SetWidth(width)
+	t.SetHeight(max(4, height-chromeLines))
+	st := table.DefaultStyles()
+	st.Header, st.Selected, st.Cell = headerStyle, selectedStyle, lipgloss.NewStyle().Padding(0, 1)
+	t.SetStyles(st)
 }
 
 func arrow(desc bool) string {
@@ -355,6 +422,9 @@ func pad(s string, w int, right bool) string {
 
 // View draws the interface.
 func (m Model) View() string {
+	if m.mode == sessionsMode {
+		return m.sessionsView()
+	}
 	var b strings.Builder
 	b.WriteString(m.titleBar() + "\n")
 	b.WriteString(m.tabBar() + "\n")
@@ -375,7 +445,7 @@ func (m Model) titleBar() string {
 	if h := harnessChoices[m.shown.harness]; !h.IsZero() {
 		harness = h.String()
 	}
-	bar := titleStyle.Render("agent-stats") + faintStyle.Render(fmt.Sprintf("  period: %s · harness: %s", m.periods[m.shown.period].label, harness))
+	bar := titleStyle.Render("agent-stats") + m.modeLabel() + faintStyle.Render(fmt.Sprintf("  period: %s · harness: %s", m.periods[m.shown.period].label, harness))
 	if m.syncing {
 		bar += "  " + m.spinner.View() + " indexing…"
 		if m.indexed > 0 {
@@ -385,8 +455,35 @@ func (m Model) titleBar() string {
 	return bar
 }
 
+// modeLabel shows which mode is on screen, the other one in plain text beside it; empty without a sessions mode.
+func (m Model) modeLabel() string {
+	if !m.sessionsEnabled() {
+		return ""
+	}
+	parts := make([]string, len(modeNames))
+	for i, name := range modeNames {
+		if mode(i) == m.mode {
+			parts[i] = activeTab.UnsetPadding().Render("[" + name + "]")
+		} else {
+			parts[i] = name
+		}
+	}
+	return "  " + strings.Join(parts, " ")
+}
+
 func (m Model) help() string {
-	keys := "tab/←→ tabs · ↑↓ scroll · s sort · o reverse · p period · h harness"
+	var keys string
+	switch {
+	case m.mode == sessionsMode && m.sessions.detail.open:
+		keys = "↑↓ pgup/pgdn scroll · esc back to sessions"
+	case m.mode == sessionsMode:
+		keys = "↑↓ scroll · enter open · s sort · o reverse · p period · h harness"
+	default:
+		keys = "tab/←→ tabs · ↑↓ scroll · s sort · o reverse · p period · h harness"
+	}
+	if m.sessionsEnabled() {
+		keys += " · m " + strings.ToLower(modeNames[1-m.mode])
+	}
 	if m.sync != nil {
 		keys += " · r re-index"
 	}
@@ -458,8 +555,20 @@ func (m Model) status() string {
 	if m.syncNote != "" {
 		parts = append(parts, faintStyle.Render(textfmt.Printable(m.syncNote)))
 	}
-	if t := m.report.Total; m.loaded && t.Unpriced > 0 {
-		parts = append(parts, faintStyle.Render(fmt.Sprintf("%s requests have no known price", textfmt.Number(t.Unpriced))))
+	if n := m.unpriced(); n > 0 {
+		parts = append(parts, faintStyle.Render(fmt.Sprintf("%s requests have no known price", textfmt.Number(n))))
 	}
 	return strings.Join(parts, " · ")
+}
+
+// unpriced counts the requests of what is on screen that have no known price.
+func (m Model) unpriced() int64 {
+	if m.mode == usageMode {
+		return m.report.Total.Unpriced
+	}
+	var n int64
+	for _, s := range m.sessions.list {
+		n += s.Unpriced
+	}
+	return n
 }

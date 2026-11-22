@@ -119,7 +119,9 @@ func run() error {
 	}
 	defer usage.Close()
 	if ui {
-		o := tui.Options{Reports: reporting.BuildReport{Queries: usage}, Harness: only, SinceLabel: *since, Since: from}
+		sessions := usage.Sessions()
+		o := tui.Options{Reports: reporting.BuildReport{Queries: usage}, Harness: only, SinceLabel: *since, Since: from,
+			Sessions: reporting.ListSessions{Queries: sessions}, Session: reporting.ShowSession{Queries: sessions}}
 		if indexLogs != nil {
 			o.Sync = tuiSync(indexLogs)
 		}

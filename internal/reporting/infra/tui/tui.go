@@ -1,5 +1,6 @@
 // Package tui is the interactive input adapter of the reporting context: a Bubble Tea program that
-// shows the usage report in tabs and asks the application for a new report when the user changes the view.
+// shows the usage report in tabs, or the sessions behind it (a list, and the detail of one), and asks the
+// application for new figures when the user changes the view.
 // It holds presentation state only; every figure comes from the reporting use case.
 package tui
 
@@ -19,6 +20,9 @@ type Sync func(progress func(indexed int)) (note string, err error)
 // Options configures the interface.
 type Options struct {
 	Reports reporting.BuildReport
+	// Sessions and Session read the sessions behind the report; the sessions mode (key m) is offered when both have queries.
+	Sessions reporting.ListSessions
+	Session  reporting.ShowSession
 	// Sync, when set, runs in the background as the interface opens and on demand, then the report refreshes.
 	Sync Sync
 	// Harness is the harness the first report is limited to; the zero Harness means all of them.
