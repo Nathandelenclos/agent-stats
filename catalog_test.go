@@ -217,6 +217,40 @@ func TestCatalogShowsHostileLoggedNamesEscaped(t *testing.T) {
 	}
 }
 
+func TestCatalogListsSkillCallsThatNamedNoValidSkillApartAndKeepsSkillUsageKnown(t *testing.T) {
+	// Given a log with a Skill call that names a skill no harness could have (an escape sequence)
+	home, project := catalogHome(t)
+	refused := `{"type":"assistant","timestamp":"2026-01-06T10:00:00Z","message":{"id":"mr","model":"claude-x","content":[{"type":"tool_use","id":"tr","name":"Skill","input":{"skill":"bad\u001b[2Jskill"}}],"usage":{"input_tokens":1,"output_tokens":1}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(home, ".claude", "projects", "-work-app", "refused.jsonl"), []byte(refused), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// When the catalogue is printed as JSON
+	db := filepath.Join(t.TempDir(), "index.db")
+	out, _ := catalogOutput(t, "--db", db, "--project", project, "--json")
+	var c jsonCatalog
+	if err := json.Unmarshal([]byte(out), &c); err != nil {
+		t.Fatal(err)
+	}
+
+	// Then the call is listed as unnamed Skill calls, defined nowhere, and a skill nobody loaded still has a known usage
+	var unnamed, installedUnloaded *jsonEntry
+	for i, e := range c.Entries {
+		switch {
+		case e.Harness == "claude" && e.Kind == "skill" && e.Name == "(unnamed Skill calls)":
+			unnamed = &c.Entries[i]
+		case e.Harness == "claude" && e.Kind == "skill" && e.Name == "frontmatter-name":
+			installedUnloaded = &c.Entries[i]
+		}
+	}
+	if unnamed == nil || unnamed.Installed || unnamed.Uses == nil || *unnamed.Uses != 1 {
+		t.Errorf("unnamed Skill calls: %+v", unnamed)
+	}
+	if installedUnloaded == nil || installedUnloaded.Uses == nil || *installedUnloaded.Uses != 0 {
+		t.Errorf("skill nobody loaded: %+v", installedUnloaded)
+	}
+}
+
 func TestCatalogRejectsWhatItDoesNotUnderstand(t *testing.T) {
 	catalogHome(t)
 	db := filepath.Join(t.TempDir(), "index.db")

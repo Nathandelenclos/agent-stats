@@ -146,7 +146,9 @@ Uses are counted in the unit of the UNIT column, which depends on the kind:
 - MCP servers and built-in tools count `calls`. A server's calls are summed over its tools.
 - Skills count `loads` through Claude Code's `Skill` tool, the only harness that logs the skill by name. An index written
   before that was recorded is migrated on the next run: only the log files holding a `Skill` call, or a Codex call of an MCP
-  tool recorded under its full `mcp__<server>__<tool>` name, are read again.
+  tool recorded under its full `mcp__<server>__<tool>` name, are read again. Until a `Skill` call's log is read again, the
+  usage of Claude skills is `?`. A `Skill` call that named no valid skill is listed as `(unnamed Skill calls)` and is
+  never credited to an installed skill; it does not make the usage of skills unknown.
 - Agents count `requests`: the model requests made by sessions of that agent type, which only Claude Code logs by name
   (the index keeps no count of sessions).
 - Plugins count `invocations`: the tool calls and skill loads of the MCP servers and skills they carry. The requests of
@@ -240,6 +242,12 @@ The code is split in vertical slices, each in clean-architecture layers where de
 | `internal/pricing` | Rates and price list; `infra/pricetable` loads the embedded LiteLLM table and the `--prices` override. |
 | `internal/kernel` | What every slice shares: harnesses, token counts, request cost. No I/O. |
 | `internal/platform` | Small technical helpers (safe file opening). |
+
+The skill column of `usage_tool_calls` is part of that contract. On a `Skill` call it holds the skill loaded, `''` when the
+call named no valid skill, and `NULL` while the index has not read the log again since it records skills. Every other call
+holds `''`. The skills are kept in `tool_call_skills`, a table of their own: a build from before them writes `tool_calls`
+with positional statements that a column more would refuse, so it keeps writing an index this build has migrated. Its
+`Skill` calls then stay `NULL` until their log is read again (delete the index to read all logs again).
 
 `main.go` wires the slices together and opens the interactive view on a terminal; `present.go` renders the plain report as text or JSON.
 

@@ -77,7 +77,10 @@ func (u *Usage) Activity(f domain.Filter) (domain.Activity, error) {
 	if a.Skills, err = skillActivity(tx, f); err != nil {
 		return domain.Activity{}, err
 	}
-	if a.UnnamedSkillLoads, err = unnamedSkillLoads(tx, f); err != nil {
+	if a.UnnamedSkillCalls, err = unnamedSkillCalls(tx, f); err != nil {
+		return domain.Activity{}, err
+	}
+	if a.PendingSkillLoads, err = pendingSkillLoads(tx, f); err != nil {
 		return domain.Activity{}, err
 	}
 	return a, nil
@@ -144,8 +147,20 @@ func agentActivity(q querier, f domain.Filter) ([]domain.AgentActivity, error) {
 	return out, rows.Err()
 }
 
+// The skill column of usage_tool_calls tells three things apart on a Skill call (the index's published contract):
+// a name is the skill loaded, "" is a call that named no valid skill, and NULL is a call whose log the index has not
+// read again since it records skills. Every other call holds "".
 func skillActivity(q querier, f domain.Filter) ([]domain.SkillActivity, error) {
-	cond, args := where(f, "skill <> ''")
+	return skillCalls(q, f, "skill <> ''")
+}
+
+// unnamedSkillCalls counts, per harness, the Skill calls that named no valid skill; they come back with an empty Skill.
+func unnamedSkillCalls(q querier, f domain.Filter) ([]domain.SkillActivity, error) {
+	return skillCalls(q, f, "name = 'Skill'", "server = ''", "skill = ''")
+}
+
+func skillCalls(q querier, f domain.Filter, conds ...string) ([]domain.SkillActivity, error) {
+	cond, args := where(f, conds...)
 	rows, err := q.Query(`SELECT harness, skill, COUNT(*), MAX(ts) FROM usage_tool_calls`+cond+` GROUP BY 1, 2`, args...)
 	if err != nil {
 		return nil, err
@@ -168,11 +183,9 @@ func skillActivity(q querier, f domain.Filter) ([]domain.SkillActivity, error) {
 	return out, rows.Err()
 }
 
-// unnamedSkillLoads flags the harnesses with a Skill call whose skill is empty. After the index's migration that is
-// every Skill call whose file is not read again yet. ponytail: a Skill call that never named its skill (no input) is
-// indistinguishable and keeps the usage of skills unknown; the view does not say which files are pending.
-func unnamedSkillLoads(q querier, f domain.Filter) (map[kernel.Harness]bool, error) {
-	cond, args := where(f, "name = 'Skill'", "server = ''", "skill = ''")
+// pendingSkillLoads flags the harnesses with a Skill call whose skill is NULL: its log is not read again yet.
+func pendingSkillLoads(q querier, f domain.Filter) (map[kernel.Harness]bool, error) {
+	cond, args := where(f, "name = 'Skill'", "server = ''", "skill IS NULL")
 	rows, err := q.Query(`SELECT DISTINCT harness FROM usage_tool_calls`+cond, args...)
 	if err != nil {
 		return nil, err

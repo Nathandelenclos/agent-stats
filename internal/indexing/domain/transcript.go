@@ -170,13 +170,17 @@ type ToolCall struct {
 	At     time.Time
 	Name   string
 	Server string // MCP server name, empty for built-in tools
-	// Skill is the skill a call loads (Claude Code's Skill tool); empty for every other call.
+	// Skill is the skill a call loads (Claude Code's Skill tool); empty for every other call, and for a Skill call
+	// that named no valid skill.
 	Skill       string
 	ArgsChars   int
 	ResultChars int
 	IsError     bool
 	Duration    Duration
 }
+
+// LoadsSkill reports whether the call is one of the harness's own Skill tool, whose Skill says what it loaded.
+func (c ToolCall) LoadsSkill() bool { return c.Server == "" && c.Name == "Skill" }
 
 var declaredSkill = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 _.:-]{0,127}$`)
 

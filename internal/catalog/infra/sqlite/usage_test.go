@@ -27,7 +27,7 @@ func publishedIndex(t *testing.T) string {
 		{`CREATE TABLE usage_tool_calls (ts INTEGER, name TEXT, server TEXT, skill TEXT, harness TEXT)`, nil},
 		{`CREATE TABLE usage_requests (ts INTEGER, agent_type TEXT, harness TEXT)`, nil},
 		{`INSERT INTO usage_tool_calls VALUES (?, 'review', 'grace', '', 'claude'), (?, 'review', 'grace', '', 'claude'), (?, 'Read', '', '', 'claude'), (?, 'get_issue', 'github', '', 'codex'),
-			(?, 'Skill', '', 'grace-review', 'claude'), (?, 'Skill', '', 'grace-review', 'claude'), (?, 'Skill', '', '', 'claude')`, []any{ms(1), ms(3), ms(2), ms(2), ms(2), ms(4), ms(4)}},
+			(?, 'Skill', '', 'grace-review', 'claude'), (?, 'Skill', '', 'grace-review', 'claude')`, []any{ms(1), ms(3), ms(2), ms(2), ms(2), ms(4)}},
 		{`INSERT INTO usage_requests VALUES (?, 'Explore', 'claude'), (?, 'main', 'claude'), (?, 'Explore', 'claude')`, []any{ms(1), ms(1), ms(4)}},
 	} {
 		if _, err := db.Exec(q.sql, q.args...); err != nil {
@@ -50,6 +50,39 @@ func allActivity(t *testing.T) domain.Activity {
 		t.Fatal(err)
 	}
 	return a
+}
+
+// withSkillCall adds to the stand-in index a Claude Skill call of 4 January whose skill column holds skill: NULL for a
+// call whose log the index has not read again, "" for one that named no valid skill.
+func withSkillCall(t *testing.T, path string, skill any) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`INSERT INTO usage_tool_calls VALUES (?, 'Skill', '', ?, 'claude')`, time.Date(2026, 1, 4, 0, 0, 0, 0, time.UTC).UnixMilli(), skill); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// activityWithSkillCall reads the whole activity of the stand-in index after withSkillCall, and the activity from 5 January.
+func activityWithSkillCall(t *testing.T, skill any) (all, later domain.Activity) {
+	t.Helper()
+	path := publishedIndex(t)
+	withSkillCall(t, path, skill)
+	u, err := OpenReadOnly(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer u.Close()
+	if all, err = u.Activity(domain.Filter{}); err != nil {
+		t.Fatal(err)
+	}
+	if later, err = u.Activity(domain.Filter{Since: time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC)}); err != nil {
+		t.Fatal(err)
+	}
+	return all, later
 }
 
 func TestToolCallsAreCountedPerHarnessAndServer(t *testing.T) {
@@ -87,37 +120,51 @@ func TestSubagentRequestsAreCountedPerAgentType(t *testing.T) {
 }
 
 func TestSkillLoadsAreCountedPerSkill(t *testing.T) {
-	// Given an index with two loads of one skill and a Skill call that names none
+	// Given an index with two loads of one skill
 	// When the activity is read
 	a := allActivity(t)
 
-	// Then only the named loads are counted
+	// Then they are counted together, with the latest
 	if len(a.Skills) != 1 || a.Skills[0].Skill != "grace-review" || a.Skills[0].Calls != 2 || !a.Skills[0].Last.Equal(time.Date(2026, 1, 4, 0, 0, 0, 0, time.UTC)) {
 		t.Errorf("skills: %+v", a.Skills)
 	}
 }
 
-func TestAnUnnamedSkillCallMakesTheSkillUsageOfItsHarnessUnknown(t *testing.T) {
-	// Given an index with a Claude Skill call that names no skill, on 4 January
-	u, err := OpenReadOnly(publishedIndex(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer u.Close()
-
+func TestASkillCallWhoseLogIsNotReadAgainYetMakesTheSkillUsageOfItsHarnessUnknown(t *testing.T) {
+	// Given a Claude Skill call, on 4 January, whose log the index has not read again since it records skills
 	// When the activity is read for the whole period, and for the period after that call
-	all, err := u.Activity(domain.Filter{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	later, err := u.Activity(domain.Filter{Since: time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC)})
-	if err != nil {
-		t.Fatal(err)
-	}
+	all, later := activityWithSkillCall(t, nil)
 
 	// Then Claude is flagged for the first period only, and Codex for neither
-	if !all.UnnamedSkillLoads[kernel.Claude] || all.UnnamedSkillLoads[kernel.Codex] || len(later.UnnamedSkillLoads) != 0 {
-		t.Errorf("all %v, later %v", all.UnnamedSkillLoads, later.UnnamedSkillLoads)
+	if !all.PendingSkillLoads[kernel.Claude] || all.PendingSkillLoads[kernel.Codex] || len(later.PendingSkillLoads) != 0 {
+		t.Errorf("all %v, later %v", all.PendingSkillLoads, later.PendingSkillLoads)
+	}
+}
+
+func TestASkillCallThatNamedNoValidSkillIsCountedApartAndLeavesTheSkillUsageKnown(t *testing.T) {
+	// Given a Claude Skill call, on 4 January, that named no valid skill
+	// When the activity is read for the whole period, and for the period after that call
+	all, later := activityWithSkillCall(t, "")
+
+	// Then the call is counted as unnamed for the first period only, no harness has an unknown skill usage,
+	// and the load of the named skill is still counted
+	if len(all.UnnamedSkillCalls) != 1 || all.UnnamedSkillCalls[0].Harness != kernel.Claude || all.UnnamedSkillCalls[0].Calls != 1 || all.UnnamedSkillCalls[0].Skill != "" ||
+		!all.UnnamedSkillCalls[0].Last.Equal(time.Date(2026, 1, 4, 0, 0, 0, 0, time.UTC)) || len(later.UnnamedSkillCalls) != 0 {
+		t.Errorf("unnamed: all %+v, later %+v", all.UnnamedSkillCalls, later.UnnamedSkillCalls)
+	}
+	if len(all.PendingSkillLoads) != 0 || len(all.Skills) != 1 || all.Skills[0].Calls != 2 {
+		t.Errorf("pending %v, skills %+v", all.PendingSkillLoads, all.Skills)
+	}
+}
+
+func TestSkillCallsAreNeitherPendingNorUnnamedWhenEveryOneNamedItsSkill(t *testing.T) {
+	// Given an index where every Skill call named its skill
+	// When the activity is read
+	a := allActivity(t)
+
+	// Then nothing is pending and nothing is unnamed
+	if len(a.PendingSkillLoads) != 0 || len(a.UnnamedSkillCalls) != 0 {
+		t.Errorf("pending %v, unnamed %+v", a.PendingSkillLoads, a.UnnamedSkillCalls)
 	}
 }
 

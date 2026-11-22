@@ -182,13 +182,13 @@ func TestUsageOfWhatTheLogsDoNotTellApartIsUnknownNotZero(t *testing.T) {
 	}
 }
 
-func TestSkillUsageIsUnknownWhileSomeSkillCallNamesNoSkill(t *testing.T) {
-	// Given a Claude skill and agent with no named load, and a Skill call of Claude that names no skill (not read again yet)
+func TestSkillUsageIsUnknownWhileSomeSkillCallAwaitsItsLogToBeReadAgain(t *testing.T) {
+	// Given a Claude skill and agent with no named load, and a Skill call of Claude whose log is not read again yet
 	items := []Item{
 		item(t, kernel.Claude, Skill, "review", ScopeUser),
 		item(t, kernel.Claude, Agent, "reviewer", ScopeUser),
 	}
-	act := Activity{UnnamedSkillLoads: map[kernel.Harness]bool{kernel.Claude: true}}
+	act := Activity{PendingSkillLoads: map[kernel.Harness]bool{kernel.Claude: true}}
 
 	// When linked
 	entries := Link(items, act)
@@ -202,14 +202,48 @@ func TestSkillUsageIsUnknownWhileSomeSkillCallNamesNoSkill(t *testing.T) {
 	}
 }
 
+func TestSkillCallsThatNamedNoValidSkillAreShownApartAndLeaveSkillUsageKnown(t *testing.T) {
+	// Given an installed Claude skill, three Skill calls that named no valid skill, and one load of another skill
+	items := []Item{item(t, kernel.Claude, Skill, "review", ScopeUser)}
+	last := time.Date(2026, 1, 4, 0, 0, 0, 0, time.UTC)
+	act := Activity{
+		UnnamedSkillCalls: []SkillActivity{{Harness: kernel.Claude, Calls: 3, Last: last}},
+		Skills:            []SkillActivity{{Harness: kernel.Claude, Skill: "other", Calls: 1}},
+	}
+
+	// When linked
+	entries := Link(items, act)
+
+	// Then the installed skill is known to be unused, as none of those calls can be credited to it
+	if s := find(t, entries, kernel.Claude, Skill, "review"); !s.Tracked || s.Uses != 0 || !s.Unused() {
+		t.Errorf("installed skill: %+v", s)
+	}
+	// And the calls are listed as what they are, counted together
+	if u := find(t, entries, kernel.Claude, Skill, UnnamedSkillEntry); u.Installed() || u.Uses != 3 || !u.Last.Equal(last) {
+		t.Errorf("unnamed skill calls: %+v", u)
+	}
+}
+
+func TestNoUnnamedSkillCallIsListedWhenEveryCallNamedItsSkill(t *testing.T) {
+	// Given a skill load that named its skill and no call that did not
+	act := Activity{Skills: []SkillActivity{{Harness: kernel.Claude, Skill: "review", Calls: 1}}}
+
+	// When linked, then only the skill named is listed
+	for _, e := range Link(nil, act) {
+		if e.Name.String() == UnnamedSkillEntry {
+			t.Errorf("unnamed skill calls listed: %+v", e)
+		}
+	}
+}
+
 func TestPluginCarryingASkillOfUnknownUsageIsNotReportedUnused(t *testing.T) {
-	// Given a plugin that carries a skill and an MCP server never called, and a Claude Skill call that names no skill
+	// Given a plugin that carries a skill and an MCP server never called, and a Claude Skill call whose log is not read again yet
 	plugin := item(t, kernel.Claude, Plugin, "demo@market", ScopeUser)
 	skill := item(t, kernel.Claude, Skill, "demo:review", ScopePlugin)
 	skill.Origin = plugin.Name
 	server := item(t, kernel.Claude, MCPServer, "helper", ScopePlugin)
 	server.Origin = plugin.Name
-	act := Activity{UnnamedSkillLoads: map[kernel.Harness]bool{kernel.Claude: true}}
+	act := Activity{PendingSkillLoads: map[kernel.Harness]bool{kernel.Claude: true}}
 
 	// When linked
 	p := find(t, Link([]Item{plugin, skill, server}, act), kernel.Claude, Plugin, "demo@market")
@@ -228,7 +262,7 @@ func TestPluginCarryingASkillOfUnknownUsageShowsTheCallsOfItsServer(t *testing.T
 	server := item(t, kernel.Claude, MCPServer, "helper", ScopePlugin)
 	server.Origin = plugin.Name
 	act := Activity{
-		UnnamedSkillLoads: map[kernel.Harness]bool{kernel.Claude: true},
+		PendingSkillLoads: map[kernel.Harness]bool{kernel.Claude: true},
 		Tools:             []ToolActivity{{Harness: kernel.Claude, Name: "x", Server: "plugin_demo_helper", Calls: 2}},
 	}
 

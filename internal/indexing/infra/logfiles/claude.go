@@ -216,7 +216,7 @@ func ParseClaude(path string, r io.Reader) (domain.Transcript, error) {
 				server, name := domain.SplitMCPToolName(b.Name)
 				toolIndex[b.ID] = len(p.Tools)
 				call := domain.ToolCall{Key: b.ID, At: ts, Name: name, Server: server, ArgsChars: int(b.Input)}
-				if server == "" && name == "Skill" {
+				if call.LoadsSkill() {
 					call.Skill = b.Skill
 				}
 				p.Tools = append(p.Tools, call)

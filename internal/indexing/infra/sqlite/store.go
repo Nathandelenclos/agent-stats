@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS requests (
 CREATE TABLE IF NOT EXISTS tool_calls (
 	file TEXT NOT NULL, key TEXT NOT NULL, session_id TEXT NOT NULL, ts INTEGER NOT NULL,
 	name TEXT NOT NULL, server TEXT NOT NULL, args_chars INTEGER NOT NULL, result_chars INTEGER NOT NULL,
-	is_error INTEGER NOT NULL, duration_ms REAL, skill TEXT NOT NULL DEFAULT '',
+	is_error INTEGER NOT NULL, duration_ms REAL,
 	PRIMARY KEY (session_id, key));
 CREATE TABLE IF NOT EXISTS prompts (
 	file TEXT NOT NULL, key TEXT NOT NULL, session_id TEXT NOT NULL, ts INTEGER NOT NULL, text TEXT NOT NULL,
@@ -135,38 +135,35 @@ func sqlSteps(steps ...string) migration {
 // for an index that has run it is not migrated again. Each one sees the index as the previous ones left it.
 var migrations = []migration{
 	sqlSteps(sessionViews, forgetCodexLogs),
-	addSkill,
+	sqlSteps(recordSkills),
 }
 
-// usageToolCalls is the published view of the tool calls. It holds no data: addSkill replaces it with the column.
-const usageToolCalls = `
-DROP VIEW IF EXISTS usage_tool_calls;
-CREATE VIEW usage_tool_calls AS
-	SELECT t.ts, t.name, t.server, t.skill, t.args_chars, t.result_chars, t.is_error, t.duration_ms, s.harness
-	FROM tool_calls t JOIN sessions s ON s.id = t.session_id;
-`
-
-// addSkill migrates an index written before tool calls recorded the skill they load, then publishes it. An index
-// that has the column already (a fresh one, or one a build with the column opened) keeps it and its rows.
-// The files holding a Skill call are forgotten, so that the next indexing reads them again and fills the column.
+// recordSkills makes the index record the skill each Skill call loads. It is a table of its own, not a column of
+// tool_calls: a build from before it writes tool_calls with positional statements that a column more would refuse,
+// so that build keeps writing an index this one has migrated (its Skill calls then await their log, see below).
+//
+// The published usage_tool_calls says, in its skill column, what the index knows of a call:
+//   - on a Skill call (no server): the skill it loaded; "" when it named no valid skill; NULL while the index has no
+//     record of it, because its log was not read again since the index records skills (a pending call);
+//   - on any other call: "".
+//
+// The files holding a Skill call are forgotten, so that the next indexing reads them again and records them.
 // So are those holding a call named "mcp__<server>__<tool>" under no server, how a Codex function call was
 // recorded before the server was split out of its name.
-func addSkill(ctx context.Context, conn *sql.Conn) error {
-	var present int
-	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('tool_calls') WHERE name = 'skill'`).Scan(&present); err != nil {
-		return err
-	}
-	var steps []string
-	if present == 0 {
-		steps = append(steps,
-			`ALTER TABLE tool_calls ADD COLUMN skill TEXT NOT NULL DEFAULT ''`,
-			`DELETE FROM files WHERE path IN (SELECT file FROM tool_calls WHERE name = 'Skill' AND server = '')`)
-	}
-	steps = append(steps,
-		`DELETE FROM files WHERE path IN (SELECT file FROM tool_calls WHERE server = '' AND name LIKE 'mcp\_\_%' ESCAPE '\')`,
-		usageToolCalls)
-	return sqlSteps(steps...)(ctx, conn)
-}
+const recordSkills = `
+CREATE TABLE tool_call_skills (
+	file TEXT NOT NULL, session_id TEXT NOT NULL, key TEXT NOT NULL, skill TEXT NOT NULL,
+	PRIMARY KEY (session_id, key)) WITHOUT ROWID;
+CREATE INDEX tool_call_skills_file ON tool_call_skills (file);
+DELETE FROM files WHERE path IN (SELECT file FROM tool_calls WHERE name = 'Skill' AND server = '');
+DELETE FROM files WHERE path IN (SELECT file FROM tool_calls WHERE server = '' AND name LIKE 'mcp\_\_%' ESCAPE '\');
+DROP VIEW IF EXISTS usage_tool_calls;
+CREATE VIEW usage_tool_calls AS
+	SELECT t.ts, t.name, t.server, CASE WHEN t.name = 'Skill' AND t.server = '' THEN k.skill ELSE '' END AS skill,
+		t.args_chars, t.result_chars, t.is_error, t.duration_ms, s.harness
+	FROM tool_calls t JOIN sessions s ON s.id = t.session_id
+		LEFT JOIN tool_call_skills k ON k.session_id = t.session_id AND k.key = t.key;
+`
 
 // migrate runs, in one transaction, the migrations the index has not run, then records how many it has run: another
 // connection keeps reading the previous state until it commits, and a failure leaves it untouched.
@@ -301,11 +298,11 @@ func (s *SQLiteIndex) IndexedFiles() (map[string]application.LogFile, error) {
 
 // statements are the prepared statements that write one log, bound to the transaction of a batch.
 type statements struct {
-	deletes                              [4]*sql.Stmt // sessions, requests, tool_calls, prompts: the rows of a file
-	session, request, tool, prompt, file *sql.Stmt
+	deletes                                     [5]*sql.Stmt // the rows of a file, in each of deletedTables
+	session, request, tool, skill, prompt, file *sql.Stmt
 }
 
-var deletedTables = [...]string{"sessions", "requests", "tool_calls", "prompts"}
+var deletedTables = [...]string{"sessions", "requests", "tool_calls", "tool_call_skills", "prompts"}
 
 func prepare(tx *sql.Tx) (st statements, err error) {
 	prep := func(query string) *sql.Stmt {
@@ -321,14 +318,15 @@ func prepare(tx *sql.Tx) (st statements, err error) {
 	}
 	st.session = prep(`INSERT OR REPLACE INTO sessions VALUES (?,?,?,?,?,?,?,?,?,?)`)
 	st.request = prep(`INSERT OR REPLACE INTO requests VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-	st.tool = prep(`INSERT OR REPLACE INTO tool_calls VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+	st.tool = prep(`INSERT OR REPLACE INTO tool_calls VALUES (?,?,?,?,?,?,?,?,?,?)`)
+	st.skill = prep(`INSERT OR REPLACE INTO tool_call_skills VALUES (?,?,?,?)`)
 	st.prompt = prep(`INSERT OR REPLACE INTO prompts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	st.file = prep(`INSERT OR REPLACE INTO files VALUES (?,?,?,?)`)
 	return st, err
 }
 
 func (st statements) close() {
-	for _, stmt := range append(st.deletes[:], st.session, st.request, st.tool, st.prompt, st.file) {
+	for _, stmt := range append(st.deletes[:], st.session, st.request, st.tool, st.skill, st.prompt, st.file) {
 		if stmt != nil {
 			stmt.Close()
 		}
@@ -401,8 +399,13 @@ func (s *SQLiteIndex) saveLog(st statements, file application.LogFile, t applica
 		}
 	}
 	for _, c := range t.Tools {
-		if _, err := st.tool.Exec(path, c.Key, ss.ID.String(), kernel.UnixMilli(c.At), c.Name, c.Server, c.ArgsChars, c.ResultChars, c.IsError, nullMillis(c.Duration), c.Skill); err != nil {
+		if _, err := st.tool.Exec(path, c.Key, ss.ID.String(), kernel.UnixMilli(c.At), c.Name, c.Server, c.ArgsChars, c.ResultChars, c.IsError, nullMillis(c.Duration)); err != nil {
 			return err
+		}
+		if c.LoadsSkill() {
+			if _, err := st.skill.Exec(path, ss.ID.String(), c.Key, c.Skill); err != nil {
+				return err
+			}
 		}
 	}
 	for i, pr := range t.Prompts {

@@ -148,10 +148,17 @@ type Activity struct {
 	Tools  []ToolActivity
 	Agents []AgentActivity
 	Skills []SkillActivity
-	// UnnamedSkillLoads flags the harnesses with a Skill call that names no skill: the index has not read its file again
-	// (after a migration), so the loads counted per skill are incomplete and the usage of skills is unknown.
-	UnnamedSkillLoads map[kernel.Harness]bool
+	// PendingSkillLoads flags the harnesses with a Skill call whose skill the index has not recorded yet: its log is not
+	// read again since the index records skills, so the loads counted per skill are incomplete and the usage of skills is unknown.
+	PendingSkillLoads map[kernel.Harness]bool
+	// UnnamedSkillCalls counts the Skill calls that named no valid skill, per harness (their Skill is empty). They are
+	// credited to no installed skill, and leave the usage of skills known: the logs did record them, as unnamed.
+	UnnamedSkillCalls []SkillActivity
 }
+
+// UnnamedSkillEntry is the name under which the Skill calls that named no valid skill are listed. It cannot be the
+// name of a skill a harness logs (those start with a letter or a digit).
+const UnnamedSkillEntry = "(unnamed Skill calls)"
 
 // Entry is one line of the catalogue: an item, or a tool, server, agent or skill seen in the logs but defined nowhere
 // the catalogue looks. Uses is how many times the logs show it at work, counted in its Unit.
@@ -160,7 +167,7 @@ type Entry struct {
 	Uses int64
 	Last time.Time
 	// Tracked is false when the logs do not tell this kind of item apart, or do not yet for now (a Skill call without
-	// its skill name awaits re-reading, see Activity.UnnamedSkillLoads), or when a call under a short name that
+	// its skill name awaits re-reading, see Activity.PendingSkillLoads), or when a call under a short name that
 	// several plugin items answer to could be this one's: Uses is then unknown, not zero.
 	Tracked bool
 	// pending marks an item whose Tracked is false because its usage is not settled yet, not because the logs cannot
@@ -215,7 +222,7 @@ func Link(items []Item, a Activity) []Entry {
 		}
 		seen[it.identity()] = true
 		maybe := false // a call under a short name that is not this item's alone is logged
-		e := Entry{Item: it, Tracked: tracked(it.Harness, it.Kind) && !(it.Kind == Skill && a.UnnamedSkillLoads[it.Harness])}
+		e := Entry{Item: it, Tracked: tracked(it.Harness, it.Kind) && !(it.Kind == Skill && a.PendingSkillLoads[it.Harness])}
 		switch it.Kind {
 		case MCPServer:
 			for i, t := range a.Tools {
@@ -243,7 +250,7 @@ func Link(items []Item, a Activity) []Entry {
 				maybe = maybe || couldBe(it, g.Harness, g.AgentType, ok)
 			}
 		}
-		e.pending = it.Kind == Skill && a.UnnamedSkillLoads[it.Harness]
+		e.pending = it.Kind == Skill && a.PendingSkillLoads[it.Harness]
 		if maybe && e.Uses == 0 { // with a count of its own the item stays as counted, which is then a lower bound
 			e.Tracked, e.pending = false, true
 		}
@@ -277,6 +284,9 @@ func Link(items []Item, a Activity) []Entry {
 		if !claimedSkill[i] {
 			entries = append(entries, logged(s.Harness, Skill, s.Skill, s.Calls, s.Last))
 		}
+	}
+	for _, u := range a.UnnamedSkillCalls {
+		entries = append(entries, logged(u.Harness, Skill, UnnamedSkillEntry, u.Calls, u.Last))
 	}
 	sortEntries(entries)
 	return entries
