@@ -107,7 +107,6 @@ func (s *session) wait(t *testing.T, timeout time.Duration) error {
 // What the terminal receives, named so that the scenarios below read as behaviour.
 const (
 	openInterface       = "\x1b[?1049h" // the interface takes the whole screen
-	activeTabHighlight  = "\x1b[7m"     // the active tab is drawn in reverse video
 	askBackgroundColour = "\x1b]11;?"   // what the colour libraries send to a terminal when they load
 	askCursorPosition   = "\x1b[6n"
 )
@@ -173,8 +172,10 @@ func TestInterfaceHighlightsTheActiveTab(t *testing.T) {
 	// When the interface opens
 	s := onATerminal(t, false)
 
-	// Then the active tab is highlighted: the colour detection the program switched off while loading is back
-	s.waitFor(t, activeTabHighlight, 2*time.Second)
+	// When the person opens Usage from the dashboard, its mode label is highlighted.
+	s.waitFor(t, "[Dashboard]", 2*time.Second)
+	n := s.press(t, "\r")
+	s.waitForNew(t, n, usageModeOn)
 	s.quit(t)
 }
 

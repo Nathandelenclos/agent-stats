@@ -18,6 +18,7 @@ import (
 const sessionModel = `
 CREATE TABLE session_overview (id TEXT NOT NULL, root_id TEXT NOT NULL, harness TEXT NOT NULL, agent_type TEXT NOT NULL,
 	title TEXT, folder TEXT, started_at INTEGER, ended_at INTEGER, run_started_at INTEGER NOT NULL, run_ended_at INTEGER NOT NULL);
+CREATE TABLE session_lineage (id TEXT PRIMARY KEY, parent_id TEXT NOT NULL);
 CREATE TABLE session_requests (root_id TEXT NOT NULL, session_id TEXT NOT NULL, ts INTEGER NOT NULL, model TEXT NOT NULL,
 	input INTEGER NOT NULL, output INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL,
 	cost REAL NOT NULL, priced INTEGER NOT NULL, duration_ms REAL, ttft_ms REAL, error TEXT);
@@ -57,6 +58,7 @@ func sessionsIndexed(t *testing.T) string {
 			('codex:old', 'codex:old', 'codex', 'main', NULL, NULL, ?, ?, ?, ?),
 			('claude:gone/orphan', 'claude:gone/orphan', 'claude', 'subagent', 'orphan', NULL, 0, 0, 0, 0)`,
 			[]any{hostile, hostile, t0, t0, t0, t1, hostile, "kid", t0, t1, t0, t1, t0 - 60_000, t0, t0 - 60_000, t0}},
+		{`INSERT INTO session_lineage VALUES ('claude:main/kid', 'claude:main')`, nil},
 		{`INSERT INTO session_requests VALUES
 			('claude:main', 'claude:main', ?, 'cheap', 100, 10, 0, 0, 1, 1, 1000, NULL, NULL),
 			('claude:main', 'claude:main', ?, ?, 100, 10, 0, 0, 3, 1, 2000, NULL, 'boom'),

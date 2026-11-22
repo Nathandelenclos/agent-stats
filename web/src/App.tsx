@@ -25,6 +25,7 @@ import { PromptReview } from "./features/prompts/PromptReview";
 import { usePromptReview } from "./features/prompts/api";
 import { SyncBanner, useSyncStatus } from "./features/sync";
 import { Catalog, useCatalog } from "./features/catalog/Catalog";
+import { Improvements } from "./features/improvements/Improvements";
 import { Quotas, useQuotas } from "./features/quotas/Quotas";
 import { Overview } from "./features/overview/Overview";
 import { RelatedSessions } from "./features/overview/RelatedSessions";
@@ -154,7 +155,7 @@ function Report({ report, explore }: {
   );
 }
 
-const navIcons: Record<View, string> = { Overview: "▦", Usage: "▥", Sessions: "▤", Prompts: "≡", Catalog: "⊞", Quotas: "◴" };
+const navIcons: Record<View, string> = { Overview: "▦", Usage: "▥", Sessions: "▤", Prompts: "≡", Improvements: "↗", Catalog: "⊞", Quotas: "◴" };
 const clearedRelation = Object.fromEntries(relationKeys.map((key) => [key, undefined]));
 const clearedDetail = { session: undefined, prompt: undefined, revision: undefined, section: undefined };
 
@@ -172,6 +173,8 @@ export function App() {
   const filters = useMemo(() => meta.data ? readFilters(meta.data, address) : undefined, [meta.data, address]);
   const project = filters?.scope === "current" ? (meta.data?.project ?? "") : "";
   const isOverview = view === "Overview";
+  const isImprovements = view === "Improvements";
+  const hasCatalog = !!meta.data?.catalogAvailable;
   const report = useReport(isOverview || view === "Usage" ? filters : undefined);
   const sessionID = address.get("session") || undefined;
   const position = Number(address.get("prompt"));
@@ -179,8 +182,12 @@ export function App() {
   const revision = address.get("revision") || undefined;
   const section = address.get("section") || undefined;
   const sessions = useSessions(isOverview || view === "Sessions" ? filters : undefined, project, isOverview ? 5 : 1000);
-  const prompts = usePromptReview(isOverview || view === "Prompts" ? filters : undefined, project, isOverview ? 5 : 1000);
-  const catalog = useCatalog(isOverview || view === "Catalog" ? filters : undefined, project, !isOverview && unused);
+  const prompts = usePromptReview(isOverview || isImprovements || view === "Prompts" ? filters : undefined, project, isOverview || isImprovements ? 5 : 1000);
+  const catalog = useCatalog(
+    isOverview || view === "Catalog" || (isImprovements && hasCatalog) ? filters : undefined,
+    project,
+    isImprovements || (view === "Catalog" && unused),
+  );
   const quotas = useQuotas(isOverview && !!meta.data?.quotasAvailable);
   const selection = readRelation(address);
   const rawMetric = address.get("metric");
@@ -190,6 +197,7 @@ export function App() {
     Usage: report.data?.scope,
     Sessions: sessions.data?.scope,
     Prompts: prompts.data?.scope,
+    Improvements: prompts.data?.scope ?? catalog.data?.scope,
     Catalog: catalog.data?.scope,
     Quotas: undefined,
   }[view];
@@ -297,6 +305,12 @@ export function App() {
               {view === "Catalog" && <>{inspector}<Catalog query={catalog} unused={unused} onUnusedChange={setUnused}
                 onServer={(entry) => explore({ kind: "mcp", value: entry.name, itemHarness: entry.harness, itemScope: entry.scope, itemOrigin: entry.originId })} /></>}
               {view === "Quotas" && <Quotas />}
+              {isImprovements && <Improvements prompts={prompts} catalog={hasCatalog ? catalog : undefined}
+                openPrompts={() => selectView("Prompts")}
+                openCatalog={() => {
+                  setUnused(true);
+                  selectView("Catalog");
+                }} />}
             </>
           )}
         </main>

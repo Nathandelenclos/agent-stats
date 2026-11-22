@@ -5,6 +5,7 @@ import { formatDateTime, formatInteger, formatMs, formatPercent, formatUSD } fro
 import { describeSignals } from "../report/signals";
 import { ToolsTable, type Filters, type Usage } from "../report";
 import { PromptMarkdown, PromptReader } from "./PromptReader";
+import { SessionGraph } from "./SessionGraph";
 import { useSessionDetail, type Session, type SessionDetail, type SessionPrompt, type useSessions } from "./api";
 
 function sessionTitle(session: Session) {
@@ -32,7 +33,7 @@ const sessionMetrics: Column<Session>[] = [
   { id: "folder", header: "Folder", value: (row) => row.folder, truncate: true },
 ];
 
-const sectionNames = ["Summary", "Models", "Tools", "Subagents", "Prompts"] as const;
+const sectionNames = ["Summary", "Models", "Tools", "Subagents", "Prompts", "Activity graph"] as const;
 type SectionName = typeof sectionNames[number];
 type PromptTarget = { position: number; revision?: string };
 type OpenPrompt = (id: string, position: number, revision?: string) => void;
@@ -327,6 +328,8 @@ function SectionContent({ detail, section, openPrompt }: { detail: SessionDetail
       </>;
     case "Subagents":
       return <DataTable caption="Session subagents" columns={subagentColumns} rows={subagents.map((row, position) => ({ ...row, position }))} rowKey={(row) => String(row.position)} initialSort="cost" />;
+    case "Activity graph":
+      return <SessionGraph detail={detail} />;
     case "Prompts":
       return <SessionPrompts prompts={prompts} visible={promptsVisible} open={(position, revision, button) => openPrompt(session.id, position, revision, button)} />;
   }
