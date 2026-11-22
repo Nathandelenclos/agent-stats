@@ -85,7 +85,7 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 				return nil
 			}
 			parsers[path] = src.Parse
-			files = append(files, application.LogFile{Path: path, Harness: src.Harness, Size: info.Size(), ModTime: info.ModTime()})
+			files = append(files, application.LogFile{Path: path, Harness: src.Harness, Size: info.Size(), ModTime: info.ModTime(), Weight: logWeight(path, info.Size())})
 			return nil
 		})
 		if err != nil {

@@ -183,11 +183,11 @@ func TestIndexSessionsReadsOnlyAFewBytesOfLogsAheadOfTheWriter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Then no more than 6 logs were read before the first one was saved: 5 fit in the window,
-	// and the first left it when the writer took it
+	// Then no more than 5 logs were read before the first one was saved: they fit in the window,
+	// and the first stays in it until it is saved
 	<-saving
-	if readsWhenFirstSaved > 6 {
-		t.Errorf("%d logs read before the first was saved, want at most 6", readsWhenFirstSaved)
+	if readsWhenFirstSaved > 5 {
+		t.Errorf("%d logs read before the first was saved, want at most 5", readsWhenFirstSaved)
 	}
 	if len(store.saved) != 40 {
 		t.Errorf("saved %d logs, want 40", len(store.saved))
@@ -230,6 +230,82 @@ func TestProgressIsReportedEveryFiftyLogsWhateverTheBatch(t *testing.T) {
 	_, err := IndexSessions{Logs: logs, Store: store, Prices: flatPrices{}}.Run(func(r IndexReport) { seen = append(seen, r.Indexed) })
 	if err != nil || !slices.Equal(seen, []int{50, 100}) {
 		t.Errorf("progress at %v, %v; want 50, 100", seen, err)
+	}
+}
+
+// done fails the test when run does not return in time: a window that waits for a batch the writer waits
+// for the window to fill would hang forever.
+func done(t *testing.T, run func()) {
+	t.Helper()
+	finished := make(chan struct{})
+	go func() { run(); close(finished) }()
+	select {
+	case <-finished:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the run does not end")
+	}
+}
+
+func TestIndexSessionsKeepsALogInTheWindowUntilItsBatchIsSaved(t *testing.T) {
+	// Given 40 logs of 10 bytes, room for 50, and batches of 64: far more than fit in the window
+	logs := manyLogs(40)
+	store := &fakeStore{known: map[string]LogFile{}, saved: map[string]IndexedTranscript{}}
+	var readsWhenFirstSaved int
+	store.onSave = func(path string) {
+		if path == "log-00" {
+			time.Sleep(50 * time.Millisecond) // let the workers run as far ahead as they may
+			logs.mu.Lock()
+			readsWhenFirstSaved = len(logs.read)
+			logs.mu.Unlock()
+		}
+	}
+
+	// When 3 workers index them
+	var err error
+	done(t, func() {
+		_, err = IndexSessions{Logs: logs, Store: store, Prices: flatPrices{}, Workers: 3, ReadAhead: 50}.Run(nil)
+	})
+
+	// Then the transcripts waiting for their batch counted in the window: at most 5 logs were read before
+	// the first was saved (the batch is saved early, rather than hold the readers back for good), and all were saved
+	if err != nil {
+		t.Fatal(err)
+	}
+	if readsWhenFirstSaved > 5 {
+		t.Errorf("%d logs read before the first was saved, want at most 5", readsWhenFirstSaved)
+	}
+	if len(store.saved) != 40 {
+		t.Errorf("saved %d logs, want 40", len(store.saved))
+	}
+	if len(store.sizes) < 8 {
+		t.Errorf("batches of %v: the window should have forced batches of at most 5", store.sizes)
+	}
+}
+
+func TestIndexSessionsWeighsACompressedLogByWhatItHolds(t *testing.T) {
+	// Given 6 logs of 1 byte on disk that hold 40 bytes of log once decompressed, with room for 50
+	logs := manyLogs(6)
+	for i := range logs.files {
+		logs.files[i].Size, logs.files[i].Weight = 1, 40
+	}
+	var reading, most atomic.Int32
+	logs.onRead = func(string) {
+		n := reading.Add(1)
+		for m := most.Load(); n > m && !most.CompareAndSwap(m, n); m = most.Load() {
+		}
+		time.Sleep(5 * time.Millisecond)
+		reading.Add(-1)
+	}
+	store := &fakeStore{known: map[string]LogFile{}, saved: map[string]IndexedTranscript{}}
+
+	// When 4 workers index them
+	done(t, func() {
+		IndexSessions{Logs: logs, Store: store, Prices: flatPrices{}, Workers: 4, ReadAhead: 50}.Run(nil)
+	})
+
+	// Then they were read one at a time, as the 40 bytes each holds allow, though 6 bytes of files would fit
+	if most.Load() != 1 || len(store.saved) != 6 {
+		t.Errorf("%d logs read at once, %d saved; want 1 and 6", most.Load(), len(store.saved))
 	}
 }
 

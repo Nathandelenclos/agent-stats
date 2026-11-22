@@ -59,6 +59,9 @@ func (uc IndexSessions) Run(progress func(IndexReport)) (IndexReport, error) {
 	if batch <= 0 {
 		batch = defaultSaveBatch
 	}
+	ahead := newWindow(uc.readAheadBytes())
+	take := uc.readAhead(changed, ahead)
+
 	var pending []readLog // in the order of the list: failures stay in it, so errors are reported in that order
 	flush := func() {
 		var batch []IndexedLog
@@ -72,6 +75,7 @@ func (uc IndexSessions) Run(progress func(IndexReport)) (IndexReport, error) {
 			saved = uc.Store.Save(batch)
 		}
 		for _, p := range pending {
+			ahead.leave(p.file.weight()) // only now is the transcript gone from memory
 			err := p.err
 			if err == nil {
 				err, saved = saved[0], saved[1:]
@@ -88,9 +92,11 @@ func (uc IndexSessions) Run(progress func(IndexReport)) (IndexReport, error) {
 		}
 		pending = pending[:0]
 	}
-	take := uc.readAhead(changed)
 	for range changed {
-		if pending = append(pending, take()); len(pending) == batch {
+		r := take(flush)
+		// A reader that waits for room while the writer waits for a batch to fill would wait for ever:
+		// save what is there, however few logs that are.
+		if pending = append(pending, r); len(pending) == batch || ahead.hasWaiter() {
 			flush()
 		}
 	}
@@ -107,34 +113,44 @@ type readLog struct {
 	err     error
 }
 
-// readAheadBytes bounds the logs read but not yet saved: a transcript weighs a fraction of the log it comes
+// readAheadBytes bounds the logs read but not saved yet: a transcript weighs a fraction of the log it comes
 // from. It lets the workers pass the largest logs of the list (tens of megabytes, seconds to parse) instead of
 // waiting for them, which a window counted in files did not.
 const readAheadBytes = 512 << 20
 
-// window counts the bytes of logs being read or waiting to be saved. Something is always let in when nothing
-// is held, so a log over the limit is still read.
+// window counts the bytes of the logs being read, waiting to be taken and waiting to be saved: a log leaves it
+// when its batch is saved, not before, or a batch of 64 transcripts would sit in memory outside the count.
+// Something is always let in when nothing is held, so a log over the limit is still read.
 type window struct {
 	mu          sync.Mutex
 	freed       *sync.Cond
 	held, limit int64
 	files       int
+	waiting     bool          // enter is waiting for room
+	stalled     chan struct{} // told, without blocking, each time enter starts waiting
 }
 
 func newWindow(limit int64) *window {
-	w := &window{limit: limit}
+	w := &window{limit: limit, stalled: make(chan struct{}, 1)}
 	w.freed = sync.NewCond(&w.mu)
 	return w
 }
 
+// enter waits for room for size bytes.
 func (w *window) enter(size int64) {
 	w.mu.Lock()
+	defer w.mu.Unlock()
 	for w.files > 0 && w.held+size > w.limit {
+		w.waiting = true
+		select {
+		case w.stalled <- struct{}{}:
+		default: // already told
+		}
 		w.freed.Wait()
 	}
+	w.waiting = false
 	w.held += size
 	w.files++
-	w.mu.Unlock()
 }
 
 func (w *window) leave(size int64) {
@@ -145,21 +161,27 @@ func (w *window) leave(size int64) {
 	w.freed.Broadcast()
 }
 
+// hasWaiter reports whether a reader is waiting for the window to free up.
+func (w *window) hasWaiter() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.waiting
+}
+
 // readAhead starts reading, parsing and pricing files in the background and returns take, which hands over
-// the results one at a time in the order of files; take must be called once per file. The workers run ahead
-// of the caller within readAheadBytes.
-func (uc IndexSessions) readAhead(files []LogFile) (take func() readLog) {
+// the results one at a time in the order of files; take must be called once per file. While take waits for a
+// result it calls flush if the readers wait for room. The workers run ahead of the caller within the window.
+func (uc IndexSessions) readAhead(files []LogFile, ahead *window) (take func(flush func()) readLog) {
 	workers := min(max(uc.Workers, 1), len(files))
 	results := make([]chan readLog, len(files)) // one per file, so results come out in order
 	for i := range results {
 		results[i] = make(chan readLog, 1)
 	}
 	next := make(chan int)
-	ahead := newWindow(uc.readAheadBytes())
 	go func() {
 		defer close(next)
 		for i, f := range files {
-			ahead.enter(f.Size)
+			ahead.enter(f.weight())
 			next <- i
 		}
 	}()
@@ -178,11 +200,16 @@ func (uc IndexSessions) readAhead(files []LogFile) (take func() readLog) {
 		}()
 	}
 	i := 0
-	return func() readLog {
-		r := <-results[i]
-		ahead.leave(files[i].Size)
-		i++
-		return r
+	return func(flush func()) readLog {
+		for {
+			select {
+			case r := <-results[i]:
+				i++
+				return r
+			case <-ahead.stalled:
+				flush() // a no-op when nothing waits to be saved
+			}
+		}
 	}
 }
 

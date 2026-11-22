@@ -12,6 +12,7 @@ import (
 
 	"github.com/klauspost/compress/zstd"
 
+	"github.com/Nathandelenclos/agent-stats/internal/indexing/application"
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 )
@@ -192,6 +193,51 @@ func TestDecompressedSizeIsBounded(t *testing.T) {
 	}
 	if _, err := ParseFile(path, ParseCodex); !errors.Is(err, ErrLogTooLarge) {
 		t.Errorf("err = %v, want ErrLogTooLarge", err)
+	}
+}
+
+func TestListWeighsACompressedLogByItsDecompressedSize(t *testing.T) {
+	root := t.TempDir()
+	text := bytes.Repeat([]byte("{}\n"), 1<<20) // 3 MiB of log
+	write := func(name string, content []byte) {
+		if err := os.WriteFile(filepath.Join(root, name), content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	enc, err := zstd.NewWriter(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write("declared.jsonl.zst", enc.EncodeAll(text, nil)) // the frame states its content size
+	var streamed bytes.Buffer
+	enc.Reset(&streamed) // a stream does not
+	if _, err := enc.Write(text); err != nil || enc.Close() != nil {
+		t.Fatal(err)
+	}
+	write("streamed.jsonl.zst", streamed.Bytes())
+	write("garbage.jsonl.zst", []byte("not zstd at all"))
+	write("plain.jsonl", text)
+	logs := NewFileSessionLogs([]Source{{Harness: kernel.Codex, Root: root, Match: func(string) bool { return true }, Parse: ParseCodex}})
+
+	files, _, err := logs.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	weights := map[string]application.LogFile{}
+	for _, f := range files {
+		weights[filepath.Base(f.Path)] = f
+	}
+	if f := weights["declared.jsonl.zst"]; f.Weight < int64(len(text)) || f.Weight > int64(len(text))+maxZstdMemory {
+		t.Errorf("declared: weight %d for a log of %d bytes and a file of %d", f.Weight, len(text), f.Size)
+	}
+	for _, name := range []string{"streamed.jsonl.zst", "garbage.jsonl.zst"} {
+		if f := weights[name]; f.Weight != f.Size*unknownZstdRatio {
+			t.Errorf("%s: weight %d, want %d times its size of %d", name, f.Weight, unknownZstdRatio, f.Size)
+		}
+	}
+	if f := weights["plain.jsonl"]; f.Weight != 0 {
+		t.Errorf("plain: weight %d, want 0 (its size counts)", f.Weight)
 	}
 }
 

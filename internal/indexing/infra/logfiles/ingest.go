@@ -53,6 +53,32 @@ func ParseFile(path string, p Parser) (domain.Transcript, error) {
 	return p(path, &capped{r: r, left: maxLogBytes})
 }
 
+// unknownZstdRatio is how much a compressed log is assumed to expand when its frame does not state its size:
+// real rollouts reach 11 times (ponytail: a measured ratio per source if logs ever compress better than that).
+const unknownZstdRatio = 16
+
+// logWeight is what reading a log may hold in memory, in bytes of log text, for application.LogFile.Weight:
+// zero for a plain log, whose size says it, and for a compressed one the content size its first frame states
+// plus the decoder's window, or unknownZstdRatio times its size when it states none. It reads a few bytes.
+func logWeight(path string, size int64) int64 {
+	if !strings.HasSuffix(path, ".zst") {
+		return 0
+	}
+	guess := min(size*unknownZstdRatio, maxLogBytes)
+	f, err := openRegular(path)
+	if err != nil {
+		return guess
+	}
+	defer f.Close()
+	var head [18]byte // the longest frame header
+	n, _ := io.ReadFull(f, head[:])
+	var h zstd.Header
+	if h.Decode(head[:n]) != nil || !h.HasFCS {
+		return guess
+	}
+	return min(int64(min(h.FrameContentSize, 1<<62))+int64(min(h.WindowSize, maxZstdMemory)), maxLogBytes)
+}
+
 // zstdDecoders keeps decoders between files: a new one allocates its window and block buffers, tens of
 // megabytes over a run of hundreds of rollouts. A decoder holds no state across Reset.
 var zstdDecoders sync.Pool
