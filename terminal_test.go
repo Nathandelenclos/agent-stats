@@ -101,32 +101,51 @@ func (s *session) wait(t *testing.T, timeout time.Duration) error {
 	}
 }
 
-const enterAltScreen = "\x1b[?1049h"
+// What the terminal receives, named so that the scenarios below read as behaviour.
+const (
+	openInterface       = "\x1b[?1049h" // the interface takes the whole screen
+	activeTabHighlight  = "\x1b[7m"     // the active tab is drawn in reverse video
+	askBackgroundColour = "\x1b]11;?"   // what the colour libraries send to a terminal when they load
+	askCursorPosition   = "\x1b[6n"
+)
 
-func TestInterfaceOpensOnATerminalEvenWithStdinRedirected(t *testing.T) {
-	// Given stdout on a terminal and stdin redirected from /dev/null
-	s := onATerminal(t, true)
+// asksTheTerminal reports whether the program sent a question the terminal is expected to answer.
+func asksTheTerminal(output string) bool {
+	return strings.Contains(output, askBackgroundColour) || strings.Contains(output, askCursorPosition)
+}
 
-	// When agent-stats starts without --json, then the interface opens (on the controlling terminal for its input)
-	s.waitFor(t, enterAltScreen, 10*time.Second)
-	s.waitFor(t, "agent-stats", 10*time.Second)
-
-	// And it answers the keyboard: q quits
+// quit presses q and waits for the interface to end.
+func (s *session) quit(t *testing.T) {
+	t.Helper()
 	s.in.Write([]byte("q"))
 	if err := s.wait(t, 10*time.Second); err != nil {
 		t.Errorf("the interface did not quit cleanly: %v", err)
 	}
 }
 
-// A terminal that never answers must not slow down the non-interactive paths: the libraries behind the
-// interface query the terminal's colours when they load, and wait five seconds for an answer.
-func TestJSONOnATerminalDoesNotQueryTheTerminal(t *testing.T) {
+func TestInterfaceOpensOnATerminalEvenWithStdinRedirected(t *testing.T) {
+	// Given stdout on a terminal and stdin redirected from /dev/null
+	s := onATerminal(t, true)
+
+	// When agent-stats starts without --json
+	// Then the interface opens, and the keyboard of the controlling terminal drives it
+	s.waitFor(t, openInterface, 10*time.Second)
+	s.waitFor(t, "agent-stats", 10*time.Second)
+	s.quit(t)
+}
+
+func TestJSONOnATerminalDoesNotAskTheTerminalAnything(t *testing.T) {
+	// Given a terminal that never answers a question
 	start := time.Now()
+
+	// When the report is asked as JSON
 	s := onATerminal(t, false, "--json")
 	if err := s.wait(t, 20*time.Second); err != nil {
 		t.Fatalf("agent-stats --json: %v\n%q", err, s.output())
 	}
-	if out := s.output(); strings.Contains(out, "\x1b]") || strings.Contains(out, "\x1b[6n") || !strings.Contains(out, `"total"`) {
+
+	// Then the report is printed, without a question to the terminal and without waiting for an answer
+	if out := s.output(); asksTheTerminal(out) || !strings.Contains(out, `"total"`) {
 		t.Errorf("the terminal was queried or the report is missing: %q", out)
 	}
 	if d := time.Since(start); d > 3*time.Second {
@@ -134,11 +153,25 @@ func TestJSONOnATerminalDoesNotQueryTheTerminal(t *testing.T) {
 	}
 }
 
-func TestInterfaceDoesNotWaitForTheTerminalToOpen(t *testing.T) {
+func TestInterfaceDoesNotWaitForAnAnswerFromTheTerminal(t *testing.T) {
+	// Given a terminal that never answers a question
+	// When the interface opens
 	s := onATerminal(t, false)
+
+	// Then it is on screen within two seconds, without a question to the terminal
 	s.waitFor(t, "agent-stats", 2*time.Second)
-	// the colour detection is back on once the program runs: the active tab is drawn in reverse video
-	s.waitFor(t, "\x1b[7m", 2*time.Second)
-	s.in.Write([]byte("q"))
-	s.wait(t, 10*time.Second)
+	if asksTheTerminal(s.output()) {
+		t.Errorf("the terminal was queried: %q", s.output())
+	}
+	s.quit(t)
+}
+
+func TestInterfaceHighlightsTheActiveTab(t *testing.T) {
+	// Given a terminal that supports colours (CI is cleared and TERM set by the session)
+	// When the interface opens
+	s := onATerminal(t, false)
+
+	// Then the active tab is highlighted: the colour detection the program switched off while loading is back
+	s.waitFor(t, activeTabHighlight, 2*time.Second)
+	s.quit(t)
 }
