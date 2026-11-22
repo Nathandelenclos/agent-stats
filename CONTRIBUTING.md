@@ -55,8 +55,9 @@ The workflows assume these settings, which live on GitHub and not in the reposit
 
 - Pull requests are **squash-merged only**, with the pull request title as the commit message.
 - `main` is protected: pull request required, and the `ci` and `pr-title` checks must pass.
-- A tag ruleset on `v*` blocks updating and deleting tags and limits their creation to maintainers: a release tag is
-  never moved or re-created.
+- A tag ruleset on `v*` blocks updating and deleting tags. Creating one is limited to maintainers and to the release
+  workflow (add GitHub Actions to the ruleset's bypass list, otherwise the workflow cannot push its own tag): a
+  release tag is never moved or re-created.
 - **Immutable releases** are enabled, so a published release and its assets cannot be modified.
 - The default `GITHUB_TOKEN` permission is read-only; each workflow asks for what it needs.
 
