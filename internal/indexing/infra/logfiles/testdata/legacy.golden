@@ -118,3 +118,75 @@ err=<nil>
 err=<nil>
 == pi generated 3136 lines
 eeadd2f02e959c8bfca330d8cc27ff034f55947da9b7fb6a7f3e2865ecbcb439
+== codex seed 0
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title: Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:0 IsError:false Duration:{d:0}} {Key:i1 At:0001-01-01 00:00:00 +0000 UTC Name:shell Server: ArgsChars:0 ResultChars:3 IsError:false Duration:{d:0}}] Prompts:[] SkippedLines:0}
+err=<nil>
+== codex seed 1
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title: Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:0 IsError:false Duration:{d:0}} {Key:i1 At:0001-01-01 00:00:00 +0000 UTC Name:shell Server: ArgsChars:0 ResultChars:3 IsError:false Duration:{d:0}}] Prompts:[] SkippedLines:0}
+err=<nil>
+== codex seed 2
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title: Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:0 IsError:false Duration:{d:0}}] Prompts:[] SkippedLines:1}
+err=<nil>
+== codex seed 3
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title: Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:0 IsError:false Duration:{d:0}} {Key:i1 At:0001-01-01 00:00:00 +0000 UTC Name:shell Server: ArgsChars:0 ResultChars:2 IsError:false Duration:{d:0}}] Prompts:[] SkippedLines:0}
+err=<nil>
+== codex seed 4
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title: Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:0 IsError:false Duration:{d:0}} {Key:i1 At:0001-01-01 00:00:00 +0000 UTC Name:shell Server: ArgsChars:4 ResultChars:0 IsError:false Duration:{d:0}}] Prompts:[] SkippedLines:0}
+err=<nil>
+== codex seed 5
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title: Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:0 IsError:false Duration:{d:0}}] Prompts:[] SkippedLines:0}
+err=<nil>
+== codex seed 6
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title: Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:0 IsError:false Duration:{d:0}}] Prompts:[] SkippedLines:0}
+err=<nil>
+== codex seed 7
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title: Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:0 IsError:false Duration:{d:0}}] Prompts:[] SkippedLines:0}
+err=<nil>
+== codex seed 8
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title:de Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:0 IsError:false Duration:{d:0}}] Prompts:[{Key:i2 At:0001-01-01 00:00:00 +0000 UTC Text:de}] SkippedLines:0}
+err=<nil>
+== codex seed 9
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title: Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:0 IsError:false Duration:{d:0}}] Prompts:[] SkippedLines:1}
+err=<nil>
+== codex seed 10
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title:abc d Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:0 IsError:false Duration:{d:0}}] Prompts:[{Key:i2 At:0001-01-01 00:00:00 +0000 UTC Text:abc
+d}] SkippedLines:0}
+err=<nil>
+== codex seed 11
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title: Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:0 IsError:false Duration:{d:0}} {Key:i3 At:0001-01-01 00:00:00 +0000 UTC Name:t Server: ArgsChars:4 ResultChars:4 IsError:false Duration:{d:0}}] Prompts:[] SkippedLines:0}
+err=<nil>
+== codex seed 12
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title: Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:0 IsError:false Duration:{d:0}} {Key:i3 At:0001-01-01 00:00:00 +0000 UTC Name: Server: ArgsChars:0 ResultChars:0 IsError:false Duration:{d:0}}] Prompts:[] SkippedLines:0}
+err=<nil>
+== codex seed 13
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title: Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:0 IsError:false Duration:{d:0}} {Key:i3 At:0001-01-01 00:00:00 +0000 UTC Name: Server: ArgsChars:0 ResultChars:0 IsError:true Duration:{d:0}}] Prompts:[] SkippedLines:0}
+err=<nil>
+== codex seed 14
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title: Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:0 IsError:false Duration:{d:0}} {Key:i3 At:0001-01-01 00:00:00 +0000 UTC Name: Server: ArgsChars:0 ResultChars:0 IsError:false Duration:{d:1005000000}}] Prompts:[] SkippedLines:0}
+err=<nil>
+== codex seed 15
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title: Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:0 IsError:false Duration:{d:0}} {Key:i3 At:0001-01-01 00:00:00 +0000 UTC Name: Server: ArgsChars:0 ResultChars:0 IsError:false Duration:{d:0}}] Prompts:[] SkippedLines:0}
+err=<nil>
+== codex seed 16
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title: Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:0 IsError:false Duration:{d:0}} {Key:i3 At:0001-01-01 00:00:00 +0000 UTC Name:shell Server: ArgsChars:0 ResultChars:4 IsError:false Duration:{d:0}}] Prompts:[] SkippedLines:0}
+err=<nil>
+== codex seed 17
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title: Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:0 IsError:false Duration:{d:0}} {Key:i3 At:0001-01-01 00:00:00 +0000 UTC Name:t Server: ArgsChars:0 ResultChars:0 IsError:false Duration:{d:0}}] Prompts:[] SkippedLines:0}
+err=<nil>
+== codex seed 18
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title: Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:0 IsError:false Duration:{d:0}} {Key:i3 At:0001-01-01 00:00:00 +0000 UTC Name:t Server: ArgsChars:0 ResultChars:0 IsError:false Duration:{d:0}}] Prompts:[] SkippedLines:0}
+err=<nil>
+== codex seed 19
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title: Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:4 IsError:false Duration:{d:0}}] Prompts:[] SkippedLines:0}
+err=<nil>
+== codex seed 20
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title: Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:3 IsError:false Duration:{d:0}}] Prompts:[] SkippedLines:0}
+err=<nil>
+== codex seed 21
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title: Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[{Key:r1 At:0001-01-01 00:00:00 +0000 UTC Model:gpt-x Provider:openai Tokens:{counts:{Input:10 Output:3 CacheRead:0 CacheWrite:0 CacheWrite1h:0 Reasoning:0}} LoggedCost:{usd:0} Duration:{d:0} TTFT:{d:0} StopReason: Failure:}] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:0 IsError:false Duration:{d:0}}] Prompts:[] SkippedLines:0}
+err=<nil>
+== codex seed 22
+{Session:{ID:codex:s0 Harness:codex ParentID: AgentType:main Title: Folder:/w Start:2026-01-01 10:00:00 +0000 UTC End:2026-01-01 10:00:00 +0000 UTC} Requests:[] Tools:[{Key:c1 At:0001-01-01 00:00:00 +0000 UTC Name:search Server: ArgsChars:4 ResultChars:0 IsError:false Duration:{d:0}}] Prompts:[] SkippedLines:0}
+err=<nil>
+== codex generated 4648 lines
+2416eab6f100425d6488b4692ed701ffa5ec55b0b382e9e9d81c7bcbed63e7e3

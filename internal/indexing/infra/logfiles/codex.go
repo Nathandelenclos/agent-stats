@@ -35,7 +35,11 @@ func (d *codexDuration) duration() domain.Duration {
 // textLen is a JSON string of which only the length of the decoded text is kept.
 type textLen int
 
+// UnmarshalJSON leaves the length as it is for a null, as encoding/json does for a string field.
 func (n *textLen) UnmarshalJSON(b []byte) error {
+	if string(b) == "null" {
+		return nil
+	}
 	var s string
 	if err := json.Unmarshal(b, &s); err != nil {
 		return err
