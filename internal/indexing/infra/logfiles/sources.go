@@ -19,6 +19,7 @@ type Source struct {
 	Root    string
 	Match   func(path string) bool
 	Parse   Parser
+	open    func(path string) (*os.File, error) // optional stricter opener for a source
 	// Database, when set, makes Root the directory of SQLite databases that hold the sessions of the harness,
 	// instead of a tree of logs: Match and Parse are not used.
 	Database *OpenCodeDatabase
@@ -47,12 +48,29 @@ func DefaultSources(home string) []Source {
 		{Harness: kernel.OpenCode, Root: openCodeData, Database: &OpenCodeDatabase{Prefix: "opencode", Override: os.Getenv("OPENCODE_DB")}},
 		{Harness: kernel.Kilo, Root: kiloData, Database: &OpenCodeDatabase{Prefix: "kilo", Fallback: "opencode", Override: os.Getenv("KILO_DB")}},
 		GeminiSource(filepath.Join(envOr("GEMINI_CLI_HOME", home), ".gemini", "tmp")),
+		continueSource(filepath.Join(home, ".continue", "sessions")),
 	}
 }
 
 // GeminiSource reads the conversations of Gemini CLI under root, the "tmp" directory of its home.
 func GeminiSource(root string) Source {
 	return Source{Harness: kernel.Gemini, Root: root, Match: IsGeminiConversation, Parse: ParseGemini, Beside: geminiBeside}
+}
+
+func continueSource(root string) Source {
+	root = filepath.Clean(root)
+	return Source{Harness: kernel.Continue, Root: root, Parse: ParseContinue, open: openContinueSession,
+		Match: func(path string) bool {
+			return filepath.Dir(path) == root && isContinueSession(filepath.Base(path))
+		},
+	}
+}
+
+func (s Source) read(path string) (domain.Transcript, error) {
+	if s.open != nil {
+		return parseFile(path, s.Parse, s.open)
+	}
+	return ParseFile(path, s.Parse)
 }
 
 func envOr(key, def string) string {
@@ -67,8 +85,8 @@ func envOr(key, def string) string {
 type FileSessionLogs struct {
 	Sources []Source
 	mu      sync.RWMutex
-	parsers map[string]Parser // by path, as of the last List
-	dbLogs  map[string]dbLog  // the sessions of databases, by their path "<database>#<session id>"
+	readers map[string]func(string) (domain.Transcript, error) // by path, as of the last List
+	dbLogs  map[string]dbLog                                   // the sessions of databases, by their path "<database>#<session id>"
 }
 
 // dbLog is a session that lives in a database.
@@ -81,14 +99,14 @@ type dbLog struct {
 
 // NewFileSessionLogs reads the logs found under sources.
 func NewFileSessionLogs(sources []Source) *FileSessionLogs {
-	return &FileSessionLogs{Sources: sources, parsers: map[string]Parser{}, dbLogs: map[string]dbLog{}}
+	return &FileSessionLogs{Sources: sources, readers: map[string]func(string) (domain.Transcript, error){}, dbLogs: map[string]dbLog{}}
 }
 
 // List walks every source. A harness that is not installed is not an error.
 func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 	var files []application.LogFile
 	var problems []error
-	parsers := map[string]Parser{}
+	readers := map[string]func(string) (domain.Transcript, error){}
 	dbLogs := map[string]dbLog{}
 	for _, src := range l.Sources {
 		if src.Database != nil {
@@ -104,6 +122,7 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 			}
 			continue
 		}
+		read := src.read
 		err := filepath.WalkDir(src.Root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				if os.IsNotExist(err) || os.IsPermission(err) {
@@ -123,7 +142,7 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 				problems = append(problems, fmt.Errorf("%s: %w", path, err))
 				return nil
 			}
-			parsers[path] = src.Parse
+			readers[path] = read
 			files = append(files, application.LogFile{Path: path, Harness: src.Harness, Revision: fileRevision(info) + besideRevision(src, path), WeightBytes: logWeight(path, info.Size())})
 			return nil
 		})
@@ -132,7 +151,7 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 		}
 	}
 	l.mu.Lock()
-	l.parsers, l.dbLogs = parsers, dbLogs
+	l.readers, l.dbLogs = readers, dbLogs
 	l.mu.Unlock()
 	return files, problems, nil
 }
@@ -153,7 +172,7 @@ func besideRevision(src Source, path string) string {
 // Read parses a file returned by List.
 func (l *FileSessionLogs) Read(f application.LogFile) (domain.Transcript, error) {
 	l.mu.RLock()
-	p, ok := l.parsers[f.Path]
+	read, ok := l.readers[f.Path]
 	db, inDB := l.dbLogs[f.Path]
 	l.mu.RUnlock()
 	if inDB {
@@ -162,5 +181,5 @@ func (l *FileSessionLogs) Read(f application.LogFile) (domain.Transcript, error)
 	if !ok {
 		return domain.Transcript{}, fmt.Errorf("%s was not listed", f.Path)
 	}
-	return ParseFile(f.Path, p)
+	return read(f.Path)
 }

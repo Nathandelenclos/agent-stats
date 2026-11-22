@@ -5,6 +5,7 @@ package logfiles
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -31,12 +32,19 @@ const maxZstdMemory = 256 << 20
 // ErrLogTooLarge reports a log larger than maxLogBytes once decompressed.
 var ErrLogTooLarge = errors.New("session log too large")
 
+// ErrConversationUnreadable reports a conversation snapshot that cannot be used.
+var ErrConversationUnreadable = errors.New("conversation unreadable")
+
 // Parser reads one session log.
 type Parser func(path string, r io.Reader) (domain.Transcript, error)
 
 // ParseFile opens path (transparently decompressing .zst) and runs p on it.
 func ParseFile(path string, p Parser) (domain.Transcript, error) {
-	f, err := openRegular(path)
+	return parseFile(path, p, openRegular)
+}
+
+func parseFile(path string, p Parser, open func(string) (*os.File, error)) (domain.Transcript, error) {
+	f, err := open(path)
 	if err != nil {
 		return domain.Transcript{}, err
 	}
@@ -185,6 +193,25 @@ type size int
 func (n *size) UnmarshalJSON(b []byte) error {
 	*n = size(len(b))
 	return nil
+}
+
+// messageText is the text of a message content: a string, or a list of parts that hold some.
+func messageText(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var parts []struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &parts) != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, p := range parts {
+		b.WriteString(p.Text)
+	}
+	return b.String()
 }
 
 // parseTS reads an RFC 3339 timestamp, keeping millisecond precision; zero when absent or invalid.
