@@ -302,11 +302,14 @@ body {
   .dashboard-theme { margin: auto 0 0 .5rem }
 }
 @media (min-width: 70rem) {
-  .dashboard-chart-grid-active { grid-template-columns:minmax(0,1.65fr) minmax(16rem,1fr) }
   .dashboard-card-grid { grid-template-columns:repeat(3,minmax(0,1fr)) }
 }
-/* A chart and two summary cards fit beside the desktop sidebar. */
 @media (min-width: 90rem) {
+  .dashboard-plot { height:clamp(17rem,40vh,28rem) }
+}
+/* Leave room for the plot when summary cards or related sessions sit beside it. */
+@media (min-width: 128rem) {
+  .dashboard-chart-grid-active { grid-template-columns:minmax(0,1.65fr) minmax(16rem,1fr) }
   .dashboard-overview {
     grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);
     align-items:start;
@@ -315,7 +318,6 @@ body {
   .dashboard-metrics,.dashboard-chart-grid-active,
   .dashboard-overview:has(> .dashboard-chart-grid-active) > .dashboard-card-grid { grid-column:1 / -1 }
   .dashboard-card-grid { grid-template-columns:repeat(auto-fit,minmax(16rem,1fr)) }
-  .dashboard-plot { height:clamp(17rem,40vh,28rem) }
 }
 @media (max-width: 41.99rem) {
   .dashboard-overview:has(> .dashboard-chart-grid-active) > :is(.dashboard-metrics,.dashboard-card-grid),
