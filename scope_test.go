@@ -49,18 +49,7 @@ func newScopedWorkplace(t *testing.T) workplace {
 		requests int
 		tool     string
 	}{"app": {w.app, 1, "Read"}, "sub": {w.sub, 2, "Read"}, "sibling": {w.sibling, 4, "Grep"}} {
-		var log strings.Builder
-		fmt.Fprintf(&log, `{"type":"user","uuid":"u","timestamp":"2026-01-01T10:00:00Z","cwd":%q,"message":{"role":"user","content":"hi"}}`+"\n", s.folder)
-		for i := range s.requests {
-			fmt.Fprintf(&log, `{"type":"assistant","timestamp":"2026-01-01T10:00:0%dZ","message":{"id":"m%d","model":"claude-x","content":[{"type":"tool_use","id":"t%d","name":%q,"input":{}}],"usage":{"input_tokens":5,"output_tokens":7}}}`+"\n", i+1, i, i, s.tool)
-		}
-		dir := filepath.Join(w.home, ".claude", "projects", name)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, name+".jsonl"), []byte(log.String()), 0o644); err != nil {
-			t.Fatal(err)
-		}
+		w.writeSession(t, name, s.folder, s.requests, s.tool)
 	}
 	if err := os.MkdirAll(filepath.Join(w.app, ".claude", "skills", "app-skill"), 0o755); err != nil {
 		t.Fatal(err)
@@ -72,6 +61,23 @@ func newScopedWorkplace(t *testing.T) workplace {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv("CODEX_HOME", "")
 	return w
+}
+
+// writeSession writes the log of a Claude session that worked in folder and made that many requests, each calling tool.
+func (w workplace) writeSession(t *testing.T, name, folder string, requests int, tool string) {
+	t.Helper()
+	var log strings.Builder
+	fmt.Fprintf(&log, `{"type":"user","uuid":"u","timestamp":"2026-01-01T10:00:00Z","cwd":%q,"message":{"role":"user","content":"hi"}}`+"\n", folder)
+	for i := range requests {
+		fmt.Fprintf(&log, `{"type":"assistant","timestamp":"2026-01-01T10:00:0%dZ","message":{"id":"m%d","model":"claude-x","content":[{"type":"tool_use","id":"t%d","name":%q,"input":{}}],"usage":{"input_tokens":5,"output_tokens":7}}}`+"\n", i+1, i, i, tool)
+	}
+	dir := filepath.Join(w.home, ".claude", "projects", name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name+".jsonl"), []byte(log.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // report runs `agent-stats args` from the folder cwd and returns what it printed. The command reads the process's
@@ -143,6 +149,20 @@ func TestTheReportFromAFolderNoSessionWorkedInCountsEveryProject(t *testing.T) {
 	// Then every project is counted
 	if requests, first := requestsOf(t, out); requests != "7" || first != "All projects" {
 		t.Errorf("%s requests, first line %q\n%s", requests, first, out)
+	}
+}
+
+func TestTheHomeFolderIsNotAProjectEvenWhenSessionsWorkedBelowIt(t *testing.T) {
+	// Given a session that worked in a folder of the home, which makes the home the parent of sessions
+	w := newScopedWorkplace(t)
+	w.writeSession(t, "notes", filepath.Join(w.home, "notes"), 8, "Read")
+
+	// When the report is printed from the home folder
+	out, _, err := w.report(t, w.home)
+
+	// Then every project is counted: the home folder holds them all, it is not one of them
+	if requests, first := requestsOf(t, out); err != nil || requests != "15" || first != "All projects" {
+		t.Errorf("%s requests, first line %q, %v", requests, first, err)
 	}
 }
 

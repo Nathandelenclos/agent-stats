@@ -34,13 +34,14 @@ func (s scope) label() string {
 }
 
 // workingProject is the project of the folder agent-stats runs in: the Git top-level, or the folder itself. It is the
-// zero Project when that folder cannot be told.
+// zero Project when that folder cannot be told, or is the home folder.
 func workingProject() kernel.Project {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return kernel.Project{}
 	}
-	p, err := projectscope.Detect(cwd)
+	home, _ := os.UserHomeDir()
+	p, err := projectscope.Detect(cwd, home)
 	if err != nil {
 		return kernel.Project{}
 	}
