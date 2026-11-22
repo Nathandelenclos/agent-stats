@@ -46,6 +46,7 @@ CREATE INDEX IF NOT EXISTS requests_file ON requests (file);
 CREATE INDEX IF NOT EXISTS tool_calls_file ON tool_calls (file);
 CREATE INDEX IF NOT EXISTS prompts_file ON prompts (file);
 CREATE INDEX IF NOT EXISTS sessions_file ON sessions (file);
+CREATE INDEX IF NOT EXISTS sessions_parent ON sessions (parent_id);
 CREATE INDEX IF NOT EXISTS tool_calls_ts ON tool_calls (ts);
 CREATE INDEX IF NOT EXISTS prompts_ts ON prompts (ts);
 CREATE INDEX IF NOT EXISTS sessions_started ON sessions (started_at);
@@ -58,17 +59,24 @@ CREATE VIEW IF NOT EXISTS usage_requests AS
 CREATE VIEW IF NOT EXISTS usage_tool_calls AS
 	SELECT t.ts, t.name, t.server, t.args_chars, t.result_chars, t.is_error, t.duration_ms, s.harness
 	FROM tool_calls t JOIN sessions s ON s.id = t.session_id;
--- Session views. root_id is the session a listing shows: the session itself, or the session it is a subagent of
--- when that one is indexed. A subagent whose parent log was never indexed (or was deleted) is its own root.
-CREATE VIEW IF NOT EXISTS session_overview AS
-	SELECT s.id, CASE WHEN p.id IS NULL THEN s.id ELSE p.id END AS root_id, s.harness, s.agent_type, s.title, s.folder,
-		s.started_at, s.ended_at
-	FROM sessions s LEFT JOIN sessions p ON p.id = s.parent_id;
-CREATE VIEW IF NOT EXISTS session_requests AS
+-- Session views. root_id is the session a listing shows: the session itself, or the top session whose chain of
+-- subagents it belongs to. A subagent whose parent log was never indexed (or was deleted) is its own root.
+DROP VIEW IF EXISTS session_requests;
+DROP VIEW IF EXISTS session_tool_calls;
+DROP VIEW IF EXISTS session_overview;
+CREATE VIEW session_overview AS
+	WITH RECURSIVE tree(id, root_id, depth) AS (
+		SELECT s.id, s.id, 0 FROM sessions s WHERE NOT EXISTS (SELECT 1 FROM sessions p WHERE p.id = s.parent_id)
+		UNION ALL
+		SELECT c.id, t.root_id, t.depth + 1 FROM tree t JOIN sessions c ON c.parent_id = t.id WHERE t.depth < 32
+	)
+	SELECT s.id, t.root_id, s.harness, s.agent_type, s.title, s.folder, s.started_at, s.ended_at
+	FROM tree t JOIN sessions s ON s.id = t.id;
+CREATE VIEW session_requests AS
 	SELECT o.root_id, r.session_id, r.ts, r.model, r.input, r.output, r.cache_read, r.cache_write, r.cost, r.priced,
 		r.duration_ms, r.ttft_ms, r.error
 	FROM requests r JOIN session_overview o ON o.id = r.session_id;
-CREATE VIEW IF NOT EXISTS session_tool_calls AS
+CREATE VIEW session_tool_calls AS
 	SELECT o.root_id, t.session_id, t.ts, t.name, t.server, t.args_chars, t.result_chars, t.is_error, t.duration_ms
 	FROM tool_calls t JOIN session_overview o ON o.id = t.session_id;
 -- position is the prompt's place in its session: rows are inserted in log order.

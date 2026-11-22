@@ -207,6 +207,37 @@ func TestASubagentWhoseSessionWasNeverIndexedIsListedOnItsOwn(t *testing.T) {
 	}
 }
 
+func saveAll(t *testing.T, s *SQLiteIndex, logs map[string]application.IndexedTranscript) {
+	t.Helper()
+	for path, tr := range logs {
+		if err := s.Save(application.LogFile{Path: path, Harness: kernel.Claude}, tr); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestNestedSubagentsAreListedUnderTheTopSession(t *testing.T) {
+	// Given a session whose subagent started a subagent of its own
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	saveAll(t, s, map[string]application.IndexedTranscript{
+		"/logs/a.jsonl": transcript(t, "a", at),
+		"/logs/b.jsonl": subagentOf(t, "a", "b", at),
+		"/logs/c.jsonl": subagentOf(t, "a/b", "c", at),
+	})
+
+	// When the sessions are listed
+	listed := listedUnder(t, s)
+
+	// Then both subagents belong to the top session, and the requests of the three count for it
+	if listed["claude:a"] != "claude:a" || listed["claude:a/b"] != "claude:a" || listed["claude:a/b/c"] != "claude:a" {
+		t.Errorf("listed under = %v", listed)
+	}
+	if n := requestsListedUnder(t, s, "claude:a"); n != 3 {
+		t.Errorf("requests of the session = %d, want its own and both subagents'", n)
+	}
+}
+
 func TestPromptsKeepTheOrderTheyWereTypedInAndTheirSignals(t *testing.T) {
 	// Given a session whose prompts were typed in a different order than their keys sort
 	s := open(t)
