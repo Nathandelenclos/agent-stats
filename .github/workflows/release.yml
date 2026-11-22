@@ -14,10 +14,17 @@
 # tag, re-running that run rebuilds the draft for the same tag and finishes the release. Until then, the runs of
 # later commits fail on purpose (they cannot rebuild an older commit and still attest it): they never publish a newer
 # version past an unfinished one. Re-run the failed run of the older commit first, then the later ones.
+#
+# Manual entry, for a tag whose run can no longer be re-run (GitHub allows it for 30 days only) or that was pushed by
+# hand: run this workflow ON the tag (Actions, release, Run workflow, "Use workflow from": Tag, or
+# `gh workflow run release.yml --ref vX.Y.Z`). The run then starts from the tag's own commit, so the build and the
+# attestation name that commit, and it follows the same path as a re-run. The workflow file must exist at that tag,
+# and the tag's commit must be on the default branch: nothing else is built or signed.
 name: release
 
 on:
   workflow_call:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -47,6 +54,22 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - name: Check the manual run
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [ "$REF_TYPE" != tag ] || ! printf '%s\n' "$REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Run this workflow on a tag vX.Y.Z (\"Use workflow from\": Tag), not on $REF_TYPE $REF_NAME."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor HEAD "refs/remotes/origin/$DEFAULT_BRANCH"; then
+            echo "::error::$REF_NAME is not on $DEFAULT_BRANCH: refusing to build and sign it."
+            exit 1
+          fi
       # No build cache: this job can write to the repository and sign, so it restores nothing a pull request could have left.
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
@@ -96,7 +119,7 @@ jobs:
             fi
             commit=$(git rev-list -n 1 "$tag")
             [ "$commit" = "$head_sha" ] && continue
-            echo "::error::$tag (commit $commit) has no published release. Re-run the failed ci run of that commit to finish it (or publish the release by hand if the tag was pushed by hand); this run publishes nothing until then."
+            echo "::error::$tag (commit $commit) has no published release. Re-run the failed ci run of that commit to finish it or, if it can no longer be re-run, run the release workflow on that tag (see CONTRIBUTING.md); this run publishes nothing until then."
             stuck=true
           done <<<"$merged"
           if $stuck; then

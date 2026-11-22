@@ -52,8 +52,12 @@ with GoReleaser and publishes a GitHub release with generated notes.
 If a release fails after its tag was pushed, re-run the failed `ci` run of that commit (Actions, "Re-run failed
 jobs"). Until it is published, the release job of later commits fails with an error naming the tag, so a newer version
 never goes out past an unfinished one; re-run those afterwards.
-GitHub only allows a re-run for 30 days: past that, a maintainer has to decide what to do with the tag, which is never
-moved or deleted.
+
+GitHub only allows a re-run for 30 days. Past that, or for a tag pushed by hand, run the `release` workflow **on the
+tag**: Actions, `release`, "Run workflow", "Use workflow from": Tag `vX.Y.Z` (or `gh workflow run release.yml --ref
+vX.Y.Z`). It rebuilds, attests and publishes that tag from its own commit, and refuses a branch or a tag that is not on
+`main`. The tag must carry the workflow file with this entry, which is the case for every tag the pipeline creates.
+A tag is never moved or deleted.
 
 ### Repository settings (maintainers)
 
