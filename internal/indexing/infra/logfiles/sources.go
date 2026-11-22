@@ -21,7 +21,7 @@ type Source struct {
 	Parse   Parser
 	// Database, when set, makes Root the directory of SQLite databases that hold the sessions of the harness,
 	// instead of a tree of logs: Match and Parse are not used.
-	Database *OpenCodeDatabase
+	Database sessionDatabase
 	// Beside, when set, says what else than the log itself a transcript is made of (a file beside it): it is part of the
 	// log's revision, so that the log is read again when it changes.
 	Beside func(path string) string
@@ -47,6 +47,7 @@ func DefaultSources(home string) []Source {
 		{Harness: kernel.OpenCode, Root: openCodeData, Database: &OpenCodeDatabase{Prefix: "opencode", Override: os.Getenv("OPENCODE_DB")}},
 		{Harness: kernel.Kilo, Root: kiloData, Database: &OpenCodeDatabase{Prefix: "kilo", Fallback: "opencode", Override: os.Getenv("KILO_DB")}},
 		GeminiSource(filepath.Join(envOr("GEMINI_CLI_HOME", home), ".gemini", "tmp")),
+		{Harness: kernel.Zed, Root: zedThreadsDir(home), Database: zedDatabase{}},
 	}
 }
 
@@ -73,10 +74,16 @@ type FileSessionLogs struct {
 
 // dbLog is a session that lives in a database.
 type dbLog struct {
-	db      *OpenCodeDatabase
+	db      sessionDatabase
 	path    string
 	harness kernel.Harness
 	session dbSession
+}
+
+type sessionDatabase interface {
+	paths(root string) []string
+	list(path string) ([]dbSession, []error)
+	read(path string, harness kernel.Harness, session dbSession) (domain.Transcript, error)
 }
 
 // NewFileSessionLogs reads the logs found under sources.
