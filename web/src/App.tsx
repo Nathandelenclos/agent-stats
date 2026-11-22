@@ -207,31 +207,36 @@ export function App() {
           <ThemeSelect />
         </header>
         <SyncBanner status={sync.data} unreachable={sync.isError} />
-        <main id="main" tabIndex={-1} className="flex flex-col gap-6">
-          {meta.isPending && <p role="status">Loading…</p>}
-          {meta.isError && <Failure title="The server did not answer." message={describe(meta.error)} retry={() => void meta.refetch()} />}
-          {meta.data && filters && (
-            <>
-              <nav aria-label="Views" className="flex gap-4 border-b border-rule">
-                {views.map((name) => (
-                  <button
-                    key={name}
-                    type="button"
-                    aria-pressed={view === name}
-                    className={`min-h-10 border-b-2 px-2 text-sm ${view === name ? "border-accent font-semibold text-ink" : "border-transparent text-muted hover:text-ink"}`}
-                    onClick={() => setView(name)}
-                  >
-                    {name}
-                  </button>
-                ))}
-              </nav>
-              <FilterBar meta={meta.data} value={filters} onChange={setChosen} />
-              {view === "Usage" && <Report report={report} />}
-              {view === "Sessions" && <Sessions filters={filters} project={project} list={sessions} />}
-              {view === "Prompts" && <PromptReview query={prompts} />}
-            </>
-          )}
-        </main>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[10rem_minmax(0,1fr)] lg:items-start">
+          <nav
+            aria-label="Views"
+            className="flex flex-wrap gap-1 border-b border-rule pb-2 lg:sticky lg:top-6 lg:flex-col lg:border-r lg:border-b-0 lg:pr-3 lg:pb-0"
+          >
+            {views.map((name) => (
+              <button
+                key={name}
+                type="button"
+                aria-pressed={view === name}
+                className={`min-h-11 rounded-sm border-l-4 px-3 text-left text-sm ${view === name ? "border-accent bg-surface font-semibold text-ink" : "border-transparent text-muted hover:bg-surface hover:text-ink"}`}
+                onClick={() => setView(name)}
+              >
+                {name}
+              </button>
+            ))}
+          </nav>
+          <main id="main" tabIndex={-1} className="flex min-w-0 flex-col gap-6">
+            {meta.isPending && <p role="status">Loading…</p>}
+            {meta.isError && <Failure title="The server did not answer." message={describe(meta.error)} retry={() => void meta.refetch()} />}
+            {meta.data && filters && (
+              <>
+                <FilterBar meta={meta.data} value={filters} onChange={setChosen} />
+                {view === "Usage" && <Report report={report} />}
+                {view === "Sessions" && <Sessions filters={filters} project={project} list={sessions} />}
+                {view === "Prompts" && <PromptReview query={prompts} />}
+              </>
+            )}
+          </main>
+        </div>
       </div>
     </>
   );

@@ -252,3 +252,39 @@ it("opens the sessions view with the report's filters", async () => {
   expect(fetch).toHaveBeenCalledWith("/api/sessions?since=7d&project=current&limit=1000", expect.any(Object));
   window.history.replaceState(null, "", "/");
 });
+
+it("keeps view navigation before the main content and opens Prompts with the active filters", async () => {
+  const fetchReport = serveReports(() => report(), metaInProject("imports"));
+  const fetch = vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input).startsWith("/api/prompts?")) {
+      return new Response(JSON.stringify({
+        scope: "current", count: 0, sessions: 0, promptsVisible: true, prompts: [], recurring: [], byFolder: [],
+      }));
+    }
+    return fetchReport(input);
+  });
+  vi.stubGlobal("fetch", fetch);
+  const { container } = render(withQueries(testQueryClient(), <App />));
+  await eventually(() => expect(container.textContent).toContain("Usage by model"));
+  choose(periodSelect(container), "30d");
+
+  const nav = container.querySelector('nav[aria-label="Views"]')!;
+  const main = container.querySelector("main#main")!;
+  const buttons = [...nav.querySelectorAll("button")];
+  expect(container.querySelector('a[href="#main"]')?.textContent?.trim()).toBe("Skip to main content");
+  expect(main.contains(nav)).toBe(false);
+  expect(nav.compareDocumentPosition(main) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(buttons.map((button) => button.textContent)).toEqual(["Usage", "Sessions", "Prompts"]);
+  expect(buttons.map((button) => button.getAttribute("aria-pressed"))).toEqual(["true", "false", "false"]);
+
+  const prompts = buttons[2]!;
+  prompts.focus();
+  click(prompts);
+
+  await eventually(() => expect(main.textContent).toContain("No flagged prompts match these filters."));
+  expect(document.activeElement).toBe(prompts);
+  expect(buttons.map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "false", "true"]);
+  expect(fetch).toHaveBeenCalledWith("/api/prompts?since=30d&project=current&limit=1000", expect.any(Object));
+  expect(periodSelect(container).value).toBe("30d");
+  window.history.replaceState(null, "", "/");
+});
