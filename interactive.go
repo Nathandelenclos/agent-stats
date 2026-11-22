@@ -40,7 +40,7 @@ func keyboardReachable() bool {
 	return true
 }
 
-// tuiSync adapts the indexing run to the interface's Sync port: the counts become progress and what
+// tuiSync adapts the indexing run to the interface's Sync option: the counts become progress and what
 // was skipped becomes the note shown afterwards (nothing may be printed over the screen).
 func tuiSync(run indexRun) tui.Sync {
 	return func(ctx context.Context, progress func(int)) (string, error) {

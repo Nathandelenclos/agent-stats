@@ -60,6 +60,7 @@ const unknownZstdRatio = 16
 // logWeight is what reading a log may hold in memory, in bytes of log text, for application.LogFile.Weight:
 // zero for a plain log, whose size says it, and for a compressed one the content size its first frame states
 // plus the decoder's window, or unknownZstdRatio times its size when it states none. It reads a few bytes.
+// The weight only paces the readers: what a log may hold is capped by maxLogBytes and maxZstdMemory whatever it states.
 func logWeight(path string, size int64) int64 {
 	if !strings.HasSuffix(path, ".zst") {
 		return 0

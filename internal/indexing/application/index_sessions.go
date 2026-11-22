@@ -72,15 +72,15 @@ func (uc IndexSessions) RunContext(ctx context.Context, progress func(IndexRepor
 
 	var pending []readLog // in the order of the list: failures stay in it, so errors are reported in that order
 	flush := func() {
-		var batch []IndexedLog
+		var toSave []IndexedLog
 		for _, p := range pending {
 			if p.err == nil {
-				batch = append(batch, IndexedLog{File: p.file, Transcript: p.indexed})
+				toSave = append(toSave, IndexedLog{File: p.file, Transcript: p.indexed})
 			}
 		}
 		var saved []error
-		if len(batch) > 0 {
-			saved = uc.Store.Save(batch)
+		if len(toSave) > 0 {
+			saved = uc.Store.Save(toSave)
 		}
 		for _, p := range pending {
 			ahead.leave(p.file.weight()) // only now is the transcript gone from memory
