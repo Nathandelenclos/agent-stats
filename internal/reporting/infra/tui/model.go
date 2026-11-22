@@ -468,23 +468,29 @@ func (m Model) modeLabel() string {
 	return "  " + strings.Join(parts, " ")
 }
 
+// help lists the keys, most useful first: on a narrow terminal the last ones are left out, never "q quit".
 func (m Model) help() string {
-	var keys string
+	var keys, filters []string
 	switch {
 	case m.mode == sessionsMode && m.sessions.detail.open:
-		keys = "↑↓ pgup/pgdn scroll · esc back to sessions"
+		keys = []string{"↑↓ pgup/pgdn scroll", "esc back to sessions"}
 	case m.mode == sessionsMode:
-		keys = "↑↓ scroll · enter open · s sort · o reverse · p period · h harness"
+		keys, filters = []string{"↑↓ scroll", "enter open"}, []string{"s sort", "o reverse", "p period", "h harness"}
 	default:
-		keys = "tab/←→ tabs · ↑↓ scroll · s sort · o reverse · p period · h harness"
+		keys, filters = []string{"tab/←→ tabs", "↑↓ scroll"}, []string{"s sort", "o reverse", "p period", "h harness"}
 	}
 	if m.sessionsEnabled() {
-		keys += " · m " + strings.ToLower(modeNames[1-m.mode])
+		keys = append(keys, "m "+strings.ToLower(modeNames[1-m.mode]))
 	}
 	if m.sync != nil {
-		keys += " · r re-index"
+		keys = append(keys, "r re-index")
 	}
-	return keys + " · q quit"
+	keys = append(keys, filters...)
+	line := func(k []string) string { return strings.Join(append(k[:len(k):len(k)], "q quit"), " · ") }
+	for m.width > 0 && len(keys) > 0 && lipgloss.Width(line(keys)) > m.width {
+		keys = keys[:len(keys)-1]
+	}
+	return line(keys)
 }
 
 func (m Model) tabBar() string {

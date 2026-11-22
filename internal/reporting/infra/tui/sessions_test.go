@@ -688,3 +688,24 @@ func TestATerminalThatReportsNoSizeKeepsTheDefaultSize(t *testing.T) {
 		t.Errorf("view:\n%s", view)
 	}
 }
+
+func TestTheSessionsHelpStillOffersQuitOnAn80ColumnTerminalWhileIndexing(t *testing.T) {
+	// Given the sessions on an 80-column terminal, with indexing available
+	sessions := sampleSessions()
+	m := New(Options{Reports: build(&fakeReports{report: sampleReport()}), Sync: func(func(int)) (string, error) { return "", nil },
+		Sessions: reporting.ListSessions{Queries: sessions}, Session: reporting.ShowSession{Queries: sessions}})
+	m = send(t, m, tea.WindowSizeMsg{Width: 80, Height: 30})
+	m, cmd := pressCmd(t, send(t, m, m.load()()), "m")
+	m = answer(t, m, cmd)
+
+	// Then the help fits the terminal and the user can still read how to quit, switch mode and re-index
+	help := m.help()
+	if w := lipgloss.Width(help); w > 80 {
+		t.Errorf("help of %d columns on an 80-column terminal: %q", w, help)
+	}
+	for _, want := range []string{"enter open", "m usage", "r re-index", "q quit"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("help lacks %q: %q", want, help)
+		}
+	}
+}
