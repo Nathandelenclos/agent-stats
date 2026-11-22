@@ -45,7 +45,38 @@ const (
 	paramSince   = "since"
 	paramHarness = "harness"
 	paramLimit   = "limit"
+	paramProject = "project"
 )
+
+// The scopes the project parameter names. The server decides which folder "current" is: a client never sends one.
+const (
+	scopeCurrent = "current"
+	scopeAll     = "all"
+)
+
+// defaultScope is the scope the page opens on: the project of the folder the server runs in, unless it was started
+// for every project or no project was detected.
+func (s *Server) defaultScope() string {
+	if s.opts.Restricted && !s.opts.Project.IsZero() {
+		return scopeCurrent
+	}
+	return scopeAll
+}
+
+// scopeProject is the project a scope restricts a query to: the zero Project for every project.
+func (s *Server) scopeProject(scope string) (kernel.Project, *problem) {
+	switch {
+	case scope == scopeAll:
+		return kernel.Project{}, nil
+	case scope == scopeCurrent && !s.opts.Project.IsZero():
+		return s.opts.Project, nil
+	case scope == scopeCurrent:
+		pr := invalidParameter(paramProject, "no project was detected: use all")
+		return kernel.Project{}, &pr
+	}
+	pr := invalidParameter(paramProject, "use current or all")
+	return kernel.Project{}, &pr
+}
 
 // parseParams validates the query string against the parameters the route accepts, none for a route that takes
 // none. Unknown and repeated parameters are refused, so that a typo never silently widens a report.
@@ -87,6 +118,15 @@ func (s *Server) parseParams(r *http.Request, accepts ...string) (params, *probl
 		}
 		p.query.Harness = h
 	}
+	scope := s.defaultScope()
+	if values.Has(paramProject) { // an empty value is refused, not read as the default
+		scope = values.Get(paramProject)
+	}
+	project, bad := s.scopeProject(scope)
+	if bad != nil {
+		return p, bad
+	}
+	p.query.Project = project
 	if v := values.Get(paramLimit); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 || n > maxLimit {

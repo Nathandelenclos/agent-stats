@@ -35,6 +35,11 @@ type Options struct {
 	// Since and Harness are the filters the page opens on; Since is a period as ParseSince reads it, "" for all.
 	Since   string
 	Harness kernel.Harness
+	// Project is the project of the folder the server runs in, the zero Project when none was detected. Restricted says
+	// whether the page opens on it rather than on every project. The page can name only these two scopes: the folder is
+	// the server's to decide, never a request's.
+	Project    kernel.Project
+	Restricted bool
 	// AllowRemote lifts the Host header allowlist: the server is meant to be reached under other names than loopback.
 	AllowRemote bool
 	// ShutdownGrace is the time the requests in flight get to end when the server stops; 5 s when zero.

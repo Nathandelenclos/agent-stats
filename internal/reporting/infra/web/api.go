@@ -65,9 +65,9 @@ type reportJSON struct {
 	Daily     []groupJSON `json:"daily"` // key: the local day, 2006-01-02, oldest first
 }
 
-// report answers GET /api/report?since=&harness=.
+// report answers GET /api/report?since=&harness=&project=.
 func (s *Server) report(w http.ResponseWriter, r *http.Request) {
-	p, bad := s.parseParams(r, paramSince, paramHarness)
+	p, bad := s.parseParams(r, paramSince, paramHarness, paramProject)
 	if bad != nil {
 		bad.write(w)
 		return
@@ -122,9 +122,9 @@ type totalJSON struct {
 	Unpriced int64   `json:"unpriced"`
 }
 
-// sessions answers GET /api/sessions?since=&harness=&limit=: the most recent sessions, without their prompts.
+// sessions answers GET /api/sessions?since=&harness=&project=&limit=: the most recent sessions, without their prompts.
 func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
-	p, bad := s.parseParams(r, paramSince, paramHarness, paramLimit)
+	p, bad := s.parseParams(r, paramSince, paramHarness, paramProject, paramLimit)
 	if bad != nil {
 		bad.write(w)
 		return
@@ -155,9 +155,11 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 
 type metaJSON struct {
 	Harnesses []string `json:"harnesses"`
+	Project   string   `json:"project"` // the name of the project of the folder the server runs in, "" when none was detected
 	Defaults  struct {
 		Since   string `json:"since"`   // the period the page opens on, "" for all
 		Harness string `json:"harness"` // "" for all
+		Project string `json:"project"` // the scope the page opens on: "current" (the project above) or "all"
 	} `json:"defaults"`
 }
 
@@ -171,7 +173,10 @@ func (s *Server) meta(w http.ResponseWriter, r *http.Request) {
 	for _, h := range kernel.Harnesses {
 		m.Harnesses = append(m.Harnesses, h.String())
 	}
-	m.Defaults.Since, m.Defaults.Harness = s.opts.Since, s.opts.Harness.String()
+	m.Defaults.Since, m.Defaults.Harness, m.Defaults.Project = s.opts.Since, s.opts.Harness.String(), s.defaultScope()
+	if !s.opts.Project.IsZero() {
+		m.Project = s.opts.Project.Name()
+	}
 	writeJSON(w, s.log, m)
 }
 
