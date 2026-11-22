@@ -1,8 +1,12 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { RelationDiagram } from "./RelationDiagram";
+import { sessionRelations } from "./sessionRelations";
 import type { SessionDetail } from "./api";
-import { formatDateTime, formatInteger, formatMs, formatUSD } from "../../shared/format";
+import { formatInteger, formatMs, formatUSD } from "../../shared/format";
 
 type Agent = SessionDetail["subagents"][number];
+
+const timestamp = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "medium" });
 
 const agentName = (agent: Agent) => agent.title || agent.agentType || "Subagent";
 
@@ -53,6 +57,7 @@ function ActivityBar({ range, start, end }: { range: TimeRange; start?: number; 
 
 function AgentDetails({ agent, parent }: { agent: Agent; parent?: string }) {
   const { usage, startTs, endTs } = agent;
+  const span = startTs && endTs && endTs >= startTs ? endTs - startTs : undefined;
   const cost = usage.unpriced === usage.requests
     ? "Unavailable"
     : formatUSD(usage.cost) + (usage.unpriced ? " known" : "");
@@ -65,8 +70,9 @@ function AgentDetails({ agent, parent }: { agent: Agent; parent?: string }) {
         <dt>Requests</dt><dd>{formatInteger(usage.requests)} ({formatInteger(usage.failed)} failed)</dd>
         <dt>Cost</dt><dd>{cost}</dd>
         <dt>Models</dt><dd>{agent.models?.join(", ") || "Unavailable"}</dd>
-        <dt>First activity</dt><dd>{startTs ? formatDateTime(startTs) : "Unavailable"}</dd>
-        <dt>Last activity</dt><dd>{endTs ? formatDateTime(endTs) : "Unavailable"}</dd>
+        <dt>First activity</dt><dd>{startTs ? timestamp.format(startTs) : "Unavailable"}</dd>
+        <dt>Last activity</dt><dd>{endTs ? timestamp.format(endTs) : "Unavailable"}</dd>
+        <dt>Recorded span</dt><dd>{span === undefined ? "Unavailable" : span === 0 ? "0 ms" : formatMs(span)}</dd>
       </dl>
     </>
   );
@@ -79,13 +85,18 @@ export function SessionGraph({ detail }: { detail: SessionDetail }) {
   names.set(session.id, title);
   const parentOf = (agent: Agent) => agent.parentId ? names.get(agent.parentId) : undefined;
   const { rows, unlinked } = graphRows(session.id, subagents);
-  const [selected, select] = useState<Agent>();
-  const current = selected && subagents.includes(selected) ? selected : undefined;
+  const [view, setView] = useState<"Relations" | "Timeline">("Relations");
+  const [selected, select] = useState<Agent | "fork">();
+  const forkSelected = selected === "fork" && !!forkedFrom;
+  const current = selected && selected !== "fork" && subagents.includes(selected) ? selected : undefined;
+  const layout = useMemo(() => sessionRelations(detail), [detail]);
+  const selectedIndex = forkSelected ? subagents.length + 1 : current ? subagents.indexOf(current) + 1 : 0;
   const range = session.startTs && session.endTs >= session.startTs
     ? { start: session.startTs, end: session.endTs }
     : undefined;
   const elapsed = range ? range.end - range.start : 0;
-  const lane = range ? "grid-cols-[minmax(0,3fr)_minmax(0,2fr)]" : "grid-cols-1";
+  const timeline = view === "Timeline";
+  const lane = range && timeline ? "grid-cols-[minmax(0,3fr)_minmax(0,2fr)]" : "grid-cols-1";
   const rowClass = `grid min-h-11 w-full items-center gap-2 rounded-md border border-transparent px-2 py-1 text-left text-sm hover:bg-bg aria-pressed:border-accent aria-pressed:bg-bg ${lane}`;
   const renderAgent = (agent: Agent, depth: number, index: number) => {
     const parent = parentOf(agent);
@@ -96,32 +107,47 @@ export function SessionGraph({ detail }: { detail: SessionDetail }) {
             <span className="block font-medium">{agentName(agent)}</span>
             <span className="block text-xs text-muted">{parent ? `Parent: ${parent}` : "Parent unavailable in this view"}</span>
           </span>
-          {range && <ActivityBar range={range} start={agent.startTs} end={agent.endTs} />}
+          {range && timeline && <ActivityBar range={range} start={agent.startTs} end={agent.endTs} />}
         </button>
       </li>
     );
   };
   return (
     <section aria-label="Session activity graph" className="grid gap-4 rounded-lg border border-rule bg-surface p-3 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] xl:p-4">
+      <div className="flex flex-wrap gap-2 xl:col-span-2" role="group" aria-label="Graph views">
+        {(["Relations", "Timeline"] as const).map((name) => (
+          <button key={name} type="button" aria-pressed={view === name} onClick={() => setView(name)}
+            className="min-h-11 rounded-md border border-border px-3 text-sm aria-pressed:border-accent aria-pressed:bg-bg">
+            {name}
+          </button>
+        ))}
+      </div>
       <div className="min-w-0 space-y-2">
-        <div className={`grid items-baseline gap-2 px-2 ${lane}`}>
-          <h3 className="font-semibold">Activity timeline</h3>
-          {range && (
+        {!timeline && <RelationDiagram source={layout.source} names={layout.names} selectedIndex={selectedIndex}
+          onSelect={(index) => select(index > subagents.length && forkedFrom ? "fork" : subagents[index - 1])} />}
+        <div className={`grid items-baseline gap-2 border border-transparent px-2 ${lane}`}>
+          <h3 className="font-semibold">{timeline ? "Activity timeline" : "Recorded agents"}</h3>
+          {range && timeline && (
             <p className="flex justify-between gap-1 text-xs tabular-nums text-muted">
               <span>0 s</span>{elapsed > 0 && <span>{formatMs(elapsed)}</span>}
             </p>
           )}
         </div>
-        {!range && <p className="px-2 text-sm text-muted">Session time range unavailable.</p>}
-        <button type="button" className={rowClass} aria-pressed={!current} onClick={() => select(undefined)}>
+        {timeline && !range && <p className="px-2 text-sm text-muted">Session time range unavailable.</p>}
+        <button type="button" className={rowClass} aria-pressed={!current && !forkSelected} onClick={() => select(undefined)}>
           <span className="min-w-0 [overflow-wrap:anywhere]">
             <span className="block font-semibold">{title}</span>
-            <span className="block text-xs text-muted">Session range · {session.harness}</span>
+            <span className="block text-xs text-muted">{timeline ? "Session range" : "Selected session"} · {session.harness}</span>
           </span>
-          {range && <ActivityBar range={range} start={range.start} end={range.end} />}
+          {range && timeline && <ActivityBar range={range} start={range.start} end={range.end} />}
         </button>
+        {forkedFrom && !timeline && (
+          <button type="button" className={rowClass} aria-pressed={forkSelected} onClick={() => select("fork")}>
+            Fork source
+          </button>
+        )}
         {rows.length > 0 && (
-          <ul aria-label="Recorded parent links" className="space-y-1 border-s border-border pl-2">
+          <ul aria-label="Recorded parent links" className="space-y-1">
             {rows.map(({ agent, depth }, index) => renderAgent(agent, depth, index))}
           </ul>
         )}
@@ -135,15 +161,18 @@ export function SessionGraph({ detail }: { detail: SessionDetail }) {
       </div>
 
       <section aria-label="Selected activity" className="min-w-0 rounded-md border border-rule bg-bg p-3 [overflow-wrap:anywhere]">
-        {current ? <AgentDetails agent={current} parent={parentOf(current)} /> : (
+        {forkSelected ? <>
+          <h3 className="font-semibold">Fork source</h3>
+          <p className="mt-1 text-sm"><code>{forkedFrom}</code></p>
+        </> : current ? <AgentDetails agent={current} parent={parentOf(current)} /> : (
           <>
             <h3 className="font-semibold">Session overview</h3>
             <p className="mt-1 text-sm text-muted">{formatInteger(session.usage.requests)} requests across the session and its subagents</p>
             {forkedFrom && <p className="mt-2 text-sm text-muted">Forked from <code>{forkedFrom}</code></p>}
             <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
               <dt>Models</dt><dd>{session.models.map(({ model }) => model).join(", ") || "Unavailable"}</dd>
-              <dt>First activity</dt><dd>{session.startTs ? formatDateTime(session.startTs) : "Unavailable"}</dd>
-              <dt>Last activity</dt><dd>{session.endTs ? formatDateTime(session.endTs) : "Unavailable"}</dd>
+              <dt>First activity</dt><dd>{session.startTs ? timestamp.format(session.startTs) : "Unavailable"}</dd>
+              <dt>Last activity</dt><dd>{session.endTs ? timestamp.format(session.endTs) : "Unavailable"}</dd>
             </dl>
             {tools.length > 0 && (
               <details className="mt-2 text-sm">
@@ -157,7 +186,7 @@ export function SessionGraph({ detail }: { detail: SessionDetail }) {
               <details className="text-sm">
                 <summary className="min-h-11 cursor-pointer py-3">Prompt activity</summary>
                 <ol className="space-y-1 pl-4">
-                  {prompts.map((prompt, index) => <li key={index}>{prompt.ts ? formatDateTime(prompt.ts) : "Time unavailable"} · {formatInteger(prompt.chars)} characters</li>)}
+                  {prompts.map((prompt, index) => <li key={index}>{prompt.ts ? timestamp.format(prompt.ts) : "Time unavailable"} · {formatInteger(prompt.chars)} characters</li>)}
                 </ol>
               </details>
             )}
