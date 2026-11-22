@@ -33,7 +33,10 @@ type claudeContent struct {
 	raw    []byte // the content as written, until resolve; points into the line being parsed
 }
 
+// UnmarshalJSON starts from nothing: encoding/json calls it for each occurrence of a repeated "content" key,
+// and the last one is the content, whatever the previous ones were.
 func (c *claudeContent) UnmarshalJSON(b []byte) error {
+	*c = claudeContent{}
 	if json.Unmarshal(b, &c.Text) == nil {
 		c.IsText = true
 		return nil
