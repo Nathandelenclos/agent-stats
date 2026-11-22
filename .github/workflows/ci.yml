@@ -1,0 +1,85 @@
+# Checks every pull request and every push to main. On a push to main, the release job runs once the checks passed.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# A pull request run is cancelled by the next push to the same pull request. A push run gets a group of its own, so it is
+# never cancelled and never replaced while pending: a shared group keeps a single pending run, and an older re-run
+# joining it would evict a newer run that covers more commits. The release job serializes those runs (release.yml).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  go:
+    name: Go checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+      - name: Vet
+        run: go vet ./...
+      # Known vulnerabilities in the code the module actually calls, in its dependencies and in the standard library.
+      # Run from a pinned version with `go run`: nothing is installed.
+      - name: Vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
+      - name: Test (race detector)
+        run: go test -race ./...
+      - name: Build
+        run: go build -o /dev/null .
+      # The release ships these six targets; a cross-compilation failure must show up here,
+      # not at release time. The SQLite driver is pure Go, so no cgo is needed.
+      - name: Cross-compile the release targets
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            echo "build $target"
+            GOOS=${target%/*} GOARCH=${target#*/} go build -o /dev/null .
+          done
+
+  # Releases what these checks just validated: the release workflow tags, builds and attests this very commit.
+  # It never runs on a pull request. When the web job below is enabled, add it to `needs`.
+  release:
+    name: Release
+    needs: go
+    if: github.event_name == 'push'
+    permissions:
+      contents: write # push the tag, create the GitHub release
+      id-token: write # sign the build provenance attestation
+      attestations: write
+    uses: ./.github/workflows/release.yml
+
+  # Placeholder for the future web front (web/). Its dist/ is NOT versioned: it is built on demand,
+  # here and in the release workflow. Enable this job when web/package.json exists, then add it
+  # to the build that embeds the front in the binary. Nothing runs today, so nothing can fail.
+  #
+  # web:
+  #   name: Web front
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 10
+  #   defaults:
+  #     run:
+  #       working-directory: web
+  #   steps:
+  #     - uses: actions/checkout@<full-sha> # vX.Y.Z
+  #       with:
+  #         persist-credentials: false
+  #     - uses: actions/setup-node@<full-sha> # vX.Y.Z
+  #       with:
+  #         node-version-file: web/.nvmrc
+  #         cache: npm
+  #         cache-dependency-path: web/package-lock.json
+  #     - run: npm ci
+  #     - run: npm run build

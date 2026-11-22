@@ -1,0 +1,59 @@
+# git-cliff configuration: next version and release notes, derived from Conventional Commits.
+#
+# Principle: no version number and no changelog is ever written by hand or committed.
+# The release workflow (.github/workflows/release.yml) runs
+#   git-cliff --bumped-version                    -> next version (vX.Y.Z)
+#   git-cliff --unreleased --tag $VERSION         -> notes of the GitHub release
+# and the version tags are the only versioning artefact.
+
+[changelog]
+header = ""
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim }}
+{% for commit in commits %}
+- {% if commit.breaking %}**BREAKING** {% endif %}{% if commit.scope %}**{{ commit.scope }}**: {% endif %}{{ commit.message | upper_first }} ({{ commit.id | truncate(length=7, end="") }})
+{%- endfor %}
+{% endfor %}
+"""
+footer = ""
+trim = true
+
+[git]
+conventional_commits = true
+# Non-conventional commits are ignored. The PR title check (pr-title.yml) and squash-only
+# merges keep every commit on main conventional.
+filter_unconventional = true
+# The <!-- N --> prefixes order the groups; striptags removes them from the output.
+commit_parsers = [
+  # A breaking change is always listed first, whatever its type (feat!:, fix!:, refactor!:…).
+  { message = '^[a-z]+(\([^)]*\))?!:', group = "<!-- 0 -->Breaking changes" },
+  { message = "^feat", group = "<!-- 1 -->Features" },
+  { message = "^fix", group = "<!-- 2 -->Bug fixes" },
+  { message = "^perf", group = "<!-- 3 -->Performance" },
+  # docs, refactor, test, build, ci, chore, style and anything else: no release, not in the notes.
+  { message = ".*", skip = true },
+]
+# A commit carrying a BREAKING CHANGE footer is kept even if its type is skipped above.
+protect_breaking_commits = true
+# Anchored: v1.2.3-rc1 is not a release tag.
+tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+sort_commits = "oldest"
+
+[bump]
+# Versions follow the rule: feat -> minor, fix and perf -> patch, breaking change -> major.
+#
+# The project starts in 0.x (initial_tag), the semver "initial development" range where the public
+# surface (CLI flags, --json output, index schema) may still change:
+#  - features_always_bump_minor = true: a feat bumps the minor version (0.1.0 -> 0.2.0) instead of
+#    git-cliff's 0.x default, which would only bump the patch.
+#  - breaking_always_bump_major = false: while in 0.x a breaking change bumps the minor version, so an
+#    accidental `feat!:` cannot jump to 1.0.0. From 1.0.0 on, a breaking change bumps the major version.
+# 1.0.0 is a deliberate decision, taken once the CLI and --json contracts are declared stable. It goes through the
+# normal pipeline, never by hand (a hand-made release has no binaries and no attestation): in the pull request that
+# declares them stable, set breaking_always_bump_major = true below and title it `feat!: ...` (or add a
+# `BREAKING CHANGE:` footer). The release job then bumps 0.x to 1.0.0, builds, attests and publishes it like any other
+# release. The setting can stay true afterwards: from 1.0.0 a breaking change bumps the major version either way.
+features_always_bump_minor = true
+breaking_always_bump_major = false
+initial_tag = "v0.1.0"

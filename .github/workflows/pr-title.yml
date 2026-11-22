@@ -1,0 +1,24 @@
+# The pull request title becomes the squash commit on main, and the release version is computed
+# from those commits (cliff.toml). A title that is not a Conventional Commit would be ignored
+# by the release, so it fails here.
+name: pr-title
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  conventional-title:
+    name: Conventional Commit title
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      # The default types are the Conventional Commits ones: feat, fix, perf, refactor, docs, test,
+      # build, ci, chore, style, revert. A ! before the colon marks a breaking change.
+      - uses: amannn/action-semantic-pull-request@2252a14e810aa9b85c2d560bd7070c802206ecf6 # v6.1.2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

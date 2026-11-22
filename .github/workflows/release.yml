@@ -1,0 +1,243 @@
+# Publishes a release when commits that count (feat, fix, perf, breaking change) reached main and CI passed.
+#
+# It is called by ci.yml, after every check passed, on each push to main. So the commit this run is for (GITHUB_SHA)
+# is the commit CI validated, and it is also the one that is tagged, built and named by the provenance attestation.
+# The binaries are built once, by GoReleaser, from that commit.
+#
+# Catch-up design: the next version and the notes are computed from ALL the Conventional Commits since the last tag
+# (git-cliff, see cliff.toml), up to this run's commit. A run therefore releases everything releasable up to its own
+# commit and depends on no other run: if a run is skipped or cancelled, the next green push on main releases what it left. Nothing is versioned or written
+# to the repository by hand: the tag is the only artefact.
+#
+# Idempotent: it does nothing when no commit is releasable, and never moves or re-creates a tag. The release is
+# created as a draft, its provenance is attested, and only then is it published: if a run fails after pushing the
+# tag, re-running that run rebuilds the draft for the same tag and finishes the release. Until then, the runs of
+# later commits fail on purpose (they cannot rebuild an older commit and still attest it): they never publish a newer
+# version past an unfinished one. Re-run the failed run of the older commit first, then the later ones.
+#
+# Manual entry, for a tag whose run can no longer be re-run (GitHub allows it for 30 days only) or that was pushed by
+# hand: run this workflow ON the tag (Actions, release, Run workflow, "Use workflow from": Tag, or
+# `gh workflow run release.yml --ref vX.Y.Z`). The run then starts from the tag's own commit, so the build and the
+# attestation name that commit, and it follows the same path as a re-run. The workflow file must exist at that tag,
+# and the tag's commit must be on the default branch and carry the version git-cliff computes for it: nothing else is
+# built or signed. The attestation then names the tag (refs/tags/vX.Y.Z) as its source ref, where a push run names
+# refs/heads/main: the README gives both checks.
+name: release
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One release at a time, and no waiting run is replaced: by default GitHub keeps a single pending run per group, so an
+# older re-run could evict a newer run that covers more commits. `queue: max` lets up to 100 runs wait and runs them in
+# the order they arrived, never in the middle of a publication. That order is not the commit order: a re-run of an older
+# commit that arrives after newer runs goes after them, and those fail on purpose on the unfinished tag (see above);
+# re-run them once it is published. (actionlint does not know `queue` yet: .github/actionlint.yaml ignores that one error.)
+concurrency:
+  group: release
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  release:
+    name: Tag and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write # push the tag, create the GitHub release
+      id-token: write # sign the build provenance attestation
+      attestations: write
+    steps:
+      # The commit CI validated (the default ref is the pushed commit), with the whole history and the tags
+      # (git-cliff needs both). The token is kept to push the tag; no step runs code that is not pinned below.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # No build cache: this job can write to the repository and sign, so it restores nothing a pull request could have left.
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      # syft generates the SBOM of each archive (sboms in .goreleaser.yaml).
+      - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          syft-version: v1.57.1
+      - uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
+        with:
+          tool: git-cliff@2.14.2
+
+      # Manual run only. The tag must be the version the pipeline itself would have created for its commit: git-cliff is
+      # asked for the next version with the tag removed from this clone (it is put back as it was, nothing is pushed).
+      # These checks are made by the workflow file of the tag, so a consumer must not rely on them alone: the README tells
+      # how to verify that the attested commit is on the default branch.
+      - name: Check the manual run
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [ "$REF_TYPE" != tag ] || ! printf '%s\n' "$REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Run this workflow on a tag vX.Y.Z (\"Use workflow from\": Tag), not on $REF_TYPE $REF_NAME."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor HEAD "refs/remotes/origin/$DEFAULT_BRANCH"; then
+            echo "::error::$REF_NAME is not on $DEFAULT_BRANCH: refusing to build and sign it."
+            exit 1
+          fi
+          if [ "$(git tag --points-at HEAD --list 'v*' | wc -l)" -ne 1 ]; then
+            echo "::error::Several v* tags point at this commit: refusing to guess which one to publish."
+            exit 1
+          fi
+          tag_object=$(git rev-parse "refs/tags/$REF_NAME")
+          git tag -d "$REF_NAME" >/dev/null
+          expected=$(git-cliff --bumped-version)
+          git update-ref "refs/tags/$REF_NAME" "$tag_object"
+          if [ "$expected" != "$REF_NAME" ]; then
+            echo "::error::$REF_NAME is not the version computed for this commit ($expected): refusing to publish it."
+            exit 1
+          fi
+
+      # git-cliff is the single source of truth: its parsers (cliff.toml) decide which commits count,
+      # which version comes next and what the notes say. No commit classification is duplicated here.
+      - name: Decide whether there is something to release
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Strict vX.Y.Z only: the glob of git tag would also accept v1.2.3-rc1. grep exits 1 when no tag
+          # matches (not an error) and 2 or more on a real error, which stops the run.
+          semver_tags() { git tag "$@" --list 'v[0-9]*' | { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || [ $? -eq 1 ]; }; }
+          # HEAD is the commit this run is for (the pushed commit CI validated, or the tag's commit on a manual run)
+          # and the one the provenance will name. Every release is looked up
+          # in one call. Every lookup below fails closed: a failed command stops the run (set -e), and none is
+          # followed by "|| true", so an error is never read as "nothing published" or "no tag".
+          if ! published=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.draft | not) | .tag_name'); then
+            echo "::error::Could not list the releases of $GITHUB_REPOSITORY."
+            exit 1
+          fi
+          # grep exits 1 when the notes have no group (nothing releasable) and 2 or more when it fails: only the
+          # first means "no notes", the second stops the run.
+          has_notes() {
+            local rc=0
+            grep -q '^### ' "$RUNNER_TEMP/notes.md" || rc=$?
+            [ "$rc" -le 1 ] || { echo "::error::Could not read the release notes."; exit 1; }
+            [ "$rc" -eq 0 ]
+          }
+          is_published() { case $'\n'"$published"$'\n' in *$'\n'"$1"$'\n'*) return 0 ;; esac; return 1; }
+          head_sha=$(git rev-parse HEAD)
+          latest=$(semver_tags --merged HEAD --sort=-v:refname | sed -n 1p)
+          existing=$(semver_tags --points-at HEAD --sort=-v:refname | sed -n 1p)
+          covering=$(semver_tags --contains HEAD --sort=v:refname | sed -n 1p)
+          merged=$(semver_tags --merged HEAD --sort=v:refname)
+
+          # An earlier tag without a published release (a run pushed it, then failed) comes before anything new.
+          # It cannot be rebuilt from this commit: the attestation would name this commit, not the tagged one.
+          # So the run stops here, and the failed run of that commit is re-run (a re-run keeps its commit).
+          # Only the tag on HEAD is finished by this run, below.
+          stuck=false
+          while read -r tag; do
+            [ -n "$tag" ] || continue
+            if is_published "$tag"; then
+              continue
+            fi
+            commit=$(git rev-list -n 1 "$tag")
+            [ "$commit" = "$head_sha" ] && continue
+            echo "::error::$tag (commit $commit) has no published release. Re-run the failed ci run of that commit to finish it or, if it can no longer be re-run, run the release workflow on that tag (see CONTRIBUTING.md); this run publishes nothing until then."
+            stuck=true
+          done <<<"$merged"
+          if $stuck; then
+            exit 1
+          fi
+
+          if [ -n "$existing" ]; then
+            # This commit is already tagged: never re-tag. Only a published release ends the job early;
+            # a draft or missing release (a previous run stopped before publishing) is rebuilt.
+            version=$existing
+            if is_published "$version"; then
+              echo "::notice::$version is already released: nothing to do."
+              echo "release=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::notice::$version exists but is not published yet: finishing its release."
+            create_tag=false
+            git-cliff --current --strip header -o "$RUNNER_TEMP/notes.md"
+          elif [ -n "$covering" ]; then
+            # A later run already released a tag that contains this commit: nothing is left to release here.
+            echo "::notice::This commit is already part of $covering: nothing to do."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          else
+            if ! version=$(git-cliff --bumped-version); then
+              echo "::error::git-cliff could not compute the next version."
+              exit 1
+            fi
+            printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'
+            if [ "$version" = "$latest" ]; then
+              echo "::notice::No releasable commit since $latest: nothing to do."
+              echo "release=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if git rev-parse -q --verify "refs/tags/$version" >/dev/null; then
+              echo "::error::$version already exists on another commit; refusing to move a tag."
+              exit 1
+            fi
+            create_tag=true
+            git-cliff --unreleased --tag "$version" --strip header -o "$RUNNER_TEMP/notes.md"
+            # cliff.toml skips every commit that does not count (docs, chore, ci…): no group, no release.
+            if ! has_notes; then
+              echo "::notice::No releasable commit since ${latest:-the beginning}: nothing to do."
+              echo "release=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ -n "$latest" ]; then
+              printf '\n**Full changelog**: https://github.com/%s/compare/%s...%s\n' "$GITHUB_REPOSITORY" "$latest" "$version" >> "$RUNNER_TEMP/notes.md"
+            fi
+          fi
+          has_notes || { echo "::error::git-cliff produced no release notes for $version."; exit 1; }
+
+          {
+            echo "release=true"
+            echo "version=$version"
+            echo "create_tag=$create_tag"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create the tag
+        if: steps.plan.outputs.release == 'true' && steps.plan.outputs.create_tag == 'true'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          git tag "$VERSION" HEAD
+          git push origin "refs/tags/$VERSION"
+
+      # GoReleaser builds once and uploads the assets and the notes to a DRAFT release: nothing is public
+      # until the provenance below is attested.
+      - name: Build the binaries and create the draft release
+        if: steps.plan.outputs.release == 'true'
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          distribution: goreleaser
+          version: v2.20.3
+          args: release --clean --release-notes ${{ runner.temp }}/notes.md
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Attest the build provenance
+        if: steps.plan.outputs.release == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: dist/checksums.txt
+
+      - name: Publish the release
+        if: steps.plan.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: gh release edit "$VERSION" --draft=false --verify-tag

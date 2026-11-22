@@ -1,0 +1,7 @@
+# actionlint (1.7.x) does not know the `queue` key of `concurrency`, which GitHub documents:
+# https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax
+# Remove this file once actionlint supports it (rhysd/actionlint#654).
+paths:
+  .github/workflows/release.yml:
+    ignore:
+      - 'unexpected key "queue" for "concurrency" section'
