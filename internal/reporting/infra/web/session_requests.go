@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"strconv"
@@ -35,8 +36,8 @@ type sessionRequestsJSON struct {
 }
 
 func (s *Server) sessionRequests(w http.ResponseWriter, r *http.Request) {
-	const offsetParam, failedParam = "offset", "failed"
-	p, bad := s.parseParams(r, paramSince, paramHarness, paramProject, paramLimit, offsetParam, failedParam)
+	const offsetParam, failedParam, signatureParam = "offset", "failed", "signature"
+	p, bad := s.parseParams(r, paramSince, paramHarness, paramProject, paramLimit, offsetParam, failedParam, signatureParam)
 	if bad != nil {
 		bad.write(w)
 		return
@@ -56,12 +57,20 @@ func (s *Server) sessionRequests(w http.ResponseWriter, r *http.Request) {
 		invalidParameter(failedParam, "use 1 to show only failed requests").write(w)
 		return
 	}
+	signature := values.Get(signatureParam)
+	if values.Has(signatureParam) {
+		key, err := hex.DecodeString(signature)
+		if !s.localOnly || err != nil || len(key) != 16 {
+			invalidParameter(signatureParam, "use a signature shown in the local request journal").write(w)
+			return
+		}
+	}
 	id, _ := reporting.NewSessionID(r.PathValue("id")) // a zero id lists the requests of the whole view
 	if s.opts.SessionRequests.Queries == nil {
 		sessionMissing(w)
 		return
 	}
-	rows, err := s.opts.SessionRequests.Run(r.Context(), id, p.query, failed == "1", p.limit+1, int(offset))
+	rows, err := s.opts.SessionRequests.Run(r.Context(), id, p.query, failed == "1", signature, p.limit+1, int(offset))
 	if errors.Is(err, reporting.ErrSessionNotFound) {
 		sessionMissing(w)
 		return
@@ -85,6 +94,33 @@ func (s *Server) sessionRequests(w http.ResponseWriter, r *http.Request) {
 			item.Error = row.Error
 		}
 		out.Requests = append(out.Requests, item)
+	}
+	writeJSON(w, s.log, out)
+}
+
+type errorSignatureJSON struct {
+	Key     string `json:"key"`
+	Message string `json:"message"`
+	Count   int64  `json:"count"`
+	LastTS  int64  `json:"lastTs"`
+}
+
+func (s *Server) errorSignatures(w http.ResponseWriter, r *http.Request) {
+	p, bad := s.parseParams(r, paramSince, paramHarness, paramProject, paramLimit)
+	if bad != nil {
+		bad.write(w)
+		return
+	}
+	out := []errorSignatureJSON{}
+	if s.localOnly && s.opts.ErrorSignatures.Queries != nil {
+		rows, err := s.opts.ErrorSignatures.Run(r.Context(), p.query, p.limit)
+		if err != nil {
+			s.fail(w, "reading error signatures", err)
+			return
+		}
+		for _, row := range rows {
+			out = append(out, errorSignatureJSON{row.Key, row.Message, row.Count, kernel.UnixMilli(row.Last)})
+		}
 	}
 	writeJSON(w, s.log, out)
 }

@@ -160,7 +160,7 @@ function Report({ report, explore }: {
   );
 }
 
-const navIcons: Record<View, string> = { Overview: "▦", Usage: "▥", Sessions: "▤", Requests: "↔", Prompts: "≡", Catalog: "⊞", Quotas: "◴" };
+const navIcons: Record<View, string> = { Overview: "▦", Usage: "▥", Sessions: "▤", Requests: "↔", Errors: "!", Prompts: "≡", Catalog: "⊞", Quotas: "◴" };
 const clearedRelation = Object.fromEntries(relationKeys.map((key) => [key, undefined]));
 const clearedDetail = { session: undefined, prompt: undefined, revision: undefined, section: undefined };
 
@@ -196,6 +196,7 @@ export function App() {
     Usage: report.data?.scope,
     Sessions: sessions.data?.scope,
     Requests: filters?.scope,
+    Errors: filters?.scope,
     Prompts: prompts.data?.scope,
     Catalog: catalog.data?.scope,
     Quotas: undefined,
@@ -296,7 +297,7 @@ export function App() {
                 revision={revision} section={section} onSelect={openSession} onPrompt={openPrompt}
                 onSection={(next) => update({ section: next }, true)}
                 onBack={() => back(selectedPrompt ? { prompt: undefined, revision: undefined } : clearedDetail)} />}
-              {view === "Requests" && <SessionRequests key={JSON.stringify([project, filters])} filters={filters} project={project}
+              {(view === "Requests" || view === "Errors") && <SessionRequests key={JSON.stringify([view, project, filters])} filters={filters} project={project} errorsOnly={view === "Errors"}
                 openSession={(id) => update({ ...clearedDetail, view: "sessions", session: id, section: "Requests" })} />}
               {view === "Prompts" && (sessionID && selectedPrompt
                 ? <PromptReader id={sessionID} position={selectedPrompt} revision={revision} filters={filters} project={project}

@@ -441,3 +441,24 @@ it("opens a linked session from the request journal", async () => {
   expect(new URLSearchParams(window.location.search).get("session")).toBe("claude:session");
   expect(new URLSearchParams(window.location.search).get("section")).toBe("Requests");
 });
+
+it("filters the error journal by a normalized signature", async () => {
+  window.history.replaceState(null, "", "?view=errors");
+  const base = serveReports(() => report()).getMockImplementation()!;
+  const fetch = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.startsWith("/api/errors?")) {
+      return new Response(JSON.stringify([{ key: "rate-limit", message: "HTTP 429 for <value>", count: 3, lastTs: 1 }]));
+    }
+    if (url.startsWith("/api/requests?")) return new Response(JSON.stringify({ requests: [], hasMore: false }));
+    return base(input);
+  });
+  vi.stubGlobal("fetch", fetch);
+  const { container } = render(withQueries(testQueryClient(), <App />));
+  await eventually(() => expect(container.textContent).toContain("3 · HTTP 429 for <value>"));
+  choose(selectLabelled(container, "Error signature")!, "rate-limit");
+  await eventually(() => expect(fetch).toHaveBeenCalledWith(
+    "/api/requests?since=7d&project=all&limit=25&offset=0&failed=1&signature=rate-limit",
+    expect.any(Object),
+  ));
+});

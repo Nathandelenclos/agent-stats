@@ -338,3 +338,27 @@ func TestProviderUsageCountsTimingCoverage(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestErrorSignaturesGroupTransientIDsAndPreserveStatusCodes(t *testing.T) {
+	path := indexed(t, time.UnixMilli(t0))
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE usage_requests SET error = 'HTTP 429 in req_abcdef after 1 second';
+		INSERT INTO usage_requests (ts, model, input, output, cache_read, cache_write, cost, priced, harness, agent_type, error) VALUES
+		(1, 'm', 0, 0, 0, 0, 0, 0, 'claude', 'main', 'HTTP 429 in req_hijklm after 8 second'),
+		(2, 'm', 0, 0, 0, 0, 0, 0, 'claude', 'main', 'HTTP 503 in req_hijklm after 8 second')`); err != nil {
+		t.Fatal(err)
+	}
+	s := readTestSessions(t, path)
+	groups, err := s.ErrorSignatures(t.Context(), report.Filter{}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 2 || groups[0].Count != 2 || groups[0].Message != "HTTP 429 in <value> after <value> second" ||
+		groups[0].Last.UnixMilli() != t0 || groups[1].Count != 1 || groups[0].Key == groups[1].Key {
+		t.Fatalf("error groups = %+v", groups)
+	}
+}

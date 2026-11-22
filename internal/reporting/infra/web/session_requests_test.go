@@ -8,19 +8,19 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 )
 
-type requestIndex func(domain.SessionID, domain.Filter, bool, int, int) ([]domain.SessionRequest, error)
+type requestIndex func(domain.SessionID, domain.Filter, bool, string, int, int) ([]domain.SessionRequest, error)
 
-func (fn requestIndex) SessionRequests(_ context.Context, id domain.SessionID, f domain.Filter, failed bool, limit, offset int) ([]domain.SessionRequest, error) {
-	return fn(id, f, failed, limit, offset)
+func (fn requestIndex) SessionRequests(_ context.Context, id domain.SessionID, f domain.Filter, failed bool, signature string, limit, offset int) ([]domain.SessionRequest, error) {
+	return fn(id, f, failed, signature, limit, offset)
 }
 
 func TestSessionRequestsFiltersAndErrorPrivacy(t *testing.T) {
 	for _, remote := range []bool{false, true} {
 		r := newRig(t, func(o *Options) {
 			o.AllowRemote = remote
-			o.SessionRequests.Queries = requestIndex(func(id domain.SessionID, f domain.Filter, failed bool, limit, offset int) ([]domain.SessionRequest, error) {
+			o.SessionRequests.Queries = requestIndex(func(id domain.SessionID, f domain.Filter, failed bool, signature string, limit, offset int) ([]domain.SessionRequest, error) {
 				if id.String() != "claude:root/sub" || f.Harness.String() != "claude" || !failed || limit != 3 || offset != 2 {
-					t.Fatalf("unexpected query: %v, %+v, %v, %d, %d", id, f, failed, limit, offset)
+					t.Fatalf("unexpected query: %v, %+v, %v, %q, %d, %d", id, f, failed, signature, limit, offset)
 				}
 				return []domain.SessionRequest{{Error: "private failure"}, {Model: "opus"}, {Model: "next"}}, nil
 			})

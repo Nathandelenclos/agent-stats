@@ -116,18 +116,37 @@ export interface SessionRequest {
 
 export const requestPageSize = 25;
 
-export function useSessionRequests(id: string | undefined, filters: Filters, project: string, failed: boolean, offset: number) {
+export function useSessionRequests(id: string | undefined, filters: Filters, project: string, failed: boolean, offset: number, signature: string) {
   const params = {
     ...filterParams(filters),
     limit: String(requestPageSize),
     offset: String(offset),
     ...(failed ? { failed: "1" } : {}),
+    ...(signature ? { signature } : {}),
   };
   return useQuery({
     queryKey: ["sessions", "requests", id, params, project],
     queryFn: ({ signal }) => getJSON<{ requests: SessionRequest[]; hasMore: boolean }>(
       id ? `/api/sessions/${encodeURIComponent(id)}/requests` : "/api/requests", params, signal,
     ),
+    gcTime: 0,
+    retry: shouldRetry,
+  });
+}
+
+interface ErrorSignature {
+  key: string;
+  message: string;
+  count: number;
+  lastTs: number;
+}
+
+export function useErrorSignatures(filters: Filters, project: string, enabled: boolean) {
+  const params = { ...filterParams(filters), limit: "50" };
+  return useQuery({
+    queryKey: ["sessions", "errors", params, project],
+    queryFn: ({ signal }) => getJSON<ErrorSignature[]>("/api/errors", params, signal),
+    enabled,
     gcTime: 0,
     retry: shouldRetry,
   });

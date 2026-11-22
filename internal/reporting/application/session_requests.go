@@ -9,13 +9,27 @@ import (
 type SessionRequest = domain.SessionRequest
 
 type SessionRequestQuery interface {
-	SessionRequests(context.Context, domain.SessionID, domain.Filter, bool, int, int) ([]domain.SessionRequest, error)
+	SessionRequests(context.Context, domain.SessionID, domain.Filter, bool, string, int, int) ([]domain.SessionRequest, error)
 }
 
 type ListSessionRequests struct {
 	Queries SessionRequestQuery
 }
 
-func (uc ListSessionRequests) Run(ctx context.Context, id SessionID, q Query, failedOnly bool, limit, offset int) ([]SessionRequest, error) {
-	return uc.Queries.SessionRequests(ctx, id, domain.Filter{Since: q.Since, Harness: q.Harness, Project: q.Project}, failedOnly, limit, offset)
+func (uc ListSessionRequests) Run(ctx context.Context, id SessionID, q Query, failedOnly bool, signature string, limit, offset int) ([]SessionRequest, error) {
+	return uc.Queries.SessionRequests(ctx, id, domain.Filter{Since: q.Since, Harness: q.Harness, Project: q.Project}, failedOnly, signature, limit, offset)
+}
+
+type ErrorSignature = domain.ErrorSignature
+
+type ErrorSignatureQuery interface {
+	ErrorSignatures(context.Context, domain.Filter, int) ([]domain.ErrorSignature, error)
+}
+
+type ListErrorSignatures struct {
+	Queries ErrorSignatureQuery
+}
+
+func (uc ListErrorSignatures) Run(ctx context.Context, q Query, limit int) ([]ErrorSignature, error) {
+	return uc.Queries.ErrorSignatures(ctx, domain.Filter{Since: q.Since, Harness: q.Harness, Project: q.Project}, limit)
 }

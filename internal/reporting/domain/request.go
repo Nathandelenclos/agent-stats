@@ -21,3 +21,11 @@ type SessionRequest struct {
 	TTFT       Milliseconds
 	Error      string
 }
+
+// ErrorSignature groups repeated errors even when their messages contain changing identifiers.
+type ErrorSignature struct {
+	Key     string
+	Message string
+	Count   int64
+	Last    time.Time
+}

@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { DataTable, type Column } from "../../shared/DataTable";
 import { describe, Failure } from "../../shared/Failure";
 import { formatDateTime, formatInteger, formatMs, formatUSD } from "../../shared/format";
 import type { Filters } from "../report";
-import { requestPageSize, useSessionRequests, type SessionRequest } from "./api";
+import { requestPageSize, useErrorSignatures, useSessionRequests, type SessionRequest } from "./api";
 
 type Row = SessionRequest & { position: number };
 
@@ -26,35 +26,52 @@ const columns: Column<Row>[] = [
   },
 ];
 
-export function SessionRequests({ id, filters, project, openSession }: {
+export function SessionRequests({ id, filters, project, openSession, errorsOnly = false }: {
   id?: string;
+  errorsOnly?: boolean;
   filters: Filters;
   project: string;
   openSession?: (id: string) => void;
 }) {
+  const signatureID = useId();
   const [failed, setFailed] = useState(false);
   const [offset, setOffset] = useState(0);
-  const page = useSessionRequests(id, filters, project, failed, offset);
+  const [signature, setSignature] = useState("");
+  const signatures = useErrorSignatures(filters, project, errorsOnly);
+  const page = useSessionRequests(id, filters, project, errorsOnly || failed, offset, signature);
   const shownColumns: Column<Row>[] = openSession ? [{
     id: "session", header: "Session", value: (r) => r.folder || r.sessionId, truncate: true,
     render: (r) => <button type="button" className="dashboard-link" onClick={() => openSession(r.sessionId)}>{r.folder || r.sessionId}</button>,
   }, ...columns] : columns;
   return <>
     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-      <label className="flex min-h-9 items-center gap-2 text-sm">
+      {errorsOnly ? (
+        signatures.data && signatures.data.length > 0 && <div className="flex max-w-full flex-col gap-1 text-sm">
+          <label htmlFor={signatureID}>Error signature</label>
+          <select id={signatureID} className="min-h-9 max-w-full rounded border border-rule bg-surface px-2"
+            value={signature}
+            onChange={(event) => { setSignature(event.target.value); setOffset(0); }}>
+            <option value="">All signatures</option>
+            {signatures.data.map((group) => <option key={group.key} value={group.key}>
+              {formatInteger(group.count)} · {group.message || "Unknown error"}
+            </option>)}
+          </select>
+        </div>
+      ) : <label className="flex min-h-9 items-center gap-2 text-sm">
         <input type="checkbox" checked={failed} onChange={(event) => { setFailed(event.target.checked); setOffset(0); }} />
         Failed only
-      </label>
+      </label>}
       <div className="flex items-center gap-3 text-sm">
         <button type="button" className="min-h-9 px-2 disabled:opacity-50" disabled={offset === 0} onClick={() => setOffset(offset - requestPageSize)}>Newer</button>
         <span aria-live="polite">Page {offset / requestPageSize + 1}</span>
         <button type="button" className="min-h-9 px-2 disabled:opacity-50" disabled={!page.data?.hasMore} onClick={() => setOffset(offset + requestPageSize)}>Older</button>
       </div>
     </div>
+    {signatures.isError && <Failure title="Error signatures could not be loaded." message={describe(signatures.error)} retry={() => void signatures.refetch()} />}
     {page.isPending && <p role="status">Loading requests…</p>}
     {page.isError && <Failure title="The requests could not be loaded." message={describe(page.error)} retry={() => void page.refetch()} />}
     {page.isSuccess && <DataTable
-      caption={id ? "Session requests" : "Model requests"}
+      caption={id ? "Session requests" : errorsOnly ? "Failed requests" : "Model requests"}
       columns={shownColumns}
       rows={page.data.requests.map((row, i) => ({ ...row, position: offset + i }))}
       rowKey={(row) => String(row.position)}

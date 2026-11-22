@@ -10,7 +10,7 @@ import (
 )
 
 // SessionRequests pages through the usage of a visible run, including its in-scope subagents.
-func (s *SQLiteSessions) SessionRequests(ctx context.Context, id report.SessionID, f report.Filter, failedOnly bool, limit, offset int) (out []report.SessionRequest, err error) {
+func (s *SQLiteSessions) SessionRequests(ctx context.Context, id report.SessionID, f report.Filter, failedOnly bool, signature string, limit, offset int) (out []report.SessionRequest, err error) {
 	err = s.snapshot(ctx, func(q querier) error {
 		r, err := runsOf(q, f.Project)
 		if err != nil {
@@ -48,6 +48,10 @@ func (s *SQLiteSessions) SessionRequests(ctx context.Context, id report.SessionI
 		}
 		if failedOnly {
 			condition += " AND r.error IS NOT NULL"
+		}
+		if signature != "" {
+			condition += " AND r.error IS NOT NULL AND agent_stats_error_key(r.error) = ?"
+			args = append(args, signature)
 		}
 		rows, err := q.Query(r.with+`
 			SELECT u.run_id, COALESCE(u.folder, ''), r.ts, r.model, u.agent_type, r.input, r.output, r.cache_read, r.cache_write,
