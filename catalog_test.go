@@ -126,6 +126,40 @@ func TestCatalogOutputNeverCarriesACredential(t *testing.T) {
 	}
 }
 
+func TestCatalogHoldsNothingTheConfigurationDeclaresAsASource(t *testing.T) {
+	// Given a fixture tree whose pi package sources and Claude Code plugin paths carry markers in every place they can:
+	// last path segment, host alone, query with spaces, encoded characters, an install path that does not exist, an
+	// install directory named after one, a manifest declaring a server file outside its plugin
+	home, project := catalogHome(t)
+	var markers int
+	filepath.WalkDir(home, func(path string, d os.DirEntry, err error) error {
+		if err == nil && strings.Contains(path, "SECRET") && d.IsDir() {
+			markers++
+		}
+		if b, rerr := os.ReadFile(path); err == nil && !d.IsDir() && rerr == nil && !strings.HasSuffix(path, ".jsonl") {
+			markers += strings.Count(string(b), "SECRET")
+		}
+		return nil
+	})
+	if markers < 20 {
+		t.Fatalf("the fixture tree holds %d markers: it no longer covers every shape", markers)
+	}
+	db := filepath.Join(t.TempDir(), "index.db")
+	base := []string{"--db", db, "--project", project}
+	catalogOutput(t, base...)
+	base = append(base, "--no-sync")
+
+	// When the catalogue is printed as text, as JSON, and limited to what is unused
+	for _, args := range [][]string{nil, {"--json"}, {"--unused"}, {"--unused", "--json"}, {"--harness", "pi"}, {"--harness", "claude", "--json"}} {
+		stdout, stderr := catalogOutput(t, append(append([]string{}, base...), args...)...)
+
+		// Then the word SECRET, which every marker holds, is nowhere on stdout or stderr
+		if strings.Contains(stdout+stderr, "SECRET") {
+			t.Errorf("catalog %v prints a declared source:\n%s%s", args, stdout, stderr)
+		}
+	}
+}
+
 func TestCatalogOutputNeverCarriesControlCharacters(t *testing.T) {
 	// Given fixture configurations and logs, indexed
 	// When the catalogue is printed any way

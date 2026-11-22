@@ -93,6 +93,7 @@ func TestClaudeInventoryListsEveryKindWithItsScope(t *testing.T) {
 		"skill:review-notes@user", "skill:frontmatter-name@user", "skill:no-frontmatter@user", "skill:project-skill@project",
 		"agent:reviewer@user", "agent:plain-agent@user", "agent:project-agent@project",
 		"plugin:demo@market@user", "plugin:off@market@user(off)", "plugin:escape@market@user",
+		"plugin:missing@market@user", "plugin:manifest@market@user", "plugin:named@market@user", "skill:named:kept@plugin(named@market)",
 		"mcp:helper@plugin(demo@market)", "mcp:inline-server@plugin(demo@market)",
 		"skill:demo:audit@plugin(demo@market)", "agent:demo:checker@plugin(demo@market)")
 }
@@ -177,6 +178,49 @@ func TestPluginInstallPathThatIsRejectedIsNeverShown(t *testing.T) {
 	}
 }
 
+func TestPluginManifestPointingOutOfThePluginNamesNeitherTheTargetNorItsPath(t *testing.T) {
+	// Given a plugin whose manifest declares the server file "../../SECRET-MANIFEST.json"
+	in := installed(t, fixtureRoots(t), kernel.Claude)
+
+	// Then the file is refused, and the note names the manifest and the plugin, never the declared path
+	want := "plugin manifest@market: .claude-plugin/plugin.json: a declared server file points outside its plugin"
+	if !slices.ContainsFunc(in.Skipped, func(n string) bool { return strings.HasSuffix(n, want) }) {
+		t.Errorf("no note %q in %q", want, in.Skipped)
+	}
+	noSecret(t, in)
+}
+
+func TestPluginWhoseInstallPathDoesNotExistIsNotInstalledAndShowsNoPath(t *testing.T) {
+	// Given a plugin whose install path lies under the plugins directory but does not exist
+	in := installed(t, fixtureRoots(t), kernel.Claude)
+
+	// Then it is reported as not installed, by file and plugin name, and read as nothing
+	want := "installed_plugins.json: plugin missing@market: not installed, its install path is not an existing directory"
+	if !slices.ContainsFunc(in.Skipped, func(n string) bool { return strings.HasSuffix(n, want) }) {
+		t.Errorf("no note %q in %q", want, in.Skipped)
+	}
+	noSecret(t, in)
+}
+
+func TestPluginIsShownByItsNameAndScopeAlone(t *testing.T) {
+	// Given plugins installed in directories with arbitrary names, one of them holding a skill and a malformed manifest
+	in := installed(t, fixtureRoots(t), kernel.Claude)
+
+	// Then the plugin, whatever its install path, and what it carries show nothing of that path
+	for _, it := range in.Items {
+		switch {
+		case it.Kind == domain.Plugin && it.Source != "plugin "+it.Name.String()+" (user)":
+			t.Errorf("plugin %s: source %q", it.Name, it.Source)
+		case it.Scope == domain.ScopePlugin && !strings.HasPrefix(it.Source, "plugin "+it.Origin.String()+": "):
+			t.Errorf("%s %s: source %q", it.Kind, it.Name, it.Source)
+		}
+	}
+	if !slices.ContainsFunc(in.Skipped, func(n string) bool { return n == "plugin named@market: .claude-plugin/plugin.json: malformed" }) {
+		t.Errorf("notes: %q", in.Skipped)
+	}
+	noSecret(t, in)
+}
+
 func TestPluginReachedThroughASymbolicLinkOutOfItsDirectoryIsNotRead(t *testing.T) {
 	// Given a plugin whose install path is a link, inside the plugins directory, to a directory outside it that holds servers and skills
 	r := fixtureRoots(t)
@@ -237,18 +281,18 @@ func TestFilesOfAPluginThatLinkOutOfItAreNotRead(t *testing.T) {
 func TestPluginManifestLinkedOutOfThePluginIsNotRead(t *testing.T) {
 	// Given a plugin whose .claude-plugin/plugin.json is a link to a file outside it, declaring a server
 	r := fixtureRoots(t)
-	root := filepath.Join(r.ClaudeDir, "plugins", "cache", "manifest")
+	root := filepath.Join(r.ClaudeDir, "plugins", "cache", "linked-manifest")
 	outside := filepath.Join(t.TempDir(), "plugin.json")
 	mustWrite(t, outside, `{"mcpServers": {"stolen-inline": {}}}`)
 	mustMkdir(t, filepath.Join(root, ".claude-plugin"))
 	if err := os.Symlink(outside, filepath.Join(root, ".claude-plugin", "plugin.json")); err != nil {
 		t.Fatal(err)
 	}
-	withInstalledPlugins(t, r, map[string]string{"manifest@market": root})
+	withInstalledPlugins(t, r, map[string]string{"linkedmanifest@market": root})
 
 	// When the inventory is read, then the plugin is listed and the server its manifest declares is not
 	in := installed(t, r, kernel.Claude)
-	if !slices.Contains(describe(in), "plugin:manifest@market@user") || hasItemNamed(in, "stolen-inline") {
+	if !slices.Contains(describe(in), "plugin:linkedmanifest@market@user") || hasItemNamed(in, "stolen-inline") {
 		t.Errorf("items: %q", describe(in))
 	}
 }

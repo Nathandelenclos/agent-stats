@@ -91,16 +91,15 @@ func (i Inventory) pluginsIn(c *collector, pluginsDir, settings string) {
 			if enabled, ok := s.Enabled[id]; ok && !enabled {
 				off = true
 			}
-			// The install path comes from the file: it is shown, and read, only once it is known to lie inside pluginsDir.
+			// A plugin is shown by its name and scope alone: its install path comes from the file, so it is never shown, and
+			// read only once it is known to be an existing directory inside pluginsDir.
 			root := filepath.Clean(in.InstallPath)
-			ok := insidePluginsDir(root, pluginsDir)
-			source := root
-			if !ok {
-				source = list
-				c.skipped = append(c.skipped, c.show(list)+": plugin "+id+": install path "+reason(errOutsideDir))
+			rejected := checkInstallPath(root, pluginsDir)
+			if rejected != nil {
+				c.skipped = append(c.skipped, c.show(list)+": plugin "+id+": "+installPathReason(rejected))
 			}
-			c.add(domain.Plugin, id, scope, domain.Name{}, source, off)
-			if off || !ok {
+			c.add(domain.Plugin, id, scope, domain.Name{}, "plugin "+id+" ("+scope.String()+")", off)
+			if off || rejected != nil {
 				continue
 			}
 			c.pluginContents(root, name)
@@ -108,28 +107,45 @@ func (i Inventory) pluginsIn(c *collector, pluginsDir, settings string) {
 	}
 }
 
-// insidePluginsDir reports whether an install path is absolute and, once symbolic links are resolved, under
-// pluginsDir (resolved too). A path that does not exist is accepted: reading it finds nothing.
-func insidePluginsDir(root, pluginsDir string) bool {
+// installPathReason says why an install path was refused.
+func installPathReason(err error) string {
+	if errors.Is(err, errOutsideDir) {
+		return "install path " + reason(err)
+	}
+	return reason(err)
+}
+
+// checkInstallPath refuses an install path that is not absolute, not under pluginsDir once symbolic links are
+// resolved (pluginsDir too) with errOutsideDir, or that is not an existing directory with errNotInstalled.
+func checkInstallPath(root, pluginsDir string) error {
 	if !filepath.IsAbs(root) || !within(root, pluginsDir) {
-		return false
+		return errOutsideDir
 	}
 	base, err := filepath.EvalSymlinks(pluginsDir)
 	if err != nil {
 		base = filepath.Clean(pluginsDir)
 	}
 	real, err := filepath.EvalSymlinks(root)
-	return errors.Is(err, fs.ErrNotExist) || err == nil && within(real, base)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return errNotInstalled
+	case err != nil || !within(real, base):
+		return errOutsideDir
+	case !isDir(real):
+		return errNotInstalled
+	}
+	return nil
 }
 
 // pluginContents lists the skills, agents and MCP servers a plugin carries.
 func (c *collector) pluginContents(root string, plugin domain.Name) {
-	// everything read below must stay in the plugin once links are followed
+	// everything read below must stay in the plugin once links are followed, and is shown relative to it
 	c.confine = root
 	if real, err := filepath.EvalSymlinks(root); err == nil {
 		c.confine = real
 	}
-	defer func() { c.confine = "" }()
+	c.pluginRoot, c.pluginLabel = root, "plugin "+plugin.String()
+	defer func() { c.confine, c.pluginRoot, c.pluginLabel = "", "", "" }()
 	c.skillsDir(filepath.Join(root, "skills"), domain.ScopePlugin, plugin)
 	c.agentFiles(filepath.Join(root, "agents"), ".md", domain.ScopePlugin, plugin, frontmatterName)
 	c.serversFile(filepath.Join(root, ".mcp.json"), domain.ScopePlugin, plugin)
@@ -158,12 +174,13 @@ func (c *collector) pluginContents(root string, plugin domain.Name) {
 	for _, src := range sources {
 		var path string
 		if json.Unmarshal(src, &path) == nil {
+			// the path is declared: neither it nor its target's name is shown, the manifest stands for it
 			file := filepath.Join(root, path)
 			if !within(file, root) {
-				c.problem(file, errOutsideDir)
+				c.skipped = append(c.skipped, c.show(manifest)+": a declared server file points outside its plugin")
 				continue
 			}
-			c.serversFile(file, domain.ScopePlugin, plugin)
+			c.serversFileAs(file, manifest, domain.ScopePlugin, plugin)
 			continue
 		}
 		var inline map[string]jsonValue

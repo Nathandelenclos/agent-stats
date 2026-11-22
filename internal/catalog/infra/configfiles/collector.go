@@ -23,12 +23,18 @@ type collector struct {
 	skipped []string
 	// confine, when set, is a real directory that everything read must stay in, whatever links lead elsewhere.
 	confine string
+	// pluginRoot, while a plugin is read, is its install directory, which the plugin declares: paths under it are shown
+	// as pluginLabel and the path relative to it, never as the directory itself.
+	pluginRoot, pluginLabel string
 }
 
 // inside reports whether path, once its symbolic links are resolved, lies in the confinement directory; a path
 // outside it is noted and not read. A path that does not exist is inside: reading it finds nothing.
 // ponytail: checked before reading, not atomically; a link swapped in between is out of scope for a read-only lister.
-func (c *collector) inside(path string) bool {
+func (c *collector) inside(path string) bool { return c.insideAs(path, path) }
+
+// insideAs is inside, naming shown in the note instead of path.
+func (c *collector) insideAs(path, shown string) bool {
 	if c.confine == "" {
 		return true
 	}
@@ -37,29 +43,40 @@ func (c *collector) inside(path string) bool {
 	case errors.Is(err, fs.ErrNotExist):
 		return true
 	case err != nil:
-		c.problem(path, err)
+		c.problem(shown, err)
 		return false
 	case !within(real, c.confine):
-		c.problem(path, errOutsideDir)
+		c.problem(shown, errOutsideDir)
 		return false
 	}
 	return true
 }
 
-// show writes a path for display, the home directory as "~" and characters a terminal could misread as "?".
+// show writes a path for display, the home directory as "~" and characters a terminal could misread as "?". A path in
+// the plugin being read is written relative to it, under the plugin's name.
 func (c *collector) show(path string) string {
-	path = strings.Map(func(r rune) rune {
-		if unicode.IsPrint(r) {
-			return r
+	if c.pluginRoot != "" && within(path, c.pluginRoot) {
+		rel, _ := filepath.Rel(c.pluginRoot, path)
+		path = c.pluginLabel
+		if rel != "." {
+			path += ": " + filepath.ToSlash(rel)
 		}
-		return '?'
-	}, path)
+		return strings.Map(printable, path)
+	}
+	path = strings.Map(printable, path)
 	if c.home != "" {
 		if rel, err := filepath.Rel(c.home, path); err == nil && within(path, c.home) {
 			return filepath.Join("~", rel)
 		}
 	}
 	return path
+}
+
+func printable(r rune) rune {
+	if unicode.IsPrint(r) {
+		return r
+	}
+	return '?'
 }
 
 // problem notes a path that could not be used. A path that does not exist is not a problem: harnesses are optional.
@@ -89,23 +106,29 @@ func (c *collector) serverNames(names []string, scope domain.Scope, origin domai
 
 // serversFile adds the MCP servers a JSON file defines: under "mcpServers", or as its top-level keys (a plugin's .mcp.json).
 func (c *collector) serversFile(path string, scope domain.Scope, origin domain.Name) {
+	c.serversFileAs(path, path, scope, origin)
+}
+
+// serversFileAs is serversFile for a file whose own path must not be shown, because it was declared: shown stands for
+// it in the items and the notes.
+func (c *collector) serversFileAs(path, shown string, scope domain.Scope, origin domain.Name) {
 	var raw map[string]jsonValue
-	if !c.inside(path) {
+	if !c.insideAs(path, shown) {
 		return
 	}
 	if err := readJSON(path, &raw); err != nil {
-		c.problem(path, err)
+		c.problem(shown, err)
 		return
 	}
 	if nested, ok := raw["mcpServers"]; ok {
 		var servers map[string]jsonValue
 		if json.Unmarshal(nested, &servers) != nil {
-			c.problem(path, errMalformed)
+			c.problem(shown, errMalformed)
 			return
 		}
 		raw = servers
 	}
-	c.serverNames(keys(raw), scope, origin, path)
+	c.serverNames(keys(raw), scope, origin, shown)
 }
 
 // skillsDir adds the skills found one level below dir: a directory with a SKILL.md, whose frontmatter may name it.

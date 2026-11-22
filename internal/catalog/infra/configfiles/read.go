@@ -23,11 +23,12 @@ const (
 )
 
 var (
-	errTooLarge   = errors.New("too large")
-	errTooMany    = errors.New("too many entries")
-	errNotADir    = errors.New("not a directory")
-	errMalformed  = errors.New("malformed")
-	errOutsideDir = errors.New("outside its directory")
+	errTooLarge     = errors.New("too large")
+	errTooMany      = errors.New("too many entries")
+	errNotADir      = errors.New("not a directory")
+	errMalformed    = errors.New("malformed")
+	errOutsideDir   = errors.New("outside its directory")
+	errNotInstalled = errors.New("not installed")
 )
 
 // readLimited reads a whole regular file of at most limit bytes.
@@ -116,6 +117,8 @@ func reason(err error) string {
 		return "not a directory"
 	case errors.Is(err, errOutsideDir):
 		return "points outside its directory"
+	case errors.Is(err, errNotInstalled):
+		return "not installed, its install path is not an existing directory"
 	case errors.Is(err, fs.ErrPermission):
 		return "permission denied"
 	}
