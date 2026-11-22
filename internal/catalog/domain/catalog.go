@@ -282,9 +282,10 @@ func withPluginUsage(entries []Entry) []Entry {
 	return entries
 }
 
-// pluginName is a plugin id without its marketplace: "name@marketplace" reads "name".
-func pluginName(origin Name) string {
-	name, _, _ := strings.Cut(origin.s, "@")
+// PluginName is a plugin id without its marketplace: "name@marketplace" reads "name". The skills and agents a plugin
+// carries are named "name:skill" in the logs.
+func PluginName(id Name) string {
+	name, _, _ := strings.Cut(id.s, "@")
 	return name
 }
 
@@ -297,7 +298,7 @@ func nameMatches(it Item, logged string) bool {
 	if it.Origin.IsZero() {
 		return false
 	}
-	own, ok := strings.CutPrefix(it.Name.s, pluginName(it.Origin)+":")
+	own, ok := strings.CutPrefix(it.Name.s, PluginName(it.Origin)+":")
 	return ok && logged == own
 }
 
@@ -309,7 +310,7 @@ func serverMatches(it Item, logged string) bool {
 	if logged == name || logged == normalizeServer(name) {
 		return true
 	}
-	return !it.Origin.IsZero() && logged == "plugin_"+normalizeServer(pluginName(it.Origin))+"_"+normalizeServer(name)
+	return !it.Origin.IsZero() && logged == "plugin_"+normalizeServer(PluginName(it.Origin))+"_"+normalizeServer(name)
 }
 
 func normalizeServer(s string) string {

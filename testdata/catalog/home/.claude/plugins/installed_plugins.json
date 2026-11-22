@@ -1,0 +1,6 @@
+{"version": 2, "plugins": {
+  "demo@market": [{"scope": "user", "installPath": "@HOME@/.claude/plugins/cache/demo", "version": "1.0.0"}],
+  "off@market": [{"scope": "user", "installPath": "@HOME@/.claude/plugins/cache/off"}],
+  "escape@market": [{"scope": "user", "installPath": "/etc"}],
+  "elsewhere@market": [{"scope": "project", "projectPath": "/work/other", "installPath": "@HOME@/.claude/plugins/cache/demo"}]
+}}

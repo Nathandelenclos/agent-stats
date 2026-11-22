@@ -1,0 +1,1 @@
+{"name": "demo", "mcpServers": {"inline-server": {"command": "y", "env": {"KEY": "SECRET-PLUGIN-INLINE"}}}}

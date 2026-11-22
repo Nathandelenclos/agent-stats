@@ -1,0 +1,80 @@
+package configfiles
+
+import (
+	"encoding/json"
+	"net/url"
+	"path/filepath"
+	"strings"
+
+	"github.com/Nathandelenclos/agent-stats/internal/catalog/domain"
+)
+
+// omp lists what oh-my-pi has installed: skills (its own and the shared ~/.agents/skills), agents, MCP servers from
+// mcp.json, and plugins from installed_plugins.json.
+func (i Inventory) omp(c *collector) {
+	r := i.Roots
+	agent := filepath.Join(r.Home, ".omp", "agent")
+	c.serversFile(filepath.Join(agent, "mcp.json"), domain.ScopeUser, domain.Name{})
+	c.skillsDir(filepath.Join(agent, "skills"), domain.ScopeUser, domain.Name{})
+	c.skillsDir(filepath.Join(r.Home, ".agents", "skills"), domain.ScopeUser, domain.Name{})
+	c.agentFiles(filepath.Join(agent, "agents"), ".md", domain.ScopeUser, domain.Name{}, frontmatterName)
+	i.pluginsIn(c, filepath.Join(r.Home, ".omp", "plugins"), "")
+	if p := r.Project; p != "" {
+		c.serversFile(filepath.Join(p, ".omp", "mcp.json"), domain.ScopeProject, domain.Name{})
+		c.serversFile(filepath.Join(p, ".mcp.json"), domain.ScopeProject, domain.Name{})
+		c.skillsDir(filepath.Join(p, ".omp", "skills"), domain.ScopeProject, domain.Name{})
+		c.skillsDir(filepath.Join(p, ".agents", "skills"), domain.ScopeProject, domain.Name{})
+		c.agentFiles(filepath.Join(p, ".omp", "agents"), ".md", domain.ScopeProject, domain.Name{}, frontmatterName)
+	}
+}
+
+// pi lists what pi has installed: skills and the packages of its settings. pi has no MCP and no subagents of its own.
+func (i Inventory) pi(c *collector) {
+	r := i.Roots
+	c.skillsDir(filepath.Join(r.Home, ".pi", "agent", "skills"), domain.ScopeUser, domain.Name{})
+	c.skillsDir(filepath.Join(r.Home, ".agents", "skills"), domain.ScopeUser, domain.Name{})
+	c.piPackages(filepath.Join(r.Home, ".pi", "agent", "settings.json"), domain.ScopeUser)
+	if p := r.Project; p != "" {
+		c.skillsDir(filepath.Join(p, ".pi", "skills"), domain.ScopeProject, domain.Name{})
+		c.skillsDir(filepath.Join(p, ".agents", "skills"), domain.ScopeProject, domain.Name{})
+		c.piPackages(filepath.Join(p, ".pi", "settings.json"), domain.ScopeProject)
+	}
+}
+
+// piPackages adds the packages of a pi settings.json: each is a source string, or an object with a "source".
+func (c *collector) piPackages(path string, scope domain.Scope) {
+	var s struct {
+		Packages []jsonValue `json:"packages"`
+	}
+	if err := readJSON(path, &s); err != nil {
+		c.problem(path, err)
+		return
+	}
+	for _, raw := range s.Packages {
+		var src string
+		var obj struct {
+			Source string `json:"source"`
+		}
+		if json.Unmarshal(raw, &src) != nil {
+			if json.Unmarshal(raw, &obj) != nil {
+				continue
+			}
+			src = obj.Source
+		}
+		c.add(domain.Plugin, withoutCredentials(src), scope, domain.Name{}, path, false)
+	}
+}
+
+// withoutCredentials drops what a package source may carry that is secret: the user and password of a URL, its query
+// and fragment. A source that is not a URL (an npm name, a path) is kept as is.
+func withoutCredentials(src string) string {
+	if !strings.Contains(src, "://") {
+		return src
+	}
+	u, err := url.Parse(src)
+	if err != nil { // cannot be cleaned, so cannot be shown
+		return "?"
+	}
+	u.User, u.RawQuery, u.Fragment = nil, "", ""
+	return u.String()
+}

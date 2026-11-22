@@ -1,0 +1,27 @@
+model = "gpt-x"
+
+[mcp_servers.github]
+command = "gh-mcp"
+
+[mcp_servers.github.env]
+GITHUB_TOKEN = "SECRET-CODEX-TOKEN"
+
+[mcp_servers."quoted.name"]
+url = "https://fixture-user:SECRET-CODEX-URL@mcp.example.test"
+http_headers = { Authorization = "Bearer SECRET-CODEX-HEADER" }
+
+[mcp_servers.paused] # switched off
+enabled = false
+
+[plugins."helper@market"]
+enabled = true
+
+[plugins."stopped@market"]
+enabled = false
+notes = """
+[mcp_servers.spoofed]
+enabled = true
+"""
+
+[[hooks]]
+name = "an array of tables is not a server"
