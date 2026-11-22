@@ -1,4 +1,4 @@
-# Checks every pull request and every push to main. The release workflow runs after it passes.
+# Checks every pull request and every push to main. On a push to main, the release job runs once the checks passed.
 name: ci
 
 on:
@@ -41,6 +41,18 @@ jobs:
             echo "build $target"
             GOOS=${target%/*} GOARCH=${target#*/} go build -o /dev/null .
           done
+
+  # Releases what these checks just validated: the release workflow tags, builds and attests this very commit.
+  # It never runs on a pull request. When the web job below is enabled, add it to `needs`.
+  release:
+    name: Release
+    needs: go
+    if: github.event_name == 'push'
+    permissions:
+      contents: write # push the tag, create the GitHub release
+      id-token: write # sign the build provenance attestation
+      attestations: write
+    uses: ./.github/workflows/release.yml
 
   # Placeholder for the future web front (web/). Its dist/ is NOT versioned: it is built on demand,
   # here and in the release workflow. Enable this job when web/package.json exists, then add it

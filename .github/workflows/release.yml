@@ -1,24 +1,28 @@
 # Publishes a release when commits that count (feat, fix, perf, breaking change) reached main and CI passed.
 #
-# The next version is computed from the Conventional Commits since the last tag (git-cliff, see
-# cliff.toml). Nothing is versioned or written to the repository by hand: the tag is the only artefact.
-# The binaries are built once, by GoReleaser, from the commit CI validated.
+# It is called by ci.yml, after every check passed, on each push to main. So the commit this run is for (GITHUB_SHA)
+# is the commit CI validated, and it is also the one that is tagged, built and named by the provenance attestation.
+# The binaries are built once, by GoReleaser, from that commit.
 #
-# Idempotent: it does nothing when no commit is releasable, and never moves or re-creates a tag. The release
-# is created as a draft, its provenance is attested, and only then is it published: if a run fails after pushing
-# the tag, re-running it rebuilds the draft for that same tag and finishes the release.
+# Catch-up design: the next version and the notes are computed from ALL the Conventional Commits since the last tag
+# (git-cliff, see cliff.toml), up to this run's commit. A run therefore releases everything releasable up to its own
+# commit and depends on no other run: if a run is skipped, replaced while pending (GitHub keeps one pending run per
+# concurrency group) or cancelled, the next green push on main releases what it left. Nothing is versioned or written
+# to the repository by hand: the tag is the only artefact.
+#
+# Idempotent: it does nothing when no commit is releasable, and never moves or re-creates a tag. The release is
+# created as a draft, its provenance is attested, and only then is it published: if a run fails after pushing the
+# tag, re-running that run rebuilds the draft for the same tag and finishes the release.
 name: release
 
 on:
-  workflow_run:
-    workflows: [ci]
-    types: [completed]
-    branches: [main]
+  workflow_call:
 
 permissions:
   contents: read
 
-# One release at a time; a run is queued, never cancelled in the middle of a publication.
+# One release at a time. A run waiting behind another may be replaced by a newer one: that is harmless, the newer run
+# covers the same commits (see above). The run in progress is never cancelled in the middle of a publication.
 concurrency:
   group: release
   cancel-in-progress: false
@@ -26,8 +30,6 @@ concurrency:
 jobs:
   release:
     name: Tag and publish
-    # Only a green CI run on a push to main (not a pull request, not a failure).
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -35,11 +37,10 @@ jobs:
       id-token: write # sign the build provenance attestation
       attestations: write
     steps:
-      # The exact commit CI validated, with the whole history and the tags (git-cliff needs both).
-      # The token is kept to push the tag; no step runs code that is not pinned below.
+      # The commit CI validated (the default ref is the pushed commit), with the whole history and the tags
+      # (git-cliff needs both). The token is kept to push the tag; no step runs code that is not pinned below.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
@@ -60,31 +61,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # workflow_run records github.sha (the tip of main when CI finished) in the OIDC identity, hence in the
-          # provenance. Release only if it is the commit CI validated, so the attestation names the commit that is
-          # tagged and built. If main moved on, the run of the newer commit releases it.
-          if [ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]; then
-            echo "::notice::main moved on since this CI run: the release of the newer commit will cover it."
-            echo "release=false" >> "$GITHUB_OUTPUT"
-            exit 0
+          glob='v[0-9]*.[0-9]*.[0-9]*'
+          # HEAD is the pushed commit, the one CI validated and the provenance will name. Every release is looked up
+          # in one call; a failed lookup stops the run instead of being read as "nothing published".
+          published="$RUNNER_TEMP/published.txt"
+          if ! gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.draft | not) | .tag_name' > "$published"; then
+            echo "::error::Could not list the releases of $GITHUB_REPOSITORY."
+            exit 1
           fi
-          latest=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || true)
-          existing=$(git tag --points-at HEAD --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | sed -n 1p)
+          latest=$(git describe --tags --abbrev=0 --match "$glob" 2>/dev/null || true)
+          existing=$(git tag --points-at HEAD --list "$glob" --sort=-v:refname | sed -n 1p)
+          covering=$(git tag --contains HEAD --list "$glob" --sort=v:refname | sed -n 1p)
 
           if [ -n "$existing" ]; then
             # This commit is already tagged: never re-tag. Only a published release ends the job early;
-            # a missing or draft release (a previous run stopped before publishing) is rebuilt.
+            # a draft or missing release (a previous run stopped before publishing) is rebuilt.
             version=$existing
-            # Only "release not found" means there is nothing published yet; any other error stops the run.
-            if state=$(gh release view "$version" --json isDraft --jq '.isDraft' 2>&1); then
-              :
-            elif grep -qi 'release not found' <<<"$state"; then
-              state=missing
-            else
-              echo "::error::Could not read the release $version: $state"
-              exit 1
-            fi
-            if [ "$state" = false ]; then
+            if grep -qxF "$version" "$published"; then
               echo "::notice::$version is already released: nothing to do."
               echo "release=false" >> "$GITHUB_OUTPUT"
               exit 0
@@ -92,6 +86,11 @@ jobs:
             echo "::notice::$version exists but is not published yet: finishing its release."
             create_tag=false
             git-cliff --current --strip header -o "$RUNNER_TEMP/notes.md"
+          elif [ -n "$covering" ]; then
+            # A later run already released a tag that contains this commit: nothing is left to release here.
+            echo "::notice::This commit is already part of $covering: nothing to do."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
           else
             if ! version=$(git-cliff --bumped-version); then
               echo "::error::git-cliff could not compute the next version."
