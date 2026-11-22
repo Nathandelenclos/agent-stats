@@ -66,7 +66,8 @@ var harnessChoices = append([]kernel.Harness{{}}, kernel.Harnesses...)
 // reportMsg carries the result of a report request; seq tells which request it answers.
 type reportMsg struct {
 	seq             int
-	period, harness int // the filters the report was asked for
+	period, harness int  // the filters the report was asked for
+	scoped          bool // and whether it was restricted to the project
 	report          reporting.Report
 	err             error
 }
@@ -94,9 +95,14 @@ type Model struct {
 
 	periods []period // the presets, led by a custom period when the command line asked for one
 	period  int
-	harness int                           // index in harnessChoices
-	shown   struct{ period, harness int } // the filters of the report on screen: the title names these, not the pending choice
-	seq     int                           // the latest report request; older answers are ignored
+	harness int            // index in harnessChoices
+	project kernel.Project // what key a restricts the views to; the zero Project leaves nothing to restrict to
+	scoped  bool           // whether the views are restricted to project
+	shown   struct {       // the filters of the report on screen: the title names these, not the pending choice
+		period, harness int
+		scoped          bool
+	}
+	seq     int // the latest report request; older answers are ignored
 	pending bool
 
 	syncing  bool
@@ -139,7 +145,8 @@ func New(o Options) Model {
 			m.harness = i
 		}
 	}
-	m.shown.period, m.shown.harness = m.period, m.harness // nothing on screen yet: the title names the first request
+	m.project, m.scoped = o.Project, o.Scoped && !o.Project.IsZero()
+	m.shown.period, m.shown.harness, m.shown.scoped = m.period, m.harness, m.scoped // nothing on screen yet: the title names the first request
 	for i := range m.sorts {
 		m.sorts[i] = reportOrder
 	}
@@ -246,15 +253,19 @@ func (m Model) startSync() tea.Cmd {
 
 // query is what the filters currently ask for.
 func (m Model) query() reporting.Query {
-	return reporting.Query{Since: m.periods[m.period].since(m.now()), Harness: harnessChoices[m.harness]}
+	q := reporting.Query{Since: m.periods[m.period].since(m.now()), Harness: harnessChoices[m.harness]}
+	if m.scoped {
+		q.Project = m.project
+	}
+	return q
 }
 
 // load asks the use case for the report of the current filters, off the UI loop.
 func (m Model) load() tea.Cmd {
-	reports, q, seq, period, harness := m.reports, m.query(), m.seq, m.period, m.harness
+	reports, q, seq, period, harness, scoped := m.reports, m.query(), m.seq, m.period, m.harness, m.scoped
 	return func() tea.Msg {
 		r, err := reports.Run(q)
-		return reportMsg{seq, period, harness, r, err}
+		return reportMsg{seq, period, harness, scoped, r, err}
 	}
 }
 
@@ -289,7 +300,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		if msg.err == nil {
 			m.report, m.loaded = msg.report, true
-			m.shown.period, m.shown.harness = msg.period, msg.harness
+			m.shown.period, m.shown.harness, m.shown.scoped = msg.period, msg.harness, msg.scoped
 		}
 		m.layout()
 		return m, nil
@@ -301,7 +312,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		if msg.err == nil {
 			m.sessions.list, m.sessions.loaded = msg.list, true
-			m.shown.period, m.shown.harness = msg.period, msg.harness
+			m.shown.period, m.shown.harness, m.shown.scoped = msg.period, msg.harness, msg.scoped
 		}
 		m.layout()
 		return m, nil
@@ -360,6 +371,8 @@ func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "h":
 		m.harness = (m.harness + 1) % len(harnessChoices)
 		return m.reload()
+	case "a":
+		return m.toggleScope()
 	case "s":
 		m.sorts[m.tab] = m.sorts[m.tab].next(m.grid())
 		m.layout()
@@ -376,6 +389,23 @@ func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	return m, nil
+}
+
+// toggleScope switches the views between the project and every project; with no project to switch to it does nothing.
+func (m Model) toggleScope() (Model, tea.Cmd) {
+	if m.project.IsZero() {
+		return m, nil
+	}
+	m.scoped = !m.scoped
+	return m.reload()
+}
+
+// scopeLabel names what the report on screen covers.
+func (m Model) scopeLabel() string {
+	if m.shown.scoped {
+		return "project: " + textfmt.Printable(m.project.Name())
+	}
+	return "all projects"
 }
 
 // reindex starts a sync when indexing is on and none is running.
@@ -524,7 +554,7 @@ func (m Model) titleBar() string {
 	if h := harnessChoices[m.shown.harness]; !h.IsZero() {
 		harness = h.String()
 	}
-	bar := titleStyle.Render("agent-stats") + m.modeLabel() + faintStyle.Render(fmt.Sprintf("  period: %s · harness: %s", m.periods[m.shown.period].label, harness))
+	bar := titleStyle.Render("agent-stats") + m.modeLabel() + faintStyle.Render(fmt.Sprintf("  period: %s · harness: %s · %s", m.periods[m.shown.period].label, harness, m.scopeLabel()))
 	if m.syncing {
 		bar += "  " + m.spinner.View() + " indexing…"
 		if m.indexed > 0 {
@@ -567,12 +597,23 @@ func (m Model) help() string {
 	if m.sync != nil {
 		keys = append(keys, "r re-index")
 	}
+	if !m.project.IsZero() && !(m.mode == sessionsMode && m.sessions.detail.open) {
+		filters = append(filters, "a "+m.scopeSwitch())
+	}
 	keys = append(keys, filters...)
 	line := func(k []string) string { return strings.Join(append(k[:len(k):len(k)], "q quit"), " · ") }
 	for m.width > 0 && len(keys) > 0 && lipgloss.Width(line(keys)) > m.width {
 		keys = keys[:len(keys)-1]
 	}
 	return line(keys)
+}
+
+// scopeSwitch says what key a would switch the views to.
+func (m Model) scopeSwitch() string {
+	if m.scoped {
+		return "all projects"
+	}
+	return "this project"
 }
 
 func (m Model) tabBar() string {
