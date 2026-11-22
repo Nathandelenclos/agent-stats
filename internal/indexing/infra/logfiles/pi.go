@@ -12,11 +12,23 @@ import (
 )
 
 type piBlock struct {
-	Type      string          `json:"type"`
-	Text      string          `json:"text"`
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Arguments json.RawMessage `json:"arguments"`
+	Type      string `json:"type"`
+	Text      string `json:"text"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Arguments size   `json:"arguments"`
+}
+
+// piContent is a message's content: a list of blocks, decoded in place, and its size in bytes.
+type piContent struct {
+	Blocks []piBlock
+	Size   int
+}
+
+func (c *piContent) UnmarshalJSON(b []byte) error {
+	c.Size = len(b)
+	_ = json.Unmarshal(b, &c.Blocks)
+	return nil
 }
 
 type piUsageLog struct {
@@ -40,17 +52,17 @@ type piLine struct {
 	Provider  string `json:"provider"`
 	ModelID   string `json:"modelId"`
 	Message   *struct {
-		Role         string          `json:"role"`
-		Content      json.RawMessage `json:"content"`
-		Provider     string          `json:"provider"`
-		Model        string          `json:"model"`
-		StopReason   string          `json:"stopReason"`
-		ErrorMessage string          `json:"errorMessage"`
-		Duration     float64         `json:"duration"`
-		TTFT         float64         `json:"ttft"`
-		ToolCallID   string          `json:"toolCallId"`
-		IsError      bool            `json:"isError"`
-		Usage        *piUsageLog     `json:"usage"`
+		Role         string      `json:"role"`
+		Content      piContent   `json:"content"`
+		Provider     string      `json:"provider"`
+		Model        string      `json:"model"`
+		StopReason   string      `json:"stopReason"`
+		ErrorMessage string      `json:"errorMessage"`
+		Duration     float64     `json:"duration"`
+		TTFT         float64     `json:"ttft"`
+		ToolCallID   string      `json:"toolCallId"`
+		IsError      bool        `json:"isError"`
+		Usage        *piUsageLog `json:"usage"`
 	} `json:"message"`
 }
 
@@ -120,8 +132,7 @@ func ParsePi(harness kernel.Harness) Parser {
 					return
 				}
 				p.Session.Span(ts)
-				var blocks []piBlock
-				_ = json.Unmarshal(m.Content, &blocks)
+				blocks := m.Content.Blocks
 				switch m.Role {
 				case "user":
 					var parts []string
@@ -153,12 +164,12 @@ func ParsePi(harness kernel.Harness) Parser {
 						}
 						server, name := domain.SplitMCPToolName(b.Name)
 						toolIndex[b.ID] = len(p.Tools)
-						p.Tools = append(p.Tools, domain.ToolCall{Key: b.ID, At: ts, Name: name, Server: server, ArgsChars: len(b.Arguments)})
+						p.Tools = append(p.Tools, domain.ToolCall{Key: b.ID, At: ts, Name: name, Server: server, ArgsChars: int(b.Arguments)})
 					}
 				case "toolResult":
 					if i, ok := toolIndex[m.ToolCallID]; ok {
 						t := &p.Tools[i]
-						t.ResultChars, t.IsError, t.Duration = len(m.Content), m.IsError, between(t.At, ts)
+						t.ResultChars, t.IsError, t.Duration = m.Content.Size, m.IsError, between(t.At, ts)
 					}
 				}
 			}

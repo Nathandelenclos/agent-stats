@@ -33,19 +33,18 @@ func (d *codexDuration) duration() domain.Duration {
 }
 
 type codexPayload struct {
-	Type         string          `json:"type"`
-	ID           string          `json:"id"`
-	Cwd          string          `json:"cwd"`
-	ThreadSource string          `json:"thread_source"`
-	ForkedFrom   string          `json:"forked_from_id"`
-	Model        string          `json:"model"`
-	Name         string          `json:"name"`
-	Arguments    json.RawMessage `json:"arguments"`
-	Input        json.RawMessage `json:"input"`
-	CallID       string          `json:"call_id"`
-	Output       json.RawMessage `json:"output"`
-	ResponseID   string          `json:"response_id"`
-	Usage        *codexUsage     `json:"usage"`
+	Type         string      `json:"type"`
+	ID           string      `json:"id"`
+	Cwd          string      `json:"cwd"`
+	ThreadSource string      `json:"thread_source"`
+	ForkedFrom   string      `json:"forked_from_id"`
+	Model        string      `json:"model"`
+	Name         string      `json:"name"`
+	Arguments    size        `json:"arguments"`
+	CallID       string      `json:"call_id"`
+	Output       size        `json:"output"`
+	ResponseID   string      `json:"response_id"`
+	Usage        *codexUsage `json:"usage"`
 	Settings     *struct {
 		Model string `json:"model"`
 	} `json:"thread_settings"`
@@ -59,15 +58,15 @@ type codexPayload struct {
 		Server    string          `json:"server"`
 		Tool      string          `json:"tool"`
 		Kind      string          `json:"kind"`
-		Arguments json.RawMessage `json:"arguments"`
-		Result    json.RawMessage `json:"result"`
+		Arguments size            `json:"arguments"`
+		Result    size            `json:"result"`
 		Error     json.RawMessage `json:"error"`
 		Status    string          `json:"status"`
-		Command   json.RawMessage `json:"command"`
+		Command   size            `json:"command"`
 		Output    string          `json:"aggregated_output"`
 		ExitCode  *int            `json:"exit_code"`
 		Duration  *codexDuration  `json:"duration"`
-		Changes   json.RawMessage `json:"changes"`
+		Changes   size            `json:"changes"`
 		Query     string          `json:"query"`
 		Path      string          `json:"path"`
 		Content   []struct {
@@ -141,10 +140,10 @@ func ParseCodex(path string, r io.Reader) (domain.Transcript, error) {
 					return
 				}
 				callIndex[pl.CallID] = len(p.Tools)
-				p.Tools = append(p.Tools, domain.ToolCall{Key: pl.CallID, At: ts, Name: pl.Name, ArgsChars: len(pl.Arguments)})
+				p.Tools = append(p.Tools, domain.ToolCall{Key: pl.CallID, At: ts, Name: pl.Name, ArgsChars: int(pl.Arguments)})
 			case "function_call_output":
 				if i, ok := callIndex[pl.CallID]; ok {
-					p.Tools[i].ResultChars = len(pl.Output)
+					p.Tools[i].ResultChars = int(pl.Output)
 					p.Tools[i].Duration = between(p.Tools[i].At, ts)
 				}
 			}
@@ -213,12 +212,12 @@ func codexItem(p *domain.Transcript, ts time.Time, pl *codexPayload) {
 		}
 		return
 	case "CommandExecution":
-		t.Name, t.ArgsChars, t.ResultChars = "shell", len(it.Command), len(it.Output)
+		t.Name, t.ArgsChars, t.ResultChars = "shell", int(it.Command), len(it.Output)
 		t.IsError = t.IsError || (it.ExitCode != nil && *it.ExitCode != 0)
 	case "McpToolCall":
-		t.Name, t.Server, t.ArgsChars, t.ResultChars = it.Tool, it.Server, len(it.Arguments), len(it.Result)
+		t.Name, t.Server, t.ArgsChars, t.ResultChars = it.Tool, it.Server, int(it.Arguments), int(it.Result)
 	case "FileChange":
-		t.Name, t.ArgsChars = "apply_patch", len(it.Changes)
+		t.Name, t.ArgsChars = "apply_patch", int(it.Changes)
 	case "ImageView":
 		t.Name, t.ArgsChars = "view_image", len(it.Path)
 	case "Extension":

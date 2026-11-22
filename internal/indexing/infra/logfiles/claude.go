@@ -13,14 +13,31 @@ import (
 )
 
 type claudeBlock struct {
-	Type      string          `json:"type"`
-	Text      string          `json:"text"`
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Input     json.RawMessage `json:"input"`
-	ToolUseID string          `json:"tool_use_id"`
-	Content   json.RawMessage `json:"content"`
-	IsError   bool            `json:"is_error"`
+	Type      string `json:"type"`
+	Text      string `json:"text"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Input     size   `json:"input"`
+	ToolUseID string `json:"tool_use_id"`
+	Content   size   `json:"content"`
+	IsError   bool   `json:"is_error"`
+}
+
+// claudeContent is a message's content: a plain string (what a person typed) or a list of blocks.
+// It decodes in place instead of keeping a copy of the raw JSON to decode later.
+type claudeContent struct {
+	Text   string
+	IsText bool
+	Blocks []claudeBlock
+}
+
+func (c *claudeContent) UnmarshalJSON(b []byte) error {
+	if json.Unmarshal(b, &c.Text) == nil {
+		c.IsText = true
+		return nil
+	}
+	_ = json.Unmarshal(b, &c.Blocks)
+	return nil
 }
 
 type claudeLine struct {
@@ -35,10 +52,10 @@ type claudeLine struct {
 	UUID              string `json:"uuid"`
 	CustomTitle       string `json:"customTitle"`
 	Message           *struct {
-		ID         string          `json:"id"`
-		Model      string          `json:"model"`
-		StopReason string          `json:"stop_reason"`
-		Content    json.RawMessage `json:"content"`
+		ID         string        `json:"id"`
+		Model      string        `json:"model"`
+		StopReason string        `json:"stop_reason"`
+		Content    claudeContent `json:"content"`
 		Usage      *struct {
 			Input         int64 `json:"input_tokens"`
 			Output        int64 `json:"output_tokens"`
@@ -105,7 +122,7 @@ func ParseClaude(path string, r io.Reader) (domain.Transcript, error) {
 			}
 			p.Session.Span(ts)
 			m := l.Message
-			blocks := claudeBlocks(m.Content)
+			blocks := m.Content.Blocks
 			if m.Model == "<synthetic>" {
 				if l.IsAPIErrorMessage {
 					p.Requests = append(p.Requests, domain.Request{Key: "err:" + m.ID, At: ts, Model: lastModel, Provider: "anthropic", Failure: firstText(blocks)})
@@ -150,24 +167,23 @@ func ParseClaude(path string, r io.Reader) (domain.Transcript, error) {
 				}
 				server, name := domain.SplitMCPToolName(b.Name)
 				toolIndex[b.ID] = len(p.Tools)
-				p.Tools = append(p.Tools, domain.ToolCall{Key: b.ID, At: ts, Name: name, Server: server, ArgsChars: len(b.Input)})
+				p.Tools = append(p.Tools, domain.ToolCall{Key: b.ID, At: ts, Name: name, Server: server, ArgsChars: int(b.Input)})
 			}
 		case "user":
 			if l.Message == nil || l.IsMeta {
 				return
 			}
 			p.Session.Span(ts)
-			var text string
-			if json.Unmarshal(l.Message.Content, &text) == nil {
-				addClaudePrompt(p, l.UUID, ts, text)
+			if c := l.Message.Content; c.IsText {
+				addClaudePrompt(p, l.UUID, ts, c.Text)
 				return
 			}
-			for j, b := range claudeBlocks(l.Message.Content) {
+			for j, b := range l.Message.Content.Blocks {
 				switch b.Type {
 				case "tool_result":
 					if i, ok := toolIndex[b.ToolUseID]; ok {
 						t := &p.Tools[i]
-						t.ResultChars, t.IsError = len(b.Content), b.IsError
+						t.ResultChars, t.IsError = int(b.Content), b.IsError
 						t.Duration = between(t.At, ts)
 					}
 				case "text":
@@ -198,12 +214,6 @@ func addClaudePrompt(p *domain.Transcript, key string, ts time.Time, text string
 	if pr, ok := domain.NewPrompt(key, ts, text); ok {
 		p.Prompts = append(p.Prompts, pr)
 	}
-}
-
-func claudeBlocks(raw json.RawMessage) []claudeBlock {
-	var blocks []claudeBlock
-	_ = json.Unmarshal(raw, &blocks)
-	return blocks
 }
 
 func firstText(blocks []claudeBlock) string {
