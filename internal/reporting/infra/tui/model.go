@@ -734,12 +734,12 @@ func (m Model) status() string {
 		parts = append(parts, faintStyle.Render(textfmt.Printable(m.syncNote)))
 	}
 	if n := m.unpriced(); n > 0 {
-		parts = append(parts, faintStyle.Render(fmt.Sprintf("%s requests have no known price", textfmt.Number(n))))
+		parts = append(parts, faintStyle.Render(fmt.Sprintf("%s requests have no known cost", textfmt.Number(n))))
 	}
 	return strings.Join(parts, " · ")
 }
 
-// unpriced counts the requests of what is on screen that have no known price.
+// unpriced counts the requests of what is on screen that have no known cost.
 func (m Model) unpriced() int64 {
 	switch m.mode {
 	case usageMode:

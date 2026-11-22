@@ -1,0 +1,11 @@
+{"id":"start","timestamp":"2026-02-01T10:00:00Z","type":"session.start","data":{"sessionId":"00000000-0000-4000-8000-000000000030","selectedModel":"default-model","context":{"cwd":"/example/project"}}}
+{"id":"prompt","parentId":"start","timestamp":"2026-02-01T10:00:01Z","type":"user.message","data":{"content":"Review the example project.","transformedContent":"Expanded prompt"}}
+{"id":"answer-1","parentId":"prompt","timestamp":"2026-02-01T10:00:02Z","type":"assistant.message","data":{"messageId":"m-1","requestId":"gateway-1","serviceRequestId":"service-1","model":"copilot-test","phase":"commentary","outputTokens":11}}
+{"id":"tool-start","parentId":"answer-1","timestamp":"2026-02-01T10:00:03Z","type":"tool.execution_start","data":{"toolCallId":"call-1","toolName":"list","mcpServerName":"Example display name","mcpConfigServerName":"example","mcpToolName":"list","arguments":{"path":"."}}}
+{"id":"tool-end","parentId":"tool-start","timestamp":"2026-02-01T10:00:04.5Z","type":"tool.execution_complete","data":{"toolCallId":"call-1","success":false,"result":{"content":"short","detailedContent":"Permission denied"}}}
+{"id":"answer-2","parentId":"tool-end","timestamp":"2026-02-01T10:00:05Z","type":"assistant.message","data":{"messageId":"m-2","requestId":"gateway-1","serviceRequestId":"service-1","phase":"final_answer","outputTokens":11}}
+{"id":"shutdown","parentId":"answer-2","timestamp":"2026-02-01T10:00:06Z","type":"session.shutdown","data":{"totalNanoAiu":5000,"totalApiDurationMs":1200,"modelMetrics":{"copilot-test":{"usage":{"inputTokens":500,"outputTokens":50}}}}}
+{"id":"model","parentId":"shutdown","timestamp":"2026-02-01T10:00:07Z","type":"session.model_change","data":{"newModel":"replacement-model"}}
+{"id":"answer-3","parentId":"model","timestamp":"2026-02-01T10:00:08Z","type":"assistant.message","data":{"messageId":"m-3","requestId":"gateway-1","serviceRequestId":"service-2","outputTokens":3}}
+{"id":"answer-unattributed","parentId":"answer-3","timestamp":"2026-02-01T10:00:08.5Z","type":"assistant.message","data":{"messageId":"m-4","requestId":"gateway-1","outputTokens":90}}
+{"id":"shutdown-2","parentId":"answer-unattributed","timestamp":"2026-02-01T10:00:09Z","type":"session.shutdown","data":{"totalNanoAiu":7000,"totalApiDurationMs":1300,"modelMetrics":{"copilot-test":{"usage":{"inputTokens":600,"outputTokens":60}}}}}

@@ -43,7 +43,7 @@ type Usage struct {
 	CacheRead   int64
 	CacheWrite  int64
 	Cost        USD
-	Unpriced    int64 // requests whose model has no known price
+	Unpriced    int64 // requests whose cost cannot be determined
 	AvgDuration Milliseconds
 	AvgTTFT     Milliseconds
 	First, Last time.Time

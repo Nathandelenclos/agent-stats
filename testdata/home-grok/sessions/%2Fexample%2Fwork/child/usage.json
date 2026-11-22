@@ -1,0 +1,1 @@
+{"sessionId":"child","turns":[{"turnNumber":1,"endedAt":"2026-11-20T10:00:03Z","primaryModelId":"sample-model","modelCalls":1,"inputTokens":100,"outputTokens":5},{"turnNumber":2,"endedAt":"2026-11-20T10:00:09Z","primaryModelId":"sample-model","modelCalls":1,"inputTokens":12,"outputTokens":4}]}

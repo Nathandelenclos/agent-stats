@@ -1,0 +1,17 @@
+{
+  "version": "0.3.0",
+  "title": "Sample thread",
+  "updated_at": "2026-02-01T10:00:10Z",
+  "model": {"provider": "sample", "model": "sample-model"},
+  "cumulative_token_usage": {"input_tokens": 100, "output_tokens": 40},
+  "request_token_usage": {"u1": {"input_tokens": 100, "output_tokens": 40}},
+  "messages": [
+    {"User":{"id":"u1","content":[{"Text":"Read the sample."},{"Mention":{"uri":{"File":{"abs_path":"/sample"}},"content":"Attached context"}}]}},
+    {"Agent":{
+      "content":[{"ToolUse":{"id":"call-1","name":"read_file","raw_input":"{\"path\":\"sample\"}","input":{"type":"json","value":{"path":"sample"}},"is_input_complete":true}}],
+      "tool_results":{"call-1":{"tool_use_id":"call-1","tool_name":"read_file","is_error":true,"content":[{"Text":"missing"}],"output":null}}
+    }},
+    "Resume",
+    {"Compaction":{"Summary":"Synthetic context"}}
+  ]
+}

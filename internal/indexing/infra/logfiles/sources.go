@@ -21,13 +21,14 @@ type Source struct {
 	Parse   Parser
 	// Database, when set, makes Root the directory of SQLite databases that hold the sessions of the harness,
 	// instead of a tree of logs: Match and Parse are not used.
-	Database *OpenCodeDatabase
+	Database sessionDatabase
 	// Beside, when set, says what else than the log itself a transcript is made of (a file beside it): it is part of the
 	// log's revision, so that the log is read again when it changes.
-	Beside func(path string) string
+	Beside     func(path string) string
+	cursorUser string
 }
 
-// DefaultSources lists the standard log locations, honouring CLAUDE_CONFIG_DIR and CODEX_HOME.
+// DefaultSources lists the standard log locations, honouring each harness's supported overrides.
 func DefaultSources(home string) []Source {
 	claude := envOr("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
 	codex := envOr("CODEX_HOME", filepath.Join(home, ".codex"))
@@ -38,7 +39,8 @@ func DefaultSources(home string) []Source {
 	}
 	data := envOr("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 	openCodeData, kiloData := filepath.Join(data, "opencode"), filepath.Join(data, "kilo")
-	return []Source{
+	copilot := filepath.Join(envOr("COPILOT_HOME", filepath.Join(home, ".copilot")), "session-state")
+	sources := []Source{
 		{Harness: kernel.Claude, Root: filepath.Join(claude, "projects"), Match: jsonl, Parse: ParseClaude},
 		{Harness: kernel.Codex, Root: filepath.Join(codex, "sessions"), Match: rollout, Parse: ParseCodex},
 		{Harness: kernel.Codex, Root: filepath.Join(codex, "archived_sessions"), Match: rollout, Parse: ParseCodex},
@@ -47,7 +49,17 @@ func DefaultSources(home string) []Source {
 		{Harness: kernel.OpenCode, Root: openCodeData, Database: &OpenCodeDatabase{Prefix: "opencode", Override: os.Getenv("OPENCODE_DB")}},
 		{Harness: kernel.Kilo, Root: kiloData, Database: &OpenCodeDatabase{Prefix: "kilo", Fallback: "opencode", Override: os.Getenv("KILO_DB")}},
 		GeminiSource(filepath.Join(envOr("GEMINI_CLI_HOME", home), ".gemini", "tmp")),
+		{Harness: kernel.Copilot, Root: copilot, Parse: ParseCopilot, Match: func(path string) bool {
+			return filepath.Base(path) == "events.jsonl" && filepath.Dir(filepath.Dir(path)) == copilot
+		}},
+		{Harness: kernel.Zed, Root: zedThreadsDir(home), Database: zedDatabase{}},
+		grokSource(filepath.Join(envOr("GROK_HOME", filepath.Join(home, ".grok")), "sessions")),
+		{Harness: kernel.Cursor, Root: filepath.Join(home, ".cursor", "projects"), cursorUser: cursorUserDir(home)},
+		{Harness: kernel.Goose, Root: filepath.Join(home, ".local", "share", "goose", "sessions"), Database: gooseDatabase{}},
 	}
+	codeUser := codeUserDir(home)
+	sources = append(sources, vscodeChatSources(codeUser)...)
+	return append(sources, clineSources(home, codeUser)...)
 }
 
 // GeminiSource reads the conversations of Gemini CLI under root, the "tmp" directory of its home.
@@ -67,30 +79,42 @@ func envOr(key, def string) string {
 type FileSessionLogs struct {
 	Sources []Source
 	mu      sync.RWMutex
-	parsers map[string]Parser // by path, as of the last List
-	dbLogs  map[string]dbLog  // the sessions of databases, by their path "<database>#<session id>"
+	readers map[string]func() (domain.Transcript, error) // by path, as of the last List
+	dbLogs  map[string]dbLog                             // the sessions of databases, by their path "<database>#<session id>"
 }
 
 // dbLog is a session that lives in a database.
 type dbLog struct {
-	db      *OpenCodeDatabase
+	db      sessionDatabase
 	path    string
 	harness kernel.Harness
 	session dbSession
 }
 
+type sessionDatabase interface {
+	paths(root string) []string
+	list(path string) ([]dbSession, []error)
+	read(path string, harness kernel.Harness, session dbSession) (domain.Transcript, error)
+}
+
 // NewFileSessionLogs reads the logs found under sources.
 func NewFileSessionLogs(sources []Source) *FileSessionLogs {
-	return &FileSessionLogs{Sources: sources, parsers: map[string]Parser{}, dbLogs: map[string]dbLog{}}
+	return &FileSessionLogs{Sources: sources, dbLogs: map[string]dbLog{}}
 }
 
 // List walks every source. A harness that is not installed is not an error.
 func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 	var files []application.LogFile
 	var problems []error
-	parsers := map[string]Parser{}
+	readers := map[string]func() (domain.Transcript, error){}
 	dbLogs := map[string]dbLog{}
 	for _, src := range l.Sources {
+		if src.cursorUser != "" {
+			sessions, cursorProblems := listCursor(src.Root, src.cursorUser, readers)
+			files = append(files, sessions...)
+			problems = append(problems, cursorProblems...)
+			continue
+		}
 		if src.Database != nil {
 			for _, path := range src.Database.paths(src.Root) {
 				sessions, dbProblems := src.Database.list(path)
@@ -104,6 +128,9 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 			}
 			continue
 		}
+		first := len(files)
+		children := map[string]grokChild{}
+		parents := map[string]bool{}
 		err := filepath.WalkDir(src.Root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				if os.IsNotExist(err) || os.IsPermission(err) {
@@ -111,7 +138,13 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 				}
 				return err
 			}
-			if d.IsDir() || !src.Match(path) {
+			if src.Harness == kernel.Grok && d.Type().IsRegular() && d.Name() == "meta.json" {
+				if child := readGrokChild(src.Root, path); child.ID != "" {
+					children[child.ID] = child
+					parents[child.Parent] = true
+				}
+			}
+			if d.IsDir() || !src.Match(path) || (src.Harness == kernel.Grok && d.Type()&fs.ModeSymlink != 0) {
 				return nil
 			}
 			if t := d.Type(); !t.IsRegular() && t&fs.ModeSymlink == 0 {
@@ -123,16 +156,33 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 				problems = append(problems, fmt.Errorf("%s: %w", path, err))
 				return nil
 			}
-			parsers[path] = src.Parse
+			readers[path] = func() (domain.Transcript, error) { return ParseFile(path, src.Parse) }
 			files = append(files, application.LogFile{Path: path, Harness: src.Harness, Revision: fileRevision(info) + besideRevision(src, path), WeightBytes: logWeight(path, info.Size())})
 			return nil
 		})
 		if err != nil {
 			return files, problems, err
 		}
+		if src.Harness == kernel.Grok {
+			for i := first; i < len(files); i++ {
+				file := &files[i]
+				id := filepath.Base(filepath.Dir(file.Path))
+				child, hasChildren := children[id], parents[id]
+				file.Revision += fmt.Sprintf(":child=%q:%q:parent=%t", child.Parent, child.Type, hasChildren)
+				path := file.Path
+				readers[path] = func() (domain.Transcript, error) {
+					log, err := openGrokFile(path)
+					if err != nil {
+						return domain.Transcript{}, err
+					}
+					defer log.Close()
+					return parseGrok(path, &capped{r: log, left: maxLogBytes}, child, hasChildren)
+				}
+			}
+		}
 	}
 	l.mu.Lock()
-	l.parsers, l.dbLogs = parsers, dbLogs
+	l.readers, l.dbLogs = readers, dbLogs
 	l.mu.Unlock()
 	return files, problems, nil
 }
@@ -153,7 +203,7 @@ func besideRevision(src Source, path string) string {
 // Read parses a file returned by List.
 func (l *FileSessionLogs) Read(f application.LogFile) (domain.Transcript, error) {
 	l.mu.RLock()
-	p, ok := l.parsers[f.Path]
+	read, ok := l.readers[f.Path]
 	db, inDB := l.dbLogs[f.Path]
 	l.mu.RUnlock()
 	if inDB {
@@ -162,5 +212,5 @@ func (l *FileSessionLogs) Read(f application.LogFile) (domain.Transcript, error)
 	if !ok {
 		return domain.Transcript{}, fmt.Errorf("%s was not listed", f.Path)
 	}
-	return ParseFile(f.Path, p)
+	return read()
 }

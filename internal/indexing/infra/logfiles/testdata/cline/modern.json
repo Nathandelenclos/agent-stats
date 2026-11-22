@@ -1,0 +1,6 @@
+{
+  "version":1, "session_id":"modern", "source":"cli", "pid":6202, "started_at":"2026-03-11T08:00:00Z",
+  "ended_at":"2026-03-11T08:01:00Z","status":"completed","interactive":true,"provider":"test","model":"initial-model",
+  "cwd":"/example/project/nested","workspace_root":"/example/project","enable_tools":true,"enable_spawn":true,"enable_teams":false,
+  "prompt":"Inspect the sample","messages_path":"/untrusted/path/modern.messages.json"
+}

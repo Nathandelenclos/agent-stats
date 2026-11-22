@@ -34,7 +34,8 @@ func FileRevision(size, modTimeNanos int64) string {
 type SessionLogs interface {
 	// List returns every log file; problems are files that could not be inspected and were skipped.
 	List() (files []LogFile, problems []error, err error)
-	// Read parses a file List returned. IndexSessions calls it from several goroutines at once.
+	// Read parses a file List returned. A zero session ID marks a file with no session to index.
+	// IndexSessions calls it from several goroutines at once.
 	Read(LogFile) (domain.Transcript, error)
 }
 
@@ -45,7 +46,7 @@ type IndexedTranscript struct {
 	Signals []domain.Signals // one per prompt
 }
 
-// PricedCost is the cost of one request; Priced is false when the model has no known price.
+// PricedCost is the cost of one request; Priced is false when its cost cannot be determined.
 type PricedCost struct {
 	Cost   kernel.Cost
 	Priced bool

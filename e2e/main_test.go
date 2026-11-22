@@ -55,7 +55,10 @@ func runCLI(t *testing.T, dir string, args ...string) (stdout, stderr string, er
 func fixtureEnv(t *testing.T, home string) {
 	t.Helper()
 	t.Setenv("HOME", home)
-	for _, name := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_DATA_HOME", "OPENCODE_DB", "KILO_DB", "GEMINI_CLI_HOME"} {
+	t.Setenv("USERPROFILE", home)
+	for _, name := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_DATA_HOME", "OPENCODE_DB", "KILO_DB", "GEMINI_CLI_HOME", "COPILOT_HOME", "GROK_HOME",
+		"XDG_CONFIG_HOME", "APPDATA", "LOCALAPPDATA", "FLATPAK_XDG_DATA_HOME",
+		"CLINE_DIR", "CLINE_DATA_DIR", "CLINE_SESSION_DATA_DIR"} {
 		t.Setenv(name, "")
 	}
 }

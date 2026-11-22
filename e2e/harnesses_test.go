@@ -13,6 +13,7 @@ import (
 	indexing "github.com/Nathandelenclos/agent-stats/internal/indexing/application"
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/infra/logfiles"
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/infra/sqlite"
+	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	pricing "github.com/Nathandelenclos/agent-stats/internal/pricing/domain"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 	reportingdomain "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
@@ -32,24 +33,61 @@ func moreHome(t *testing.T) string {
 		".local/share/opencode/opencode.db": "events.sql",
 		".local/share/kilo/kilo.db":         "messages.sql",
 	} {
-		raw, err := os.ReadFile(filepath.Join("..", "testdata", "databases", script))
-		if err != nil {
-			t.Fatal(err)
-		}
-		full := filepath.Join(home, path)
-		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		db, err := sql.Open("sqlite", full)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := db.Exec(string(raw)); err != nil {
-			t.Fatal(err)
-		}
-		db.Close()
+		writeHarnessDatabase(t, home, path, script)
 	}
 	return home
+}
+
+func writeHarnessDatabase(t *testing.T, home, path, script string) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "testdata", "databases", script))
+	if err != nil {
+		t.Fatal(err)
+	}
+	full := filepath.Join(home, path)
+	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(string(raw)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGooseAppearsInTheFilteredUsageReport(t *testing.T) {
+	home := t.TempDir()
+	fixtureEnv(t, home)
+	writeHarnessDatabase(t, home, ".local/share/goose/sessions/sessions.db", "goose.sql")
+	dbPath := filepath.Join(t.TempDir(), "index.db")
+	rep, _ := moreIndex(t, home, dbPath)
+	if len(rep.Errors) != 0 || rep.Indexed != 2 {
+		t.Fatalf("index: %+v", rep)
+	}
+
+	harness, err := kernel.ParseHarness("goose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage, err := usagedb.OpenReadOnly(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer usage.Close()
+	r, err := (reporting.BuildReport{Queries: usage}).Run(context.Background(), reporting.Query{Harness: harness})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Total.Requests != 2 || r.Total.Failed != 1 || r.Total.InputWithCache() != 100 || r.Total.Cost != 0.03 ||
+		r.Total.AvgDuration != 300 || r.Total.AvgTTFT != 120 {
+		t.Fatalf("usage: %+v", r.Total)
+	}
+	if len(r.Tools) != 1 || r.Tools[0].Calls != 2 || r.Tools[0].Errors != 2 {
+		t.Fatalf("tools: %+v", r.Tools)
+	}
 }
 
 func moreIndex(t *testing.T, home, dbPath string) (indexing.IndexReport, *sqlite.SQLiteIndex) {

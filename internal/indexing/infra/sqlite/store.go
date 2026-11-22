@@ -442,7 +442,16 @@ func (s *SQLiteIndex) saveLog(st statements, file application.LogFile, t applica
 			return err
 		}
 	}
+	if _, err := st.file.Exec(path, file.Harness.String()); err != nil {
+		return err
+	}
+	if _, err := st.revision.Exec(path, file.Revision); err != nil {
+		return err
+	}
 	ss := t.Session
+	if ss.ID.IsZero() {
+		return nil
+	}
 	if _, err := st.session.Exec(ss.ID.String(), path, file.Harness.String(), nullStr(ss.ParentID.String()), ss.AgentType.String(), ss.Title, ss.Folder, s.user,
 		kernel.UnixMilli(ss.Start), kernel.UnixMilli(ss.End)); err != nil {
 		return err
@@ -471,11 +480,7 @@ func (s *SQLiteIndex) saveLog(st statements, file application.LogFile, t applica
 			return err
 		}
 	}
-	if _, err := st.file.Exec(path, file.Harness.String()); err != nil {
-		return err
-	}
-	_, err := st.revision.Exec(path, file.Revision)
-	return err
+	return nil
 }
 
 func nullStr(s string) any {

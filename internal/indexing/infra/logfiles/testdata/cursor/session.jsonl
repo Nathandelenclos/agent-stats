@@ -1,0 +1,6 @@
+{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Friday, Oct 30, 2026, 10:02 AM (UTC+2)</timestamp>\n<user_query>\nList the fixtures.\n</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"Checking."},{"type":"tool_use","name":"Glob","input":{"glob_pattern":"fixtures/*"}},{"type":"tool_result","content":"ignored"}]},"usage":{"input_tokens":99}}
+{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Friday, Oct 30, 2026, 10:03 AM (UTC+2)</timestamp>"}]}}
+{"type":"turn_ended","status":"success"}
+{"role":"user","message":{"content":[{"type":"text","text":"Thanks."}]}}
+{"role":

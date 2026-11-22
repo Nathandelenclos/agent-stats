@@ -82,7 +82,8 @@ func TestParsersReadLinesAsTheLegacyOnesDid(t *testing.T) {
 // Codex session-span fix of d4a12c3 (session end times only), then, from the legacy oracle and not from the current
 // parsers, the skill of a Claude Skill call (the new Skill field of every tool call, set on Skill calls only)
 // and the MCP server split out of a Codex function call name (Name and Server of those calls only), with corpus
-// lines for both. The current parsers must still write the same.
+// lines for both. The current parsers must still write the same. PartialUsage adds the default false field
+// to the legacy output. This snapshot was regenerated with the legacy parsers.
 func TestParsersMatchTheFrozenLegacyOutput(t *testing.T) {
 	golden, err := os.ReadFile("testdata/legacy.golden")
 	if err != nil {
@@ -145,12 +146,18 @@ func TestParsersReadRealLogsAsTheLegacyOnesDid(t *testing.T) {
 	}
 	files := 0
 	for _, src := range DefaultSources(home) {
-		legacy := legacyParsePi(src.Harness)
+		var legacy Parser
 		switch src.Harness {
+		case kernel.Grok:
+			continue
 		case kernel.Claude:
 			legacy = legacyParseClaude
 		case kernel.Codex:
 			legacy = legacyParseCodex
+		case kernel.Pi, kernel.OMP:
+			legacy = legacyParsePi(src.Harness)
+		default:
+			continue
 		}
 		filepath.WalkDir(src.Root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !src.Match(path) {

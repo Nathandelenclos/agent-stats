@@ -85,7 +85,7 @@ func printReport(r reporting.Report, cov coverage) {
 		textfmt.Number(t.Requests), textfmt.Number(t.Failed), usd(t.Cost), textfmt.Number(t.InputWithCache()), textfmt.Number(t.Output), t.CacheRate()*100,
 		day(t.First), day(t.Last))
 	if t.Unpriced > 0 {
-		fmt.Printf("%s requests have no known price (pass --prices to add them)\n", textfmt.Number(t.Unpriced))
+		fmt.Printf("%s requests have no known cost\n", textfmt.Number(t.Unpriced))
 	}
 	usageTable("HARNESS", r.ByHarness, 0)
 	usageTable("MODEL", r.ByModel, 15)
