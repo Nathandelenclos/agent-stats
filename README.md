@@ -58,13 +58,15 @@ Scope is `user`, `project`, `plugin:<name>` (carried by an enabled plugin) or `l
 configuration: built-in tools such as `Read` or `bash`, claude.ai connectors, agents like `Explore`). The harnesses expose
 no list of their built-in tools, so those come from the logs only.
 
-What "uses" counts depends on the kind:
+Uses are counted in the unit of the UNIT column, which depends on the kind:
 
-- MCP servers and tools: tool calls. A server's calls are summed over its tools.
-- Agents: model requests made by sessions of that agent type, which only Claude Code logs by name.
-- Skills: loads through Claude Code's `Skill` tool, the only harness that logs the skill by name. An index written before
-  that was recorded is migrated on the next run: only the log files holding a `Skill` call are read again.
-- Plugins: the tool calls and skill loads of the MCP servers and skills they carry (their agents' requests count something else and are not added). Codex and pi plugin contents are not read, so their usage is unknown.
+- MCP servers and built-in tools count `calls`. A server's calls are summed over its tools.
+- Skills count `loads` through Claude Code's `Skill` tool, the only harness that logs the skill by name. An index written
+  before that was recorded is migrated on the next run: only the log files holding a `Skill` call are read again.
+- Agents count `requests`: the model requests made by sessions of that agent type, which only Claude Code logs by name
+  (the index keeps no count of sessions).
+- Plugins count `invocations`: the tool calls and skill loads of the MCP servers and skills they carry. The requests of
+  their agents are not added, as they count something else. Codex and pi plugin contents are not read, so their usage is unknown.
 
 `?` means the logs of that harness do not tell the item apart, so the usage is unknown, not zero. In `--json`, `uses` is then
 `null`. An item defined in several scopes shows the usage of its name on each line. Disabled items are marked `(off)` and not

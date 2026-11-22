@@ -10,6 +10,7 @@
       "installed": true,
       "enabled": true,
       "uses": 2,
+      "unit": "calls",
       "lastTs": 1767348002000
     },
     {
@@ -22,6 +23,7 @@
       "installed": false,
       "enabled": true,
       "uses": 1,
+      "unit": "calls",
       "lastTs": 1767607205000
     },
     {
@@ -34,6 +36,7 @@
       "installed": true,
       "enabled": true,
       "uses": 1,
+      "unit": "calls",
       "lastTs": 1767607203000
     },
     {
@@ -46,6 +49,7 @@
       "installed": true,
       "enabled": true,
       "uses": 0,
+      "unit": "calls",
       "lastTs": 0
     },
     {
@@ -58,6 +62,7 @@
       "installed": true,
       "enabled": true,
       "uses": 0,
+      "unit": "calls",
       "lastTs": 0
     },
     {
@@ -70,6 +75,7 @@
       "installed": true,
       "enabled": true,
       "uses": 0,
+      "unit": "calls",
       "lastTs": 0
     },
     {
@@ -82,6 +88,7 @@
       "installed": true,
       "enabled": true,
       "uses": 0,
+      "unit": "calls",
       "lastTs": 0
     },
     {
@@ -94,6 +101,7 @@
       "installed": true,
       "enabled": true,
       "uses": 2,
+      "unit": "loads",
       "lastTs": 1767607208000
     },
     {
@@ -106,6 +114,7 @@
       "installed": false,
       "enabled": true,
       "uses": 1,
+      "unit": "loads",
       "lastTs": 1767607209000
     },
     {
@@ -118,6 +127,7 @@
       "installed": true,
       "enabled": true,
       "uses": 1,
+      "unit": "loads",
       "lastTs": 1767607207000
     },
     {
@@ -130,6 +140,7 @@
       "installed": true,
       "enabled": true,
       "uses": 0,
+      "unit": "loads",
       "lastTs": 0
     },
     {
@@ -142,6 +153,7 @@
       "installed": true,
       "enabled": true,
       "uses": 0,
+      "unit": "loads",
       "lastTs": 0
     },
     {
@@ -154,6 +166,7 @@
       "installed": true,
       "enabled": true,
       "uses": 0,
+      "unit": "loads",
       "lastTs": 0
     },
     {
@@ -166,6 +179,7 @@
       "installed": false,
       "enabled": true,
       "uses": 1,
+      "unit": "requests",
       "lastTs": 1767610800000
     },
     {
@@ -178,6 +192,7 @@
       "installed": true,
       "enabled": true,
       "uses": 1,
+      "unit": "requests",
       "lastTs": 1767351600000
     },
     {
@@ -190,6 +205,7 @@
       "installed": true,
       "enabled": true,
       "uses": 0,
+      "unit": "requests",
       "lastTs": 0
     },
     {
@@ -202,6 +218,7 @@
       "installed": true,
       "enabled": true,
       "uses": 0,
+      "unit": "requests",
       "lastTs": 0
     },
     {
@@ -214,6 +231,7 @@
       "installed": true,
       "enabled": true,
       "uses": 0,
+      "unit": "requests",
       "lastTs": 0
     },
     {
@@ -226,6 +244,7 @@
       "installed": true,
       "enabled": true,
       "uses": 2,
+      "unit": "invocations",
       "lastTs": 1767607207000
     },
     {
@@ -238,6 +257,7 @@
       "installed": true,
       "enabled": true,
       "uses": null,
+      "unit": "invocations",
       "lastTs": 0
     },
     {
@@ -250,6 +270,7 @@
       "installed": true,
       "enabled": false,
       "uses": null,
+      "unit": "invocations",
       "lastTs": 0
     },
     {
@@ -262,6 +283,7 @@
       "installed": false,
       "enabled": true,
       "uses": 4,
+      "unit": "calls",
       "lastTs": 1767607209000
     },
     {
@@ -274,6 +296,7 @@
       "installed": false,
       "enabled": true,
       "uses": 1,
+      "unit": "calls",
       "lastTs": 1767607204000
     },
     {
@@ -286,6 +309,7 @@
       "installed": true,
       "enabled": true,
       "uses": 2,
+      "unit": "calls",
       "lastTs": 1767355202000
     },
     {
@@ -298,6 +322,7 @@
       "installed": true,
       "enabled": false,
       "uses": 0,
+      "unit": "calls",
       "lastTs": 0
     },
     {
@@ -310,6 +335,7 @@
       "installed": true,
       "enabled": true,
       "uses": 0,
+      "unit": "calls",
       "lastTs": 0
     },
     {
@@ -322,6 +348,7 @@
       "installed": true,
       "enabled": true,
       "uses": null,
+      "unit": "loads",
       "lastTs": 0
     },
     {
@@ -334,6 +361,7 @@
       "installed": true,
       "enabled": true,
       "uses": null,
+      "unit": "loads",
       "lastTs": 0
     },
     {
@@ -346,6 +374,7 @@
       "installed": true,
       "enabled": true,
       "uses": null,
+      "unit": "requests",
       "lastTs": 0
     },
     {
@@ -358,6 +387,7 @@
       "installed": true,
       "enabled": true,
       "uses": null,
+      "unit": "requests",
       "lastTs": 0
     },
     {
@@ -370,6 +400,7 @@
       "installed": true,
       "enabled": true,
       "uses": null,
+      "unit": "invocations",
       "lastTs": 0
     },
     {
@@ -382,6 +413,7 @@
       "installed": true,
       "enabled": false,
       "uses": null,
+      "unit": "invocations",
       "lastTs": 0
     },
     {
@@ -394,6 +426,7 @@
       "installed": false,
       "enabled": true,
       "uses": 1,
+      "unit": "calls",
       "lastTs": 1767355203000
     },
     {
@@ -406,6 +439,7 @@
       "installed": true,
       "enabled": true,
       "uses": 1,
+      "unit": "calls",
       "lastTs": 1767614401000
     },
     {
@@ -418,6 +452,7 @@
       "installed": true,
       "enabled": true,
       "uses": 0,
+      "unit": "calls",
       "lastTs": 0
     },
     {
@@ -430,6 +465,7 @@
       "installed": true,
       "enabled": true,
       "uses": null,
+      "unit": "loads",
       "lastTs": 0
     },
     {
@@ -442,6 +478,7 @@
       "installed": true,
       "enabled": true,
       "uses": null,
+      "unit": "loads",
       "lastTs": 0
     },
     {
@@ -454,6 +491,7 @@
       "installed": true,
       "enabled": true,
       "uses": null,
+      "unit": "requests",
       "lastTs": 0
     },
     {
@@ -466,6 +504,7 @@
       "installed": true,
       "enabled": true,
       "uses": null,
+      "unit": "loads",
       "lastTs": 0
     },
     {
@@ -478,6 +517,7 @@
       "installed": true,
       "enabled": true,
       "uses": null,
+      "unit": "invocations",
       "lastTs": 0
     },
     {
@@ -490,6 +530,7 @@
       "installed": true,
       "enabled": true,
       "uses": null,
+      "unit": "invocations",
       "lastTs": 0
     },
     {
@@ -502,6 +543,7 @@
       "installed": true,
       "enabled": true,
       "uses": null,
+      "unit": "invocations",
       "lastTs": 0
     },
     {
@@ -514,6 +556,7 @@
       "installed": true,
       "enabled": true,
       "uses": null,
+      "unit": "invocations",
       "lastTs": 0
     },
     {
@@ -526,6 +569,7 @@
       "installed": true,
       "enabled": true,
       "uses": null,
+      "unit": "invocations",
       "lastTs": 0
     },
     {
@@ -538,6 +582,7 @@
       "installed": false,
       "enabled": true,
       "uses": 1,
+      "unit": "calls",
       "lastTs": 1767618001000
     }
   ],

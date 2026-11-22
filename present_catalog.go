@@ -23,7 +23,7 @@ func onlyUnused(entries []catalog.Entry) []catalog.Entry {
 	return out
 }
 
-// jsonEntry is the --json form of a catalogue entry. Uses is null when the logs of the harness do not tell the item
+// jsonEntry is the --json form of a catalogue entry. Uses is counted in Unit and null when the logs of the harness do not tell the item
 // apart; lastTs is in Unix milliseconds, 0 when unknown.
 type jsonEntry struct {
 	Harness   string `json:"harness"`
@@ -35,6 +35,7 @@ type jsonEntry struct {
 	Installed bool   `json:"installed"`
 	Enabled   bool   `json:"enabled"`
 	Uses      *int64 `json:"uses"`
+	Unit      string `json:"unit"`
 	LastTS    int64  `json:"lastTs"`
 }
 
@@ -48,7 +49,7 @@ func toCatalogJSON(c catalog.Catalog) jsonCatalog {
 	out.Skipped = append(out.Skipped, c.Skipped...)
 	for _, e := range c.Entries {
 		je := jsonEntry{Harness: e.Harness.String(), Kind: e.Kind.String(), Name: e.Name.String(), Scope: e.Scope.String(),
-			Origin: e.Origin.String(), Source: e.Source, Installed: e.Installed(), Enabled: !e.Disabled, LastTS: kernel.UnixMilli(e.Last)}
+			Origin: e.Origin.String(), Source: e.Source, Installed: e.Installed(), Enabled: !e.Disabled, Unit: e.Unit().String(), LastTS: kernel.UnixMilli(e.Last)}
 		if e.Tracked {
 			n := e.Uses
 			je.Uses = &n
@@ -95,9 +96,9 @@ func printCatalog(w io.Writer, c catalog.Catalog, onlyUnused bool) {
 		}
 		fmt.Fprintf(w, "\n%s · %d installed, %d never used\n", h, installed, unused)
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "KIND\tITEM\tSCOPE\tUSES\tLAST USED")
+		fmt.Fprintln(tw, "KIND\tITEM\tSCOPE\tUSES\tUNIT\tLAST USED")
 		for _, e := range rows {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", e.Kind, textfmt.Shorten(printable(itemLabel(e)), 50), scopeLabel(e), usesLabel(e), lastLabel(e))
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", e.Kind, textfmt.Shorten(printable(itemLabel(e)), 50), scopeLabel(e), usesLabel(e), e.Unit(), lastLabel(e))
 		}
 		tw.Flush()
 	}

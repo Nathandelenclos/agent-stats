@@ -1,28 +1,28 @@
 
 claude · 18 installed, 10 never used
-KIND    ITEM              SCOPE        USES  LAST USED
-mcp     docs              user         2     2026-01-02
-mcp     claude_ai_Notes   logs         1     2026-01-05
-mcp     helper            plugin:demo  1     2026-01-05
-mcp     inline-server     plugin:demo  0     never
-mcp     local-db          project      0     never
-mcp     project-server    project      0     never
-mcp     remote            user         0     never
-skill   review-notes      user         2     2026-01-05
-skill   builtin-skill     logs         1     2026-01-05
-skill   demo:audit        plugin:demo  1     2026-01-05
-skill   frontmatter-name  user         0     never
-skill   no-frontmatter    user         0     never
-skill   project-skill     project      0     never
-agent   Explore           logs         1     2026-01-05
-agent   reviewer          user         1     2026-01-02
-agent   demo:checker      plugin:demo  0     never
-agent   plain-agent       user         0     never
-agent   project-agent     project      0     never
-plugin  demo@market       user         2     2026-01-05
-plugin  escape@market     user         ?     ?
-plugin  off@market (off)  user         ?     ?
-tool    Skill             logs         4     2026-01-05
-tool    Read              logs         1     2026-01-05
+KIND    ITEM              SCOPE        USES  UNIT         LAST USED
+mcp     docs              user         2     calls        2026-01-02
+mcp     claude_ai_Notes   logs         1     calls        2026-01-05
+mcp     helper            plugin:demo  1     calls        2026-01-05
+mcp     inline-server     plugin:demo  0     calls        never
+mcp     local-db          project      0     calls        never
+mcp     project-server    project      0     calls        never
+mcp     remote            user         0     calls        never
+skill   review-notes      user         2     loads        2026-01-05
+skill   builtin-skill     logs         1     loads        2026-01-05
+skill   demo:audit        plugin:demo  1     loads        2026-01-05
+skill   frontmatter-name  user         0     loads        never
+skill   no-frontmatter    user         0     loads        never
+skill   project-skill     project      0     loads        never
+agent   Explore           logs         1     requests     2026-01-05
+agent   reviewer          user         1     requests     2026-01-02
+agent   demo:checker      plugin:demo  0     requests     never
+agent   plain-agent       user         0     requests     never
+agent   project-agent     project      0     requests     never
+plugin  demo@market       user         2     invocations  2026-01-05
+plugin  escape@market     user         ?     invocations  ?
+plugin  off@market (off)  user         ?     invocations  ?
+tool    Skill             logs         4     calls        2026-01-05
+tool    Read              logs         1     calls        2026-01-05
 --- stderr ---
 skipped /etc: points outside its directory

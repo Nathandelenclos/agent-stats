@@ -43,6 +43,19 @@ var (
 // String returns the scope name.
 func (s Scope) String() string { return s.name }
 
+// Unit is what the uses of an entry count. Use the variables below, or Entry.Unit.
+type Unit struct{ name string }
+
+var (
+	UnitCalls       = Unit{"calls"}       // tool calls: tools and MCP servers
+	UnitLoads       = Unit{"loads"}       // skill loads
+	UnitRequests    = Unit{"requests"}    // model requests made by the sessions of an agent: the index records no session count
+	UnitInvocations = Unit{"invocations"} // calls and loads together: plugins
+)
+
+// String returns the unit name.
+func (u Unit) String() string { return u.name }
+
 // MaxNameLen bounds an item name in bytes (real names are a few dozen).
 const MaxNameLen = 128
 
@@ -138,14 +151,26 @@ type Activity struct {
 }
 
 // Entry is one line of the catalogue: an item, or a tool, server, agent or skill seen in the logs but defined nowhere
-// the catalogue looks. Uses counts invocations: tool calls for tools and MCP servers, loads for skills. The index
-// records no count of subagent sessions, so an agent counts the model requests its sessions made instead.
+// the catalogue looks. Uses is how many times the logs show it at work, counted in its Unit.
 type Entry struct {
 	Item
 	Uses int64
 	Last time.Time
 	// Tracked is false when the logs of the harness do not tell this kind of item apart: Uses is then unknown, not zero.
 	Tracked bool
+}
+
+// Unit is what Uses counts for this kind of entry.
+func (e Entry) Unit() Unit {
+	switch e.Kind {
+	case Skill:
+		return UnitLoads
+	case Agent:
+		return UnitRequests
+	case Plugin:
+		return UnitInvocations
+	}
+	return UnitCalls
 }
 
 // Installed reports whether a configuration defines the entry.

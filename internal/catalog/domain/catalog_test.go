@@ -35,14 +35,18 @@ func find(t *testing.T, entries []Entry, h kernel.Harness, k Kind, n string) Ent
 
 func TestNameRefusesWhatATerminalCouldMisread(t *testing.T) {
 	// Given names with escape sequences, newlines, bidirectional overrides, invalid UTF-8, or no usable length
-	for _, bad := range []string{"", "a\x1b[31mred", "two\nlines", "tab\tbed", "evil‮gnp", "bad\xffutf8", strings.Repeat("x", MaxNameLen+1)} {
+	for _, bad := range []string{"", "a\x1b[31mred", "two\nlines", "tab\tbed", "evil\u202egnp", "bad\xffutf8", strings.Repeat("x", MaxNameLen+1)} {
 		// When a name is built from them, then it is refused
 		if _, err := NewName(bad); err == nil {
 			t.Errorf("NewName(%q) accepted", bad)
 		}
 	}
-	// And names with spaces, dots and accents are fine
+}
+
+func TestNameAcceptsWhatHarnessesReallyCallTheirItems(t *testing.T) {
+	// Given names with spaces, dots, colons and accents, and one at the length bound
 	for _, ok := range []string{"claude.ai Claude Docs", "plugin:skill", "éclair", strings.Repeat("x", MaxNameLen)} {
+		// When a name is built from them, then it is accepted
 		if _, err := NewName(ok); err != nil {
 			t.Errorf("NewName(%q): %v", ok, err)
 		}
@@ -54,7 +58,6 @@ func TestInstalledItemsShowTheirOwnUsage(t *testing.T) {
 	items := []Item{
 		item(t, kernel.Claude, MCPServer, "github", ScopeUser),
 		item(t, kernel.Codex, MCPServer, "github", ScopeUser),
-		item(t, kernel.Claude, MCPServer, "idle", ScopeUser),
 	}
 	at := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
 	act := Activity{Tools: []ToolActivity{
@@ -66,15 +69,22 @@ func TestInstalledItemsShowTheirOwnUsage(t *testing.T) {
 	// When they are linked
 	entries := Link(items, act)
 
-	// Then each harness counts its own calls across the tools of the server, and an unused server shows zero
+	// Then each harness counts its own calls, summed over the tools of the server
 	if e := find(t, entries, kernel.Claude, MCPServer, "github"); e.Uses != 5 || !e.Last.Equal(at.Add(time.Hour)) {
 		t.Errorf("claude github: %+v", e)
 	}
 	if e := find(t, entries, kernel.Codex, MCPServer, "github"); e.Uses != 7 {
 		t.Errorf("codex github: %+v", e)
 	}
-	if e := find(t, entries, kernel.Claude, MCPServer, "idle"); e.Uses != 0 || !e.Unused() {
-		t.Errorf("idle must be unused: %+v", e)
+}
+
+func TestInstalledItemWithNoCallIsUnused(t *testing.T) {
+	// Given an installed MCP server that no call names
+	items := []Item{item(t, kernel.Claude, MCPServer, "idle", ScopeUser)}
+
+	// When linked, then it shows zero uses and counts as unused
+	if e := Link(items, Activity{})[0]; e.Uses != 0 || !e.Unused() {
+		t.Errorf("idle: %+v", e)
 	}
 }
 
@@ -103,37 +113,52 @@ func TestClaudeNamesTheServersOfPluginsAndConnectorsInItsOwnWay(t *testing.T) {
 	}
 }
 
-func TestWhatTheLogsAloneNameStillShows(t *testing.T) {
-	// Given calls to a built-in tool and to a server no configuration defines, and subagents of two types
-	act := Activity{
-		Tools: []ToolActivity{
-			{Harness: kernel.Pi, Name: "bash", Calls: 9},
-			{Harness: kernel.Claude, Name: "a", Server: "gone", Calls: 1},
-			{Harness: kernel.Claude, Name: "b", Server: "gone", Calls: 2},
-		},
-		Agents: []AgentActivity{
-			{Harness: kernel.Claude, AgentType: "main", Requests: 100},
-			{Harness: kernel.Claude, AgentType: "subagent", Requests: 5},
-			{Harness: kernel.Claude, AgentType: "Explore", Requests: 8},
-		},
-	}
+// loggedOnly is activity no configuration defines: a built-in tool, a server, and subagents of two types.
+var loggedOnly = Activity{
+	Tools: []ToolActivity{
+		{Harness: kernel.Pi, Name: "bash", Calls: 9},
+		{Harness: kernel.Claude, Name: "a", Server: "gone", Calls: 1},
+		{Harness: kernel.Claude, Name: "b", Server: "gone", Calls: 2},
+	},
+	Agents: []AgentActivity{
+		{Harness: kernel.Claude, AgentType: "main", Requests: 100},
+		{Harness: kernel.Claude, AgentType: "subagent", Requests: 5},
+		{Harness: kernel.Claude, AgentType: "Explore", Requests: 8},
+	},
+}
 
-	// When linked with nothing installed
-	entries := Link(nil, act)
+func TestBuiltInToolsShowFromTheLogsAlone(t *testing.T) {
+	// Given calls to a built-in tool and nothing installed, when linked
+	entries := Link(nil, loggedOnly)
 
-	// Then built-in tools, the server (calls summed) and the named agent appear as seen in the logs only
+	// Then the tool appears as seen in the logs only
 	if e := find(t, entries, kernel.Pi, Tool, "bash"); e.Uses != 9 || e.Scope != ScopeLogs || e.Installed() {
 		t.Errorf("tool: %+v", e)
 	}
+}
+
+func TestServerNoConfigurationDefinesShowsWithItsCallsSummed(t *testing.T) {
+	// Given calls to two tools of a server nothing installs, when linked
+	entries := Link(nil, loggedOnly)
+
+	// Then the server appears once, with both tools' calls
 	if e := find(t, entries, kernel.Claude, MCPServer, "gone"); e.Uses != 3 {
 		t.Errorf("server: %+v", e)
 	}
+}
+
+func TestOnlyNamedAgentTypesShowFromTheLogs(t *testing.T) {
+	// Given requests of the main conversation, of unnamed subagents and of an Explore agent, when linked
+	entries := Link(nil, loggedOnly)
+
+	// Then Explore appears, and "main" and "subagent" name no agent
 	if e := find(t, entries, kernel.Claude, Agent, "Explore"); e.Uses != 8 {
 		t.Errorf("agent: %+v", e)
 	}
-	// And the generic "main" and "subagent" types name no agent
-	if len(entries) != 3 {
-		t.Errorf("want 3 entries, got %+v", entries)
+	for _, e := range entries {
+		if e.Kind == Agent && e.Name.String() != "Explore" {
+			t.Errorf("unnamed agent shown: %+v", e)
+		}
 	}
 }
 
@@ -158,7 +183,7 @@ func TestUsageOfWhatTheLogsDoNotTellApartIsUnknownNotZero(t *testing.T) {
 }
 
 func TestPluginsAddUpTheUsageOfWhatTheyCarry(t *testing.T) {
-	// Given a plugin carrying a skill, a server and an agent, and a bare plugin whose content is not read
+	// Given a plugin carrying a skill, a server and an agent
 	plugin := item(t, kernel.Claude, Plugin, "demo@market", ScopeUser)
 	agent := item(t, kernel.Claude, Agent, "demo:checker", ScopePlugin)
 	agent.Origin = plugin.Name
@@ -166,7 +191,6 @@ func TestPluginsAddUpTheUsageOfWhatTheyCarry(t *testing.T) {
 	skill.Origin = plugin.Name
 	server := item(t, kernel.Claude, MCPServer, "helper", ScopePlugin)
 	server.Origin = plugin.Name
-	bare := item(t, kernel.Codex, Plugin, "other@market", ScopeUser)
 	act := Activity{
 		Skills: []SkillActivity{{Harness: kernel.Claude, Skill: "demo:review", Calls: 2}},
 		Tools:  []ToolActivity{{Harness: kernel.Claude, Name: "ping", Server: "plugin_demo_helper", Calls: 5}},
@@ -174,18 +198,43 @@ func TestPluginsAddUpTheUsageOfWhatTheyCarry(t *testing.T) {
 	}
 
 	// When linked
-	entries := Link([]Item{plugin, skill, server, agent, bare}, act)
+	entries := Link([]Item{plugin, skill, server, agent}, act)
 
-	// Then the plugin shows 7 uses (calls and loads, not the agent's 40 requests, which count something else), and the bare one is unknown
+	// Then the plugin shows 7 uses: calls and loads, not the agent's 40 requests, which count something else
 	if e := find(t, entries, kernel.Claude, Plugin, "demo@market"); e.Uses != 7 || !e.Tracked {
 		t.Errorf("plugin: %+v", e)
 	}
-	if e := find(t, entries, kernel.Codex, Plugin, "other@market"); e.Tracked || e.Unused() {
+}
+
+func TestPluginWhoseContentIsNotReadHasUnknownUsage(t *testing.T) {
+	// Given a plugin with no item known to come from it
+	bare := item(t, kernel.Codex, Plugin, "other@market", ScopeUser)
+
+	// When linked, then its usage is unknown, not zero
+	if e := Link([]Item{bare}, Activity{})[0]; e.Tracked || e.Unused() {
 		t.Errorf("bare plugin: %+v", e)
 	}
-	// And a plugin skill is also found under its own name alone
-	if e := Link([]Item{skill}, Activity{Skills: []SkillActivity{{Harness: kernel.Claude, Skill: "review", Calls: 1}}}); e[0].Uses != 1 {
+}
+
+func TestPluginSkillIsAlsoFoundUnderItsOwnName(t *testing.T) {
+	// Given a skill carried by a plugin, and a log that names it without the plugin prefix
+	skill := item(t, kernel.Claude, Skill, "demo:review", ScopePlugin)
+	skill.Origin = name(t, "demo@market")
+	act := Activity{Skills: []SkillActivity{{Harness: kernel.Claude, Skill: "review", Calls: 1}}}
+
+	// When linked, then the load counts for the skill
+	if e := Link([]Item{skill}, act)[0]; e.Uses != 1 {
 		t.Errorf("bare skill name: %+v", e)
+	}
+}
+
+func TestEntriesCountInTheUnitOfTheirKind(t *testing.T) {
+	// Given one entry of each kind
+	for kind, want := range map[Kind]Unit{MCPServer: UnitCalls, Tool: UnitCalls, Skill: UnitLoads, Agent: UnitRequests, Plugin: UnitInvocations} {
+		// When asked for its unit, then it names what its uses count
+		if got := (Entry{Item: Item{Kind: kind}}).Unit(); got != want {
+			t.Errorf("%s counts %s, want %s", kind, got, want)
+		}
 	}
 }
 
