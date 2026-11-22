@@ -335,13 +335,13 @@ func detailLines(d reporting.SessionDetail, width int) []string {
 	for i := range mg.rows {
 		mg.rows[i] = append(mg.rows[i], cell{fmt.Sprintf("%.0f%%", d.ModelShare(d.Models[i])*100), 0})
 	}
-	out = append(out, plainTable(mg, 0)...)
+	out = append(out, plainTable(mg)...)
 
 	section("TOOLS")
 	if len(d.Tools) == 0 {
 		out = append(out, faintStyle.Render("no tool calls"))
 	} else {
-		out = append(out, plainTable(toolsGrid(d.Tools), 15)...)
+		out = append(out, plainTable(toolsGrid(d.Tools))...)
 	}
 
 	section("SUBAGENTS")
@@ -353,7 +353,7 @@ func detailLines(d reporting.SessionDetail, width int) []string {
 			sg.rows = append(sg.rows, []cell{textCell(s.AgentType), textCell(textfmt.Head(sessionTitle(reporting.SessionSummary{Title: s.Title}), 60)),
 				countCell(s.Requests), {fmt.Sprintf("$%.2f", float64(s.Cost)), float64(s.Cost)}})
 		}
-		out = append(out, plainTable(sg, 15)...)
+		out = append(out, plainTable(sg)...)
 	}
 
 	section("PROMPTS")
@@ -415,8 +415,8 @@ func signalTags(s reporting.PromptSignals) string {
 	return strings.Join(tags, " · ")
 }
 
-// plainTable draws g as aligned text lines, at most limit rows (0: all), saying how many it left out.
-func plainTable(g grid, limit int) []string {
+// plainTable draws g as aligned text lines, every row: the detail scrolls.
+func plainTable(g grid) []string {
 	widths := make([]int, len(g.headers))
 	for i, h := range g.headers {
 		widths[i] = lipgloss.Width(h)
@@ -435,11 +435,7 @@ func plainTable(g grid, limit int) []string {
 		return strings.TrimRight(strings.Join(parts, "  "), " ")
 	}
 	out := []string{headerStyle.UnsetPadding().Render(line(func(i int) string { return g.headers[i] }))}
-	for n, r := range g.rows {
-		if limit > 0 && n == limit {
-			out = append(out, faintStyle.Render(fmt.Sprintf("… %d more", len(g.rows)-limit)))
-			break
-		}
+	for _, r := range g.rows {
 		out = append(out, line(func(i int) string { return r[i].text }))
 	}
 	return out

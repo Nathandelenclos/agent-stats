@@ -305,6 +305,29 @@ func TestDetailShowsWhatTheSessionDid(t *testing.T) {
 	}
 }
 
+func TestDetailListsEveryToolAndSubagent(t *testing.T) {
+	// Given a session that called 20 different tools and started 20 subagents
+	d := detailOf(sampleSessions().list[1])
+	d.Tools, d.Subagents = nil, nil
+	for i := 1; i <= 20; i++ {
+		d.Tools = append(d.Tools, domain.ToolUsage{Name: fmt.Sprintf("tool-%02d", i), Calls: int64(100 - i)})
+		d.Subagents = append(d.Subagents, domain.SubagentUsage{AgentType: "Explore", Title: fmt.Sprintf("agent-%02d", i)})
+	}
+
+	// When its detail is drawn
+	body := strings.Join(detailLines(d, 100), "\n")
+
+	// Then every tool and every subagent is listed, with nothing left out
+	for _, want := range []string{"tool-01", "tool-20", "agent-01", "agent-20"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("detail lacks %q", want)
+		}
+	}
+	if strings.Contains(body, "more") {
+		t.Errorf("detail leaves rows out:\n%s", body)
+	}
+}
+
 func TestEscapeGoesBackToTheSessions(t *testing.T) {
 	// Given the detail of the second session on screen, reached with the cursor moved down
 	sessions := sampleSessions()
