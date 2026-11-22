@@ -28,8 +28,10 @@ type piContent struct {
 	raw    []byte // the content as written, until blocks() decodes it; points into the line being parsed
 }
 
+// UnmarshalJSON starts from nothing: encoding/json calls it for each occurrence of a repeated "content" key,
+// and the last one is the content; what a failed decoding leaves of an earlier one is not.
 func (c *piContent) UnmarshalJSON(b []byte) error {
-	c.Size = len(b)
+	*c = piContent{Size: len(b)}
 	_ = json.Unmarshal(b, &c.Blocks)
 	return nil
 }
