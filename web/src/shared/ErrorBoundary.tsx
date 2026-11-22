@@ -16,8 +16,9 @@ export class ErrorBoundary extends Component<Props, { failed: boolean }> {
     return { failed: true };
   }
 
-  componentDidUpdate(prev: Props) {
-    if (this.state.failed && prev.resetKey !== this.props.resetKey) this.setState({ failed: false });
+  componentDidUpdate(prev: Props, prevState: { failed: boolean }) {
+    // Only a zone that was already in error is tried again: one that fails on this very update has just been given this data.
+    if (prevState.failed && this.state.failed && prev.resetKey !== this.props.resetKey) this.setState({ failed: false });
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {

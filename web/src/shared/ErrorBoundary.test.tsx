@@ -66,4 +66,17 @@ describe("ErrorBoundary", () => {
     // Then it is drawn
     expect(container.textContent).toContain("drawn x");
   });
+
+  it("does not try again the data that has just made it fail", () => {
+    // Given a zone that draws its data
+    const { container, rerender } = render(zone({ ok: true, label: "old" }));
+    const failures = () => vi.mocked(console.error).mock.calls.filter(([message]) => message === "agent-stats: rendering failed").length;
+
+    // When it is given data it cannot draw
+    rerender(zone({ ok: false, label: "new" }));
+
+    // Then it shows its fallback after failing once, not twice
+    expect(container.textContent).toContain("failed, retry");
+    expect(failures()).toBe(1);
+  });
 });
