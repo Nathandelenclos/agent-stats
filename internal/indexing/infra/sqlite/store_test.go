@@ -65,7 +65,7 @@ func transcript(t *testing.T, native string, at time.Time) application.IndexedTr
 func TestSaveKeepsValuesAsData(t *testing.T) {
 	s := open(t)
 	at := time.UnixMilli(1767261600000)
-	f := application.LogFile{Path: "/logs/" + hostile + ".jsonl", Harness: kernel.Claude, Size: 10, ModTime: time.Unix(0, 1767261600123456789)}
+	f := application.LogFile{Path: "/logs/" + hostile + ".jsonl", Harness: kernel.Claude, Revision: "10:1767261600123456789"}
 	if err := save(s, f, transcript(t, "s1", at)); err != nil {
 		t.Fatal(err)
 	}
@@ -83,8 +83,55 @@ func TestSaveKeepsValuesAsData(t *testing.T) {
 		t.Errorf("rows = %q %q %q %d, %v", tool, folder, text, repetition, err)
 	}
 	known, err := s.IndexedFiles()
-	if err != nil || len(known) != 1 || !known[f.Path].ModTime.Equal(f.ModTime) || known[f.Path].Size != 10 {
+	if err != nil || len(known) != 1 || known[f.Path].Revision != f.Revision {
 		t.Errorf("indexed files = %+v %v", known, err)
+	}
+}
+
+func TestTwoLogsOfOneSessionGiveTheSameSessionWhateverTheOrderTheyAreIndexedIn(t *testing.T) {
+	at := time.UnixMilli(1767261600000)
+	// Given two logs that name the same session: one that stops early and one that goes on, or stops at the same time
+	log := func(path, title string, end time.Duration) application.IndexedLog {
+		tr := transcript(t, "s1", at)
+		tr.Session.Title, tr.Session.End = title, at.Add(end)
+		return application.IndexedLog{File: application.LogFile{Path: path, Harness: kernel.Claude, Revision: path}, Transcript: tr}
+	}
+	sessionOf := func(s *SQLiteIndex) string {
+		var file, title string
+		var start, end int64
+		if err := s.db.QueryRow(`SELECT file, title, started_at, ended_at FROM sessions`).Scan(&file, &title, &start, &end); err != nil {
+			t.Fatal(err)
+		}
+		return fmt.Sprint(file, title, start, end)
+	}
+	for name, pair := range map[string][2]application.IndexedLog{
+		"one goes on after the other stops":  {log("/logs/b.jsonl", "Early", time.Minute), log("/logs/a.jsonl", "Later", time.Hour)},
+		"both stop at the same time":         {log("/logs/a.jsonl", "First", time.Minute), log("/logs/b.jsonl", "Second", time.Minute)},
+		"the one that goes on is named last": {log("/logs/a.jsonl", "Later", time.Hour), log("/logs/b.jsonl", "Early", time.Minute)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// When they are indexed together, one after the other, and the other way round
+			together := open(t)
+			if errs := together.Save(pair[:]); errs[0] != nil || errs[1] != nil {
+				t.Fatal(errs)
+			}
+			inOrder, reversed := open(t), open(t)
+			for _, l := range pair {
+				if err := save(inOrder, l.File, l.Transcript); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, l := range []application.IndexedLog{pair[1], pair[0]} {
+				if err := save(reversed, l.File, l.Transcript); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Then the session is the same in the three indexes
+			if a, b, c := sessionOf(together), sessionOf(inOrder), sessionOf(reversed); a != b || b != c {
+				t.Errorf("together %s, in order %s, reversed %s", a, b, c)
+			}
+		})
 	}
 }
 
@@ -460,7 +507,7 @@ func TestSaveAppliesABatchInOrderAndUndoesOnlyTheLogThatFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := func(native string) application.IndexedLog {
-		return application.IndexedLog{File: application.LogFile{Path: "/logs/" + native + ".jsonl", Harness: kernel.Claude, Size: 1}, Transcript: transcript(t, native, at)}
+		return application.IndexedLog{File: application.LogFile{Path: "/logs/" + native + ".jsonl", Harness: kernel.Claude, Revision: "1"}, Transcript: transcript(t, native, at)}
 	}
 
 	// When one batch holds a good log, the bad one, and a good one again

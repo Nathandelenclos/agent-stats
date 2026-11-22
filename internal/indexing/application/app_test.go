@@ -75,15 +75,14 @@ func (flatPrices) Cost(model string, t kernel.Tokens) (kernel.Cost, bool) {
 }
 
 func TestIndexSessionsIndexesOnlyNewOrChangedLogs(t *testing.T) {
-	mtime := time.Unix(100, 5)
 	three, _ := kernel.NewTokens(kernel.TokenCounts{Input: 3})
 	logged, _ := kernel.NewCost(0.5)
 	logs := &fakeLogs{
 		files: []LogFile{
-			{Path: "same", Size: 1, ModTime: mtime},
-			{Path: "grown", Size: 2, ModTime: mtime},
-			{Path: "new", Size: 1, ModTime: mtime},
-			{Path: "broken", Size: 1, ModTime: mtime},
+			{Path: "same", Revision: "r1"},
+			{Path: "grown", Revision: "r2"},
+			{Path: "new", Revision: "r1"},
+			{Path: "broken", Revision: "r1"},
 		},
 		problems: []error{errors.New("unreadable: permission denied")},
 		reads: map[string]domain.Transcript{
@@ -93,7 +92,7 @@ func TestIndexSessionsIndexesOnlyNewOrChangedLogs(t *testing.T) {
 		readErr: map[string]error{"broken": errors.New("unexpected EOF")},
 	}
 	store := &fakeStore{
-		known: map[string]LogFile{"same": {Path: "same", Size: 1, ModTime: mtime}, "grown": {Path: "grown", Size: 1, ModTime: mtime}},
+		known: map[string]LogFile{"same": {Path: "same", Revision: "r1"}, "grown": {Path: "grown", Revision: "r1"}},
 		saved: map[string]IndexedTranscript{},
 	}
 	rep, err := IndexSessions{Logs: logs, Store: store, Prices: flatPrices{}}.Run(nil)
@@ -119,7 +118,7 @@ func manyLogs(n int) *fakeLogs {
 	logs := &fakeLogs{reads: map[string]domain.Transcript{}}
 	for i := range n {
 		path := fmt.Sprintf("log-%02d", i)
-		logs.files = append(logs.files, LogFile{Path: path, Size: 10})
+		logs.files = append(logs.files, LogFile{Path: path, Revision: "r", WeightBytes: 10})
 		logs.reads[path] = domain.Transcript{SkippedLines: 1}
 	}
 	return logs
@@ -287,7 +286,7 @@ func TestIndexSessionsWeighsACompressedLogByWhatItHolds(t *testing.T) {
 	// Given 6 logs of 1 byte on disk that hold 40 bytes of log once decompressed, with room for 50
 	logs := manyLogs(6)
 	for i := range logs.files {
-		logs.files[i].Size, logs.files[i].Weight = 1, 40
+		logs.files[i].WeightBytes = 40
 	}
 	var reading, most atomic.Int32
 	logs.onRead = func(string) {

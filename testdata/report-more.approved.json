@@ -1,0 +1,750 @@
+{
+  "all": {
+    "total": {
+      "requests": 14,
+      "failed": 3,
+      "input": 2395,
+      "output": 355,
+      "cacheRead": 5400,
+      "cacheWrite": 80,
+      "cost": 1.183025,
+      "unpriced": 1,
+      "avgDurationMs": 5000,
+      "avgTtftMs": 766.6666666666666,
+      "cacheRate": 0.6857142857142857,
+      "firstTs": 1767225602000,
+      "lastTs": 1770022803000
+    },
+    "byHarness": [
+      {
+        "key": "opencode",
+        "requests": 5,
+        "failed": 1,
+        "input": 830,
+        "output": 167,
+        "cacheRead": 2500,
+        "cacheWrite": 50,
+        "cost": 0.9205099999999999,
+        "unpriced": 0,
+        "avgDurationMs": 5000,
+        "avgTtftMs": 766.6666666666666,
+        "cacheRate": 0.7396449704142012,
+        "firstTs": 1767225602000,
+        "lastTs": 1767226002000
+      },
+      {
+        "key": "kilo",
+        "requests": 5,
+        "failed": 2,
+        "input": 165,
+        "output": 58,
+        "cacheRead": 1300,
+        "cacheWrite": 30,
+        "cost": 0.260435,
+        "unpriced": 1,
+        "avgDurationMs": 0,
+        "avgTtftMs": 0,
+        "cacheRate": 0.8695652173913043,
+        "firstTs": 1767225602000,
+        "lastTs": 1767225622000
+      },
+      {
+        "key": "gemini",
+        "requests": 4,
+        "failed": 0,
+        "input": 1400,
+        "output": 130,
+        "cacheRead": 1600,
+        "cacheWrite": 0,
+        "cost": 0.00208,
+        "unpriced": 0,
+        "avgDurationMs": 0,
+        "avgTtftMs": 0,
+        "cacheRate": 0.5333333333333333,
+        "firstTs": 1769940004000,
+        "lastTs": 1770022803000
+      }
+    ],
+    "byModel": [
+      {
+        "key": "claude-test",
+        "requests": 7,
+        "failed": 2,
+        "input": 960,
+        "output": 219,
+        "cacheRead": 3800,
+        "cacheWrite": 80,
+        "cost": 1.1509449999999999,
+        "unpriced": 0,
+        "avgDurationMs": 6000,
+        "avgTtftMs": 900,
+        "cacheRate": 0.7851239669421488,
+        "firstTs": 1767225602000,
+        "lastTs": 1767226002000
+      },
+      {
+        "key": "gpt-test",
+        "requests": 2,
+        "failed": 0,
+        "input": 30,
+        "output": 5,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0.03,
+        "unpriced": 0,
+        "avgDurationMs": 2000,
+        "avgTtftMs": 500,
+        "cacheRate": 0,
+        "firstTs": 1767225622000,
+        "lastTs": 1767225652000
+      },
+      {
+        "key": "gemini-test",
+        "requests": 4,
+        "failed": 0,
+        "input": 1400,
+        "output": 130,
+        "cacheRead": 1600,
+        "cacheWrite": 0,
+        "cost": 0.00208,
+        "unpriced": 0,
+        "avgDurationMs": 0,
+        "avgTtftMs": 0,
+        "cacheRate": 0.5333333333333333,
+        "firstTs": 1769940004000,
+        "lastTs": 1770022803000
+      },
+      {
+        "key": "m",
+        "requests": 1,
+        "failed": 1,
+        "input": 5,
+        "output": 1,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0,
+        "unpriced": 1,
+        "avgDurationMs": 0,
+        "avgTtftMs": 0,
+        "cacheRate": 0,
+        "firstTs": 1767225604000,
+        "lastTs": 1767225604000
+      }
+    ],
+    "byFolder": [
+      {
+        "key": "/work/demo-app",
+        "requests": 13,
+        "failed": 2,
+        "input": 2390,
+        "output": 354,
+        "cacheRead": 5400,
+        "cacheWrite": 80,
+        "cost": 1.183025,
+        "unpriced": 0,
+        "avgDurationMs": 5000,
+        "avgTtftMs": 766.6666666666666,
+        "cacheRate": 0.6861499364675985,
+        "firstTs": 1767225602000,
+        "lastTs": 1770022803000
+      },
+      {
+        "key": "",
+        "requests": 1,
+        "failed": 1,
+        "input": 5,
+        "output": 1,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0,
+        "unpriced": 1,
+        "avgDurationMs": 0,
+        "avgTtftMs": 0,
+        "cacheRate": 0,
+        "firstTs": 1767225604000,
+        "lastTs": 1767225604000
+      }
+    ],
+    "byAgentType": [
+      {
+        "key": "main",
+        "requests": 11,
+        "failed": 3,
+        "input": 2065,
+        "output": 340,
+        "cacheRead": 5400,
+        "cacheWrite": 80,
+        "cost": 1.152685,
+        "unpriced": 1,
+        "avgDurationMs": 6000,
+        "avgTtftMs": 900,
+        "cacheRate": 0.7157057654075547,
+        "firstTs": 1767225602000,
+        "lastTs": 1770022803000
+      },
+      {
+        "key": "subagent",
+        "requests": 3,
+        "failed": 0,
+        "input": 330,
+        "output": 15,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0.03034,
+        "unpriced": 0,
+        "avgDurationMs": 2000,
+        "avgTtftMs": 500,
+        "cacheRate": 0,
+        "firstTs": 1767225622000,
+        "lastTs": 1769940004000
+      }
+    ],
+    "tools": [
+      {
+        "name": "bash",
+        "server": "",
+        "calls": 1,
+        "errors": 0,
+        "argsChars": 16,
+        "resultChars": 14,
+        "avgMs": 1500,
+        "lastTs": 1767225603000
+      },
+      {
+        "name": "demo_lookup",
+        "server": "",
+        "calls": 1,
+        "errors": 1,
+        "argsChars": 9,
+        "resultChars": 11,
+        "avgMs": 200,
+        "lastTs": 1767225605000
+      },
+      {
+        "name": "demo_search",
+        "server": "",
+        "calls": 1,
+        "errors": 1,
+        "argsChars": 9,
+        "resultChars": 39,
+        "avgMs": 300,
+        "lastTs": 1767225605000
+      },
+      {
+        "name": "lookup",
+        "server": "demo",
+        "calls": 1,
+        "errors": 1,
+        "argsChars": 14,
+        "resultChars": 2,
+        "avgMs": 0,
+        "lastTs": 1769940007000
+      },
+      {
+        "name": "read",
+        "server": "",
+        "calls": 1,
+        "errors": 0,
+        "argsChars": 20,
+        "resultChars": 41,
+        "avgMs": 500,
+        "lastTs": 1767225604100
+      },
+      {
+        "name": "read_file",
+        "server": "",
+        "calls": 1,
+        "errors": 0,
+        "argsChars": 21,
+        "resultChars": 87,
+        "avgMs": 0,
+        "lastTs": 1769940006000
+      },
+      {
+        "name": "replace",
+        "server": "",
+        "calls": 1,
+        "errors": 0,
+        "argsChars": 25,
+        "resultChars": 17,
+        "avgMs": 0,
+        "lastTs": 1770022804000
+      },
+      {
+        "name": "write",
+        "server": "",
+        "calls": 1,
+        "errors": 0,
+        "argsChars": 15,
+        "resultChars": 29,
+        "avgMs": 1000,
+        "lastTs": 1767225621100
+      }
+    ]
+  },
+  "gemini": {
+    "total": {
+      "requests": 4,
+      "failed": 0,
+      "input": 1400,
+      "output": 130,
+      "cacheRead": 1600,
+      "cacheWrite": 0,
+      "cost": 0.00208,
+      "unpriced": 0,
+      "avgDurationMs": 0,
+      "avgTtftMs": 0,
+      "cacheRate": 0.5333333333333333,
+      "firstTs": 1769940004000,
+      "lastTs": 1770022803000
+    },
+    "byHarness": [
+      {
+        "key": "gemini",
+        "requests": 4,
+        "failed": 0,
+        "input": 1400,
+        "output": 130,
+        "cacheRead": 1600,
+        "cacheWrite": 0,
+        "cost": 0.00208,
+        "unpriced": 0,
+        "avgDurationMs": 0,
+        "avgTtftMs": 0,
+        "cacheRate": 0.5333333333333333,
+        "firstTs": 1769940004000,
+        "lastTs": 1770022803000
+      }
+    ],
+    "byModel": [
+      {
+        "key": "gemini-test",
+        "requests": 4,
+        "failed": 0,
+        "input": 1400,
+        "output": 130,
+        "cacheRead": 1600,
+        "cacheWrite": 0,
+        "cost": 0.00208,
+        "unpriced": 0,
+        "avgDurationMs": 0,
+        "avgTtftMs": 0,
+        "cacheRate": 0.5333333333333333,
+        "firstTs": 1769940004000,
+        "lastTs": 1770022803000
+      }
+    ],
+    "byFolder": [
+      {
+        "key": "/work/demo-app",
+        "requests": 4,
+        "failed": 0,
+        "input": 1400,
+        "output": 130,
+        "cacheRead": 1600,
+        "cacheWrite": 0,
+        "cost": 0.00208,
+        "unpriced": 0,
+        "avgDurationMs": 0,
+        "avgTtftMs": 0,
+        "cacheRate": 0.5333333333333333,
+        "firstTs": 1769940004000,
+        "lastTs": 1770022803000
+      }
+    ],
+    "byAgentType": [
+      {
+        "key": "main",
+        "requests": 3,
+        "failed": 0,
+        "input": 1100,
+        "output": 120,
+        "cacheRead": 1600,
+        "cacheWrite": 0,
+        "cost": 0.00174,
+        "unpriced": 0,
+        "avgDurationMs": 0,
+        "avgTtftMs": 0,
+        "cacheRate": 0.5925925925925926,
+        "firstTs": 1769940005000,
+        "lastTs": 1770022803000
+      },
+      {
+        "key": "subagent",
+        "requests": 1,
+        "failed": 0,
+        "input": 300,
+        "output": 10,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0.00033999999999999997,
+        "unpriced": 0,
+        "avgDurationMs": 0,
+        "avgTtftMs": 0,
+        "cacheRate": 0,
+        "firstTs": 1769940004000,
+        "lastTs": 1769940004000
+      }
+    ],
+    "tools": [
+      {
+        "name": "lookup",
+        "server": "demo",
+        "calls": 1,
+        "errors": 1,
+        "argsChars": 14,
+        "resultChars": 2,
+        "avgMs": 0,
+        "lastTs": 1769940007000
+      },
+      {
+        "name": "read_file",
+        "server": "",
+        "calls": 1,
+        "errors": 0,
+        "argsChars": 21,
+        "resultChars": 87,
+        "avgMs": 0,
+        "lastTs": 1769940006000
+      },
+      {
+        "name": "replace",
+        "server": "",
+        "calls": 1,
+        "errors": 0,
+        "argsChars": 25,
+        "resultChars": 17,
+        "avgMs": 0,
+        "lastTs": 1770022804000
+      }
+    ]
+  },
+  "kilo": {
+    "total": {
+      "requests": 5,
+      "failed": 2,
+      "input": 165,
+      "output": 58,
+      "cacheRead": 1300,
+      "cacheWrite": 30,
+      "cost": 0.260435,
+      "unpriced": 1,
+      "avgDurationMs": 0,
+      "avgTtftMs": 0,
+      "cacheRate": 0.8695652173913043,
+      "firstTs": 1767225602000,
+      "lastTs": 1767225622000
+    },
+    "byHarness": [
+      {
+        "key": "kilo",
+        "requests": 5,
+        "failed": 2,
+        "input": 165,
+        "output": 58,
+        "cacheRead": 1300,
+        "cacheWrite": 30,
+        "cost": 0.260435,
+        "unpriced": 1,
+        "avgDurationMs": 0,
+        "avgTtftMs": 0,
+        "cacheRate": 0.8695652173913043,
+        "firstTs": 1767225602000,
+        "lastTs": 1767225622000
+      }
+    ],
+    "byModel": [
+      {
+        "key": "claude-test",
+        "requests": 3,
+        "failed": 1,
+        "input": 150,
+        "output": 55,
+        "cacheRead": 1300,
+        "cacheWrite": 30,
+        "cost": 0.250435,
+        "unpriced": 0,
+        "avgDurationMs": 0,
+        "avgTtftMs": 0,
+        "cacheRate": 0.8783783783783784,
+        "firstTs": 1767225602000,
+        "lastTs": 1767225621000
+      },
+      {
+        "key": "gpt-test",
+        "requests": 1,
+        "failed": 0,
+        "input": 10,
+        "output": 2,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0.01,
+        "unpriced": 0,
+        "avgDurationMs": 0,
+        "avgTtftMs": 0,
+        "cacheRate": 0,
+        "firstTs": 1767225622000,
+        "lastTs": 1767225622000
+      },
+      {
+        "key": "m",
+        "requests": 1,
+        "failed": 1,
+        "input": 5,
+        "output": 1,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0,
+        "unpriced": 1,
+        "avgDurationMs": 0,
+        "avgTtftMs": 0,
+        "cacheRate": 0,
+        "firstTs": 1767225604000,
+        "lastTs": 1767225604000
+      }
+    ],
+    "byFolder": [
+      {
+        "key": "/work/demo-app",
+        "requests": 4,
+        "failed": 1,
+        "input": 160,
+        "output": 57,
+        "cacheRead": 1300,
+        "cacheWrite": 30,
+        "cost": 0.260435,
+        "unpriced": 0,
+        "avgDurationMs": 0,
+        "avgTtftMs": 0,
+        "cacheRate": 0.87248322147651,
+        "firstTs": 1767225602000,
+        "lastTs": 1767225622000
+      },
+      {
+        "key": "",
+        "requests": 1,
+        "failed": 1,
+        "input": 5,
+        "output": 1,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0,
+        "unpriced": 1,
+        "avgDurationMs": 0,
+        "avgTtftMs": 0,
+        "cacheRate": 0,
+        "firstTs": 1767225604000,
+        "lastTs": 1767225604000
+      }
+    ],
+    "byAgentType": [
+      {
+        "key": "main",
+        "requests": 4,
+        "failed": 2,
+        "input": 155,
+        "output": 56,
+        "cacheRead": 1300,
+        "cacheWrite": 30,
+        "cost": 0.250435,
+        "unpriced": 1,
+        "avgDurationMs": 0,
+        "avgTtftMs": 0,
+        "cacheRate": 0.8754208754208754,
+        "firstTs": 1767225602000,
+        "lastTs": 1767225621000
+      },
+      {
+        "key": "subagent",
+        "requests": 1,
+        "failed": 0,
+        "input": 10,
+        "output": 2,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0.01,
+        "unpriced": 0,
+        "avgDurationMs": 0,
+        "avgTtftMs": 0,
+        "cacheRate": 0,
+        "firstTs": 1767225622000,
+        "lastTs": 1767225622000
+      }
+    ],
+    "tools": [
+      {
+        "name": "bash",
+        "server": "",
+        "calls": 1,
+        "errors": 0,
+        "argsChars": 16,
+        "resultChars": 14,
+        "avgMs": 1500,
+        "lastTs": 1767225603000
+      },
+      {
+        "name": "demo_lookup",
+        "server": "",
+        "calls": 1,
+        "errors": 1,
+        "argsChars": 9,
+        "resultChars": 11,
+        "avgMs": 200,
+        "lastTs": 1767225605000
+      }
+    ]
+  },
+  "opencode": {
+    "total": {
+      "requests": 5,
+      "failed": 1,
+      "input": 830,
+      "output": 167,
+      "cacheRead": 2500,
+      "cacheWrite": 50,
+      "cost": 0.9205099999999999,
+      "unpriced": 0,
+      "avgDurationMs": 5000,
+      "avgTtftMs": 766.6666666666666,
+      "cacheRate": 0.7396449704142012,
+      "firstTs": 1767225602000,
+      "lastTs": 1767226002000
+    },
+    "byHarness": [
+      {
+        "key": "opencode",
+        "requests": 5,
+        "failed": 1,
+        "input": 830,
+        "output": 167,
+        "cacheRead": 2500,
+        "cacheWrite": 50,
+        "cost": 0.9205099999999999,
+        "unpriced": 0,
+        "avgDurationMs": 5000,
+        "avgTtftMs": 766.6666666666666,
+        "cacheRate": 0.7396449704142012,
+        "firstTs": 1767225602000,
+        "lastTs": 1767226002000
+      }
+    ],
+    "byModel": [
+      {
+        "key": "claude-test",
+        "requests": 4,
+        "failed": 1,
+        "input": 810,
+        "output": 164,
+        "cacheRead": 2500,
+        "cacheWrite": 50,
+        "cost": 0.90051,
+        "unpriced": 0,
+        "avgDurationMs": 6000,
+        "avgTtftMs": 900,
+        "cacheRate": 0.7440476190476191,
+        "firstTs": 1767225602000,
+        "lastTs": 1767226002000
+      },
+      {
+        "key": "gpt-test",
+        "requests": 1,
+        "failed": 0,
+        "input": 20,
+        "output": 3,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0.02,
+        "unpriced": 0,
+        "avgDurationMs": 2000,
+        "avgTtftMs": 500,
+        "cacheRate": 0,
+        "firstTs": 1767225652000,
+        "lastTs": 1767225652000
+      }
+    ],
+    "byFolder": [
+      {
+        "key": "/work/demo-app",
+        "requests": 5,
+        "failed": 1,
+        "input": 830,
+        "output": 167,
+        "cacheRead": 2500,
+        "cacheWrite": 50,
+        "cost": 0.9205099999999999,
+        "unpriced": 0,
+        "avgDurationMs": 5000,
+        "avgTtftMs": 766.6666666666666,
+        "cacheRate": 0.7396449704142012,
+        "firstTs": 1767225602000,
+        "lastTs": 1767226002000
+      }
+    ],
+    "byAgentType": [
+      {
+        "key": "main",
+        "requests": 4,
+        "failed": 1,
+        "input": 810,
+        "output": 164,
+        "cacheRead": 2500,
+        "cacheWrite": 50,
+        "cost": 0.90051,
+        "unpriced": 0,
+        "avgDurationMs": 6000,
+        "avgTtftMs": 900,
+        "cacheRate": 0.7440476190476191,
+        "firstTs": 1767225602000,
+        "lastTs": 1767226002000
+      },
+      {
+        "key": "subagent",
+        "requests": 1,
+        "failed": 0,
+        "input": 20,
+        "output": 3,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0.02,
+        "unpriced": 0,
+        "avgDurationMs": 2000,
+        "avgTtftMs": 500,
+        "cacheRate": 0,
+        "firstTs": 1767225652000,
+        "lastTs": 1767225652000
+      }
+    ],
+    "tools": [
+      {
+        "name": "demo_search",
+        "server": "",
+        "calls": 1,
+        "errors": 1,
+        "argsChars": 9,
+        "resultChars": 39,
+        "avgMs": 300,
+        "lastTs": 1767225605000
+      },
+      {
+        "name": "read",
+        "server": "",
+        "calls": 1,
+        "errors": 0,
+        "argsChars": 20,
+        "resultChars": 41,
+        "avgMs": 500,
+        "lastTs": 1767225604100
+      },
+      {
+        "name": "write",
+        "server": "",
+        "calls": 1,
+        "errors": 0,
+        "argsChars": 15,
+        "resultChars": 29,
+        "avgMs": 1000,
+        "lastTs": 1767225621100
+      }
+    ]
+  }
+}

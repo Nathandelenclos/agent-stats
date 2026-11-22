@@ -1,0 +1,6 @@
+{"sessionId":"22222222-aaaa-bbbb-cccc-000000000002","projectHash":"0000000000000000000000000000000000000000000000000000000000000000","startTime":"2026-02-02T09:00:00.000Z","lastUpdated":"2026-02-02T09:00:00.000Z","kind":"main"}
+{"id":"u1","timestamp":"2026-02-02T09:00:01.000Z","type":"user","content":[{"text":"Rename the loader"}]}
+{"id":"a1","timestamp":"2026-02-02T09:00:03.000Z","type":"gemini","content":"Renaming.","model":"gemini-test","tokens":{"input":500,"output":20,"cached":0,"thoughts":0,"tool":0,"total":520},"toolCalls":[{"id":"c1","name":"replace","args":{"file_path":"loader.go"},"result":[],"status":"success","timestamp":"2026-02-02T09:00:04.000Z"}]}
+{"id":"u2","timestamp":"2026-02-02T09:00:05.000Z","type":"user","content":[{"text":"Actually, leave it"}]}
+{"$rewindTo":"u2"}
+{"$patch":{"id":"a1","toolCalls":[{"id":"c1","result":[{"output":"ok"}]}]}}

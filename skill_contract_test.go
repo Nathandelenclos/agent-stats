@@ -48,7 +48,7 @@ func saveLogHolding(t *testing.T, w *sqlite.SQLiteIndex, file string, prompts []
 	if err != nil {
 		t.Fatal(err)
 	}
-	log := indexing.IndexedLog{File: indexing.LogFile{Path: file, Harness: kernel.Claude, Size: 1}, Transcript: indexing.IndexedTranscript{
+	log := indexing.IndexedLog{File: indexing.LogFile{Path: file, Harness: kernel.Claude, Revision: "1"}, Transcript: indexing.IndexedTranscript{
 		Transcript: domain.Transcript{Session: domain.Session{ID: id, Harness: kernel.Claude, AgentType: domain.MainAgent, Start: skillCallTime, End: skillCallTime}, Tools: tools, Prompts: prompts},
 		Signals:    domain.AnalyzeSession(prompts),
 	}}

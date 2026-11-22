@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -136,6 +137,7 @@ func sqlSteps(steps ...string) migration {
 var migrations = []migration{
 	sqlSteps(sessionViews, forgetCodexLogs),
 	sqlSteps(recordSkills),
+	sqlSteps(recordRevisions),
 	sqlSteps(publishFolders),
 }
 
@@ -164,6 +166,15 @@ CREATE VIEW usage_tool_calls AS
 		t.args_chars, t.result_chars, t.is_error, t.duration_ms, s.harness
 	FROM tool_calls t JOIN sessions s ON s.id = t.session_id
 		LEFT JOIN tool_call_skills k ON k.session_id = t.session_id AND k.key = t.key;
+`
+
+// recordRevisions keeps the revision a reader gives each log (application.LogFile.Revision) in a table of its own,
+// for the reason recordSkills is one: a build from before it writes files with positional statements that a column
+// more would refuse. A log this build saved has size and mtime 0 in files and its revision here. A row with another
+// size or mtime was written by an earlier build, which saw a file of that size and modification time, and its
+// revision is those two as application.FileRevision makes it, how the readers of files give theirs: nothing is read again for it.
+const recordRevisions = `
+CREATE TABLE file_revisions (path TEXT PRIMARY KEY, revision TEXT NOT NULL) WITHOUT ROWID;
 `
 
 // publishFolders lets the other contexts narrow their questions to a project: usage_tool_calls gains the working folder of
@@ -287,9 +298,10 @@ func private(path string) error {
 // Close closes the database.
 func (s *SQLiteIndex) Close() error { return s.db.Close() }
 
-// IndexedFiles returns every log file indexed so far, with its size and modification time at that point.
+// IndexedFiles returns every log file indexed so far, with its revision at that point.
 func (s *SQLiteIndex) IndexedFiles() (map[string]application.LogFile, error) {
-	rows, err := s.db.Query(`SELECT path, harness, size, mtime FROM files`)
+	rows, err := s.db.Query(`SELECT f.path, f.harness, f.size, f.mtime, COALESCE(r.revision, '')
+		FROM files f LEFT JOIN file_revisions r ON r.path = f.path`)
 	if err != nil {
 		return nil, err
 	}
@@ -298,14 +310,16 @@ func (s *SQLiteIndex) IndexedFiles() (map[string]application.LogFile, error) {
 	for rows.Next() {
 		var f application.LogFile
 		var harness string
-		var mtime int64
-		if err := rows.Scan(&f.Path, &harness, &f.Size, &mtime); err != nil {
+		var size, mtime int64
+		if err := rows.Scan(&f.Path, &harness, &size, &mtime, &f.Revision); err != nil {
 			return nil, err
+		}
+		if size != 0 || mtime != 0 { // written by a build from before revisions, which kept the size and time of the file
+			f.Revision = application.FileRevision(size, mtime)
 		}
 		if f.Harness, err = kernel.ParseHarness(harness); err != nil {
 			return nil, err
 		}
-		f.ModTime = time.Unix(0, mtime)
 		known[f.Path] = f
 	}
 	return known, rows.Err()
@@ -313,8 +327,8 @@ func (s *SQLiteIndex) IndexedFiles() (map[string]application.LogFile, error) {
 
 // statements are the prepared statements that write one log, bound to the transaction of a batch.
 type statements struct {
-	deletes                                     [5]*sql.Stmt // the rows of a file, in each of deletedTables
-	session, request, tool, skill, prompt, file *sql.Stmt
+	deletes                                               [5]*sql.Stmt // the rows of a file, in each of deletedTables
+	session, request, tool, skill, prompt, file, revision *sql.Stmt
 }
 
 var deletedTables = [...]string{"sessions", "requests", "tool_calls", "tool_call_skills", "prompts"}
@@ -331,22 +345,44 @@ func prepare(tx *sql.Tx) (st statements, err error) {
 	for i, table := range deletedTables {
 		st.deletes[i] = prep(`DELETE FROM ` + table + ` WHERE file = ?`)
 	}
-	// Columns are named, so that a column another build adds to a table does not break these statements.
-	st.session = prep(`INSERT OR REPLACE INTO sessions (id, file, harness, parent_id, agent_type, title, folder, user, started_at, ended_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?)`)
-	st.request = prep(`INSERT OR REPLACE INTO requests (file, key, session_id, ts, model, provider, input, output, cache_read, cache_write, reasoning,
-		cost, priced, duration_ms, ttft_ms, stop_reason, error) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-	st.tool = prep(`INSERT OR REPLACE INTO tool_calls (file, key, session_id, ts, name, server, args_chars, result_chars, is_error, duration_ms)
-		VALUES (?,?,?,?,?,?,?,?,?,?)`)
-	st.skill = prep(`INSERT OR REPLACE INTO tool_call_skills (file, session_id, key, skill) VALUES (?,?,?,?)`)
-	st.prompt = prep(`INSERT OR REPLACE INTO prompts (file, key, session_id, ts, text, chars, words, yelling, profanity, anguish, negation, repetition, blame)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-	st.file = prep(`INSERT OR REPLACE INTO files (path, harness, size, mtime) VALUES (?,?,?,?)`)
+	// Two logs may name one session (a conversation copied, or saved in another format). The log that goes on last, and
+	// the later in path order when they stop together, gives the session: whichever is saved first, the index ends the same.
+	st.session = prep(`INSERT INTO sessions (id, file, harness, parent_id, agent_type, title, folder, user, started_at, ended_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT (id) DO UPDATE SET file = excluded.file, harness = excluded.harness, parent_id = excluded.parent_id,
+			agent_type = excluded.agent_type, title = excluded.title, folder = excluded.folder, user = excluded.user,
+			started_at = excluded.started_at, ended_at = excluded.ended_at
+		WHERE (COALESCE(excluded.ended_at, 0), excluded.file) >= (COALESCE(sessions.ended_at, 0), sessions.file)`)
+	st.request = prep(ownedRows("requests", "file", "key", "session_id", "ts", "model", "provider", "input", "output", "cache_read", "cache_write", "reasoning",
+		"cost", "priced", "duration_ms", "ttft_ms", "stop_reason", "error"))
+	st.tool = prep(ownedRows("tool_calls", "file", "key", "session_id", "ts", "name", "server", "args_chars", "result_chars", "is_error", "duration_ms"))
+	st.skill = prep(ownedRows("tool_call_skills", "file", "session_id", "key", "skill"))
+	st.prompt = prep(ownedRows("prompts", "file", "key", "session_id", "ts", "text", "chars", "words", "yelling", "profanity", "anguish", "negation",
+		"repetition", "blame"))
+	st.file = prep(`INSERT OR REPLACE INTO files (path, harness, size, mtime) VALUES (?,?,0,0)`) // the revision is in file_revisions
+	st.revision = prep(`INSERT OR REPLACE INTO file_revisions (path, revision) VALUES (?,?)`)
 	return st, err
 }
 
+// ownedRows is the statement that writes a row of a log, keyed by (session_id, key). A row that another log wrote
+// is replaced only by the log that gives the session (see the session statement), so that logs naming one session
+// leave the same rows whichever is saved first. Columns are named, so that a column another build adds to a table does
+// not break the statement.
+func ownedRows(table string, cols ...string) string {
+	set := make([]string, 0, len(cols))
+	for _, c := range cols {
+		if c != "session_id" && c != "key" {
+			set = append(set, c+" = excluded."+c)
+		}
+	}
+	return fmt.Sprintf(`INSERT INTO %s (%s) VALUES (?%s)
+		ON CONFLICT (session_id, key) DO UPDATE SET %s
+		WHERE excluded.file = (SELECT file FROM sessions WHERE id = excluded.session_id)`,
+		table, strings.Join(cols, ", "), strings.Repeat(",?", len(cols)-1), strings.Join(set, ", "))
+}
+
 func (st statements) close() {
-	for _, stmt := range append(st.deletes[:], st.session, st.request, st.tool, st.skill, st.prompt, st.file) {
+	for _, stmt := range append(st.deletes[:], st.session, st.request, st.tool, st.skill, st.prompt, st.file, st.revision) {
 		if stmt != nil {
 			stmt.Close()
 		}
@@ -435,7 +471,10 @@ func (s *SQLiteIndex) saveLog(st statements, file application.LogFile, t applica
 			return err
 		}
 	}
-	_, err := st.file.Exec(path, file.Harness.String(), file.Size, file.ModTime.UnixNano())
+	if _, err := st.file.Exec(path, file.Harness.String()); err != nil {
+		return err
+	}
+	_, err := st.revision.Exec(path, file.Revision)
 	return err
 }
 

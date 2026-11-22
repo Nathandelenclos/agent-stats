@@ -220,16 +220,21 @@ type Transcript struct {
 
 const maxTitleRunes = 80
 
-// TitleFromFirstPrompt names an untitled session after its first prompt, on one line and at most 80 characters.
+// Title is text as a session title: on one line and at most 80 characters.
+func Title(text string) string {
+	title := strings.Join(strings.Fields(text), " ")
+	if r := []rune(title); len(r) > maxTitleRunes {
+		title = string(r[:maxTitleRunes]) + "…"
+	}
+	return title
+}
+
+// TitleFromFirstPrompt names an untitled session after its first prompt, see Title.
 func (t *Transcript) TitleFromFirstPrompt() {
 	if t.Session.Title != "" || len(t.Prompts) == 0 {
 		return
 	}
-	title := strings.Join(strings.Fields(t.Prompts[0].Text), " ")
-	if r := []rune(title); len(r) > maxTitleRunes {
-		title = string(r[:maxTitleRunes]) + "…"
-	}
-	t.Session.Title = title
+	t.Session.Title = Title(t.Prompts[0].Text)
 }
 
 // SplitMCPToolName recognises the "mcp__<server>__<tool>" naming used by Claude Code and others.

@@ -1,0 +1,19 @@
+{
+  "sessionId": "11111111-aaaa-bbbb-cccc-000000000001",
+  "projectHash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "startTime": "2026-02-01T10:00:00.000Z",
+  "lastUpdated": "2026-02-01T10:05:00.000Z",
+  "kind": "main",
+  "messages": [
+    {"id": "m1", "timestamp": "2026-02-01T10:00:01.000Z", "type": "user", "content": [{"text": "Add a cache to the loader"}]},
+    {"id": "m2", "timestamp": "2026-02-01T10:00:05.000Z", "type": "gemini", "content": "I will read the loader first.", "model": "gemini-test",
+     "thoughts": [],
+     "tokens": {"input": 1000, "output": 50, "cached": 600, "thoughts": 20, "tool": 0, "total": 1070},
+     "toolCalls": [
+       {"id": "t1", "name": "read_file", "args": {"path": "loader.go"}, "result": [{"functionResponse": {"name": "read_file", "response": {"output": "package loader"}}}], "status": "success", "timestamp": "2026-02-01T10:00:06.000Z"},
+       {"id": "t2", "name": "mcp__demo__lookup", "args": {"q": "cache"}, "result": [], "status": "error", "timestamp": "2026-02-01T10:00:07.000Z"}
+     ]},
+    {"id": "m3", "timestamp": "2026-02-01T10:00:09.000Z", "type": "gemini", "content": "Done.", "model": "gemini-test",
+     "tokens": {"input": 1200, "output": 30, "cached": 1000, "thoughts": 0, "tool": 0, "total": 1230}}
+  ]
+}

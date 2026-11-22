@@ -52,6 +52,8 @@ func (i Inventory) Installed(h kernel.Harness) (application.Installed, error) {
 		i.omp(c)
 	case kernel.Pi:
 		i.pi(c)
+	case kernel.OpenCode, kernel.Kilo, kernel.Gemini:
+		// ponytail: no configuration reader yet; these harnesses show up in the catalogue through the usage their logs record.
 	default:
 		return application.Installed{}, fmt.Errorf("no inventory for harness %q", h)
 	}

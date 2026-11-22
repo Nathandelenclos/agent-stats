@@ -38,6 +38,47 @@ func TestLookupStripsProviderAndDate(t *testing.T) {
 	}
 }
 
+func TestLookupFindsAClaudeModelWrittenWithADottedVersion(t *testing.T) {
+	// Given a list that knows claude-sonnet-4-5, and a model that a gateway names claude-sonnet-4.5
+	dashed := rates(t, RatesPerToken{Input: 0.1})
+	l := PriceList{"claude-sonnet-4-5": dashed}
+
+	// When its price is looked up, with or without a provider and a date
+	for _, m := range []string{"claude-sonnet-4.5", "anthropic/claude-sonnet-4.5", "Claude-Sonnet-4.5-20250929"} {
+		// Then the price of claude-sonnet-4-5 is found
+		if r, ok := l.Lookup(m); !ok || r != dashed {
+			t.Errorf("%s: %v %v", m, r, ok)
+		}
+	}
+}
+
+func TestAModelNamedAsWrittenIsPricedBeforeItsDashedVariant(t *testing.T) {
+	// Given a list that knows both claude-sonnet-4.5 and claude-sonnet-4-5, at different prices
+	dashed, dotted := rates(t, RatesPerToken{Input: 0.1}), rates(t, RatesPerToken{Input: 0.2})
+	l := PriceList{"claude-sonnet-4-5": dashed, "claude-sonnet-4.5": dotted}
+
+	// When the price of claude-sonnet-4.5 is looked up
+	r, ok := l.Lookup("claude-sonnet-4.5")
+
+	// Then it is the price of that name
+	if !ok || r != dotted {
+		t.Errorf("price = %v %v", r, ok)
+	}
+}
+
+func TestTheDottedVersionOfAModelOfAnotherMakerIsNotRewritten(t *testing.T) {
+	// Given a list that knows gemini-2-5-pro
+	l := PriceList{"gemini-2-5-pro": rates(t, RatesPerToken{Input: 0.1})}
+
+	// When the price of gemini-2.5-pro is looked up
+	_, ok := l.Lookup("gemini-2.5-pro")
+
+	// Then it is not found
+	if ok {
+		t.Error("a dotted version of another maker was found as dashed")
+	}
+}
+
 func TestCostBills1hCacheWritesAtTwiceInput(t *testing.T) {
 	r := rates(t, RatesPerToken{Input: 0.1, Output: 1, CacheRead: 0.01, CacheWrite: 0.125})
 	got, err := r.Cost(tokens(t, kernel.TokenCounts{Input: 100, Output: 10, CacheRead: 1000, CacheWrite: 30, CacheWrite1h: 20}))

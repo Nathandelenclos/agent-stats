@@ -20,6 +20,10 @@ var (
 	Codex  = Harness{"codex"}
 	OMP    = Harness{"omp"}
 	Pi     = Harness{"pi"}
+	// OpenCode and Kilo Code share one storage format, a SQLite database of sessions.
+	OpenCode = Harness{"opencode"}
+	Kilo     = Harness{"kilo"}
+	Gemini   = Harness{"gemini"}
 )
 
 // String returns the harness name.
@@ -29,7 +33,7 @@ func (h Harness) String() string { return h.name }
 func (h Harness) IsZero() bool { return h.name == "" }
 
 // Harnesses lists every supported harness.
-var Harnesses = []Harness{Claude, Codex, OMP, Pi}
+var Harnesses = []Harness{Claude, Codex, OMP, Pi, OpenCode, Kilo, Gemini}
 
 // ErrUnknownHarness reports a harness name outside Harnesses.
 var ErrUnknownHarness = errors.New("unknown harness")
@@ -41,7 +45,7 @@ func ParseHarness(name string) (Harness, error) {
 			return h, nil
 		}
 	}
-	return Harness{}, fmt.Errorf("%w %q: use claude, codex, omp or pi", ErrUnknownHarness, name)
+	return Harness{}, fmt.Errorf("%w %q: use claude, codex, omp, pi, opencode, kilo or gemini", ErrUnknownHarness, name)
 }
 
 // MaxTokenCount bounds one count of one request: far above any model's window (largest seen on real
