@@ -2,7 +2,6 @@ package configfiles
 
 import (
 	"encoding/json"
-	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -65,16 +64,30 @@ func (c *collector) piPackages(path string, scope domain.Scope) {
 	}
 }
 
-// withoutCredentials drops what a package source may carry that is secret: the user and password of a URL, its query
-// and fragment. A source that is not a URL (an npm name, a path) is kept as is.
+// withoutCredentials drops what a package source may carry that is secret: the user and password after any "://"
+// (also in an opaque form such as "git:https://user:token@host/repo"), and everything from the first "?" or "#" on
+// (query and fragment). A source without "://" (an npm name, a path) is kept as is.
 func withoutCredentials(src string) string {
-	if !strings.Contains(src, "://") {
-		return src
+	for from := 0; ; {
+		i := strings.Index(src[from:], "://")
+		if i < 0 {
+			break
+		}
+		start := from + i + len("://")
+		end := start + len(src[start:])
+		if j := strings.IndexAny(src[start:], "/?#"); j >= 0 {
+			end = start + j
+		}
+		if at := strings.LastIndex(src[start:end], "@"); at >= 0 {
+			src = src[:start] + src[start+at+1:]
+			end -= at + 1
+		}
+		from = end
 	}
-	u, err := url.Parse(src)
-	if err != nil { // cannot be cleaned, so cannot be shown
-		return "?"
+	if i := strings.Index(src, "://"); i >= 0 {
+		if j := strings.IndexAny(src[i:], "?#"); j >= 0 {
+			src = src[:i+j]
+		}
 	}
-	u.User, u.RawQuery, u.Fragment = nil, "", ""
-	return u.String()
+	return src
 }

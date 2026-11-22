@@ -1,62 +1,3 @@
-=== all ===
-
-claude · 18 installed, 10 never used
-KIND    ITEM              SCOPE        USES  LAST USED
-mcp     docs              user         2     2026-01-02
-mcp     claude_ai_Notes   logs         1     2026-01-05
-mcp     helper            plugin:demo  1     2026-01-05
-mcp     inline-server     plugin:demo  0     never
-mcp     local-db          project      0     never
-mcp     project-server    project      0     never
-mcp     remote            user         0     never
-skill   review-notes      user         2     2026-01-05
-skill   builtin-skill     logs         1     2026-01-05
-skill   demo:audit        plugin:demo  1     2026-01-05
-skill   frontmatter-name  user         0     never
-skill   no-frontmatter    user         0     never
-skill   project-skill     project      0     never
-agent   Explore           logs         1     2026-01-05
-agent   reviewer          user         1     2026-01-02
-agent   demo:checker      plugin:demo  0     never
-agent   plain-agent       user         0     never
-agent   project-agent     project      0     never
-plugin  demo@market       user         2     2026-01-05
-plugin  escape@market     user         ?     ?
-plugin  off@market (off)  user         ?     ?
-tool    Skill             logs         4     2026-01-05
-tool    Read              logs         1     2026-01-05
-
-codex · 9 installed, 1 never used
-KIND    ITEM                  SCOPE  USES  LAST USED
-mcp     github                user   2     2026-01-02
-mcp     paused (off)          user   0     never
-mcp     quoted.name           user   0     never
-skill   codex-skill           user   ?     ?
-skill   shared-skill          user   ?     ?
-agent   fallback-agent        user   ?     ?
-agent   planner               user   ?     ?
-plugin  helper@market         user   ?     ?
-plugin  stopped@market (off)  user   ?     ?
-tool    shell                 logs   1     2026-01-02
-
-omp · 5 installed, 1 never used
-KIND   ITEM            SCOPE    USES  LAST USED
-mcp    omp-docs        user     1     2026-01-05
-mcp    project-server  project  0     never
-skill  omp-skill       user     ?     ?
-skill  shared-skill    user     ?     ?
-agent  worker          user     ?     ?
-
-pi · 4 installed, 0 never used
-KIND    ITEM                                      SCOPE  USES  LAST USED
-skill   shared-skill                              user   ?     ?
-plugin  git+https://git.example.test/org/pkg.git  user   ?     ?
-plugin  npm:@org/pkg                              user   ?     ?
-plugin  pi-extras                                 user   ?     ?
-tool    bash                                      logs   1     2026-01-05
---- stderr ---
-skipped /etc: points outside its directory
-=== json ===
 {
   "entries": [
     {
@@ -542,6 +483,18 @@ skipped /etc: points outside its directory
     {
       "harness": "pi",
       "kind": "plugin",
+      "name": "git:https://git.example.test/org/other.git",
+      "scope": "user",
+      "origin": "",
+      "source": "~/.pi/agent/settings.json",
+      "installed": true,
+      "enabled": true,
+      "uses": null,
+      "lastTs": 0
+    },
+    {
+      "harness": "pi",
+      "kind": "plugin",
       "name": "npm:@org/pkg",
       "scope": "user",
       "origin": "",
@@ -580,167 +533,3 @@ skipped /etc: points outside its directory
     "/etc: points outside its directory"
   ]
 }
-=== claude only ===
-
-claude · 18 installed, 10 never used
-KIND    ITEM              SCOPE        USES  LAST USED
-mcp     docs              user         2     2026-01-02
-mcp     claude_ai_Notes   logs         1     2026-01-05
-mcp     helper            plugin:demo  1     2026-01-05
-mcp     inline-server     plugin:demo  0     never
-mcp     local-db          project      0     never
-mcp     project-server    project      0     never
-mcp     remote            user         0     never
-skill   review-notes      user         2     2026-01-05
-skill   builtin-skill     logs         1     2026-01-05
-skill   demo:audit        plugin:demo  1     2026-01-05
-skill   frontmatter-name  user         0     never
-skill   no-frontmatter    user         0     never
-skill   project-skill     project      0     never
-agent   Explore           logs         1     2026-01-05
-agent   reviewer          user         1     2026-01-02
-agent   demo:checker      plugin:demo  0     never
-agent   plain-agent       user         0     never
-agent   project-agent     project      0     never
-plugin  demo@market       user         2     2026-01-05
-plugin  escape@market     user         ?     ?
-plugin  off@market (off)  user         ?     ?
-tool    Skill             logs         4     2026-01-05
-tool    Read              logs         1     2026-01-05
---- stderr ---
-skipped /etc: points outside its directory
-=== since 2026-01-04 ===
-
-claude · 18 installed, 12 never used
-KIND    ITEM              SCOPE        USES  LAST USED
-mcp     claude_ai_Notes   logs         1     2026-01-05
-mcp     helper            plugin:demo  1     2026-01-05
-mcp     docs              user         0     never
-mcp     inline-server     plugin:demo  0     never
-mcp     local-db          project      0     never
-mcp     project-server    project      0     never
-mcp     remote            user         0     never
-skill   builtin-skill     logs         1     2026-01-05
-skill   demo:audit        plugin:demo  1     2026-01-05
-skill   review-notes      user         1     2026-01-05
-skill   frontmatter-name  user         0     never
-skill   no-frontmatter    user         0     never
-skill   project-skill     project      0     never
-agent   Explore           logs         1     2026-01-05
-agent   demo:checker      plugin:demo  0     never
-agent   plain-agent       user         0     never
-agent   project-agent     project      0     never
-agent   reviewer          user         0     never
-plugin  demo@market       user         2     2026-01-05
-plugin  escape@market     user         ?     ?
-plugin  off@market (off)  user         ?     ?
-tool    Skill             logs         3     2026-01-05
-tool    Read              logs         1     2026-01-05
-
-codex · 9 installed, 2 never used
-KIND    ITEM                  SCOPE  USES  LAST USED
-mcp     github                user   0     never
-mcp     paused (off)          user   0     never
-mcp     quoted.name           user   0     never
-skill   codex-skill           user   ?     ?
-skill   shared-skill          user   ?     ?
-agent   fallback-agent        user   ?     ?
-agent   planner               user   ?     ?
-plugin  helper@market         user   ?     ?
-plugin  stopped@market (off)  user   ?     ?
-
-omp · 5 installed, 1 never used
-KIND   ITEM            SCOPE    USES  LAST USED
-mcp    omp-docs        user     1     2026-01-05
-mcp    project-server  project  0     never
-skill  omp-skill       user     ?     ?
-skill  shared-skill    user     ?     ?
-agent  worker          user     ?     ?
-
-pi · 4 installed, 0 never used
-KIND    ITEM                                      SCOPE  USES  LAST USED
-skill   shared-skill                              user   ?     ?
-plugin  git+https://git.example.test/org/pkg.git  user   ?     ?
-plugin  npm:@org/pkg                              user   ?     ?
-plugin  pi-extras                                 user   ?     ?
-tool    bash                                      logs   1     2026-01-05
---- stderr ---
-skipped /etc: points outside its directory
-=== never used ===
-
-claude · 10 installed, 10 never used
-KIND   ITEM              SCOPE        USES  LAST USED
-mcp    inline-server     plugin:demo  0     never
-mcp    local-db          project      0     never
-mcp    project-server    project      0     never
-mcp    remote            user         0     never
-skill  frontmatter-name  user         0     never
-skill  no-frontmatter    user         0     never
-skill  project-skill     project      0     never
-agent  demo:checker      plugin:demo  0     never
-agent  plain-agent       user         0     never
-agent  project-agent     project      0     never
-
-codex · 1 installed, 1 never used
-KIND  ITEM         SCOPE  USES  LAST USED
-mcp   quoted.name  user   0     never
-
-omp · 1 installed, 1 never used
-KIND  ITEM            SCOPE    USES  LAST USED
-mcp   project-server  project  0     never
---- stderr ---
-skipped /etc: points outside its directory
-=== no project ===
-
-claude · 15 installed, 7 never used
-KIND    ITEM              SCOPE        USES  LAST USED
-mcp     docs              user         2     2026-01-02
-mcp     claude_ai_Notes   logs         1     2026-01-05
-mcp     helper            plugin:demo  1     2026-01-05
-mcp     inline-server     plugin:demo  0     never
-mcp     local-db          project      0     never
-mcp     remote            user         0     never
-skill   review-notes      user         2     2026-01-05
-skill   builtin-skill     logs         1     2026-01-05
-skill   demo:audit        plugin:demo  1     2026-01-05
-skill   frontmatter-name  user         0     never
-skill   no-frontmatter    user         0     never
-agent   Explore           logs         1     2026-01-05
-agent   reviewer          user         1     2026-01-02
-agent   demo:checker      plugin:demo  0     never
-agent   plain-agent       user         0     never
-plugin  demo@market       user         2     2026-01-05
-plugin  escape@market     user         ?     ?
-plugin  off@market (off)  user         ?     ?
-tool    Skill             logs         4     2026-01-05
-tool    Read              logs         1     2026-01-05
-
-codex · 9 installed, 1 never used
-KIND    ITEM                  SCOPE  USES  LAST USED
-mcp     github                user   2     2026-01-02
-mcp     paused (off)          user   0     never
-mcp     quoted.name           user   0     never
-skill   codex-skill           user   ?     ?
-skill   shared-skill          user   ?     ?
-agent   fallback-agent        user   ?     ?
-agent   planner               user   ?     ?
-plugin  helper@market         user   ?     ?
-plugin  stopped@market (off)  user   ?     ?
-tool    shell                 logs   1     2026-01-02
-
-omp · 4 installed, 0 never used
-KIND   ITEM          SCOPE  USES  LAST USED
-mcp    omp-docs      user   1     2026-01-05
-skill  omp-skill     user   ?     ?
-skill  shared-skill  user   ?     ?
-agent  worker        user   ?     ?
-
-pi · 4 installed, 0 never used
-KIND    ITEM                                      SCOPE  USES  LAST USED
-skill   shared-skill                              user   ?     ?
-plugin  git+https://git.example.test/org/pkg.git  user   ?     ?
-plugin  npm:@org/pkg                              user   ?     ?
-plugin  pi-extras                                 user   ?     ?
-tool    bash                                      logs   1     2026-01-05
---- stderr ---
-skipped /etc: points outside its directory

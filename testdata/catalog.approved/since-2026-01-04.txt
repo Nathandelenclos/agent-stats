@@ -1,0 +1,57 @@
+
+claude · 18 installed, 12 never used
+KIND    ITEM              SCOPE        USES  LAST USED
+mcp     claude_ai_Notes   logs         1     2026-01-05
+mcp     helper            plugin:demo  1     2026-01-05
+mcp     docs              user         0     never
+mcp     inline-server     plugin:demo  0     never
+mcp     local-db          project      0     never
+mcp     project-server    project      0     never
+mcp     remote            user         0     never
+skill   builtin-skill     logs         1     2026-01-05
+skill   demo:audit        plugin:demo  1     2026-01-05
+skill   review-notes      user         1     2026-01-05
+skill   frontmatter-name  user         0     never
+skill   no-frontmatter    user         0     never
+skill   project-skill     project      0     never
+agent   Explore           logs         1     2026-01-05
+agent   demo:checker      plugin:demo  0     never
+agent   plain-agent       user         0     never
+agent   project-agent     project      0     never
+agent   reviewer          user         0     never
+plugin  demo@market       user         2     2026-01-05
+plugin  escape@market     user         ?     ?
+plugin  off@market (off)  user         ?     ?
+tool    Skill             logs         3     2026-01-05
+tool    Read              logs         1     2026-01-05
+
+codex · 9 installed, 2 never used
+KIND    ITEM                  SCOPE  USES  LAST USED
+mcp     github                user   0     never
+mcp     paused (off)          user   0     never
+mcp     quoted.name           user   0     never
+skill   codex-skill           user   ?     ?
+skill   shared-skill          user   ?     ?
+agent   fallback-agent        user   ?     ?
+agent   planner               user   ?     ?
+plugin  helper@market         user   ?     ?
+plugin  stopped@market (off)  user   ?     ?
+
+omp · 5 installed, 1 never used
+KIND   ITEM            SCOPE    USES  LAST USED
+mcp    omp-docs        user     1     2026-01-05
+mcp    project-server  project  0     never
+skill  omp-skill       user     ?     ?
+skill  shared-skill    user     ?     ?
+agent  worker          user     ?     ?
+
+pi · 5 installed, 0 never used
+KIND    ITEM                                        SCOPE  USES  LAST USED
+skill   shared-skill                                user   ?     ?
+plugin  git+https://git.example.test/org/pkg.git    user   ?     ?
+plugin  git:https://git.example.test/org/other.git  user   ?     ?
+plugin  npm:@org/pkg                                user   ?     ?
+plugin  pi-extras                                   user   ?     ?
+tool    bash                                        logs   1     2026-01-05
+--- stderr ---
+skipped /etc: points outside its directory

@@ -47,39 +47,69 @@ func catalogOutput(t *testing.T, args ...string) (stdout, stderr string) {
 	return out.String(), errOut.String()
 }
 
-// TestCatalogApproved locks the whole subcommand (configuration trees, indexing of the logs, linking, tables and
-// JSON) on fixtures. On a difference it writes testdata/catalog.received.txt: read the diff, and only copy it over
-// catalog.approved.txt if the change is intended.
-func TestCatalogApproved(t *testing.T) {
-	// Given fixture configurations and session logs for the four harnesses, indexed by the first run
-	time.Local = time.UTC // dates print in the local zone
+// catalogCases are the ways the catalogue is asked for on the fixture home; each has an approved output.
+var catalogCases = []struct {
+	name string
+	args []string
+}{
+	{"all", nil},
+	{"json", []string{"--json"}},
+	{"claude-only", []string{"--harness", "claude"}},
+	{"since-2026-01-04", []string{"--since", "2026-01-04"}},
+	{"never-used", []string{"--unused"}},
+	{"no-project", []string{"--project", ""}},
+}
+
+// indexedCatalogHome prepares the fixture home, indexes its logs with a first run, and returns the arguments that
+// ask for a catalogue of that index without reading the logs again. Dates print in the local zone, so it is UTC.
+func indexedCatalogHome(t *testing.T) []string {
+	t.Helper()
+	time.Local = time.UTC
 	t.Cleanup(func() { time.Local = time.Now().Location() })
 	_, project := catalogHome(t)
 	db := filepath.Join(t.TempDir(), "index.db")
 	base := []string{"--db", db, "--project", project}
 	catalogOutput(t, base...)
-	base = append(base, "--no-sync")
+	return append(base, "--no-sync")
+}
 
-	// When the catalogue is asked for in each way
-	var got strings.Builder
-	for _, c := range []struct {
-		name string
-		args []string
-	}{
-		{"all", nil},
-		{"json", []string{"--json"}},
-		{"claude only", []string{"--harness", "claude"}},
-		{"since 2026-01-04", []string{"--since", "2026-01-04"}},
-		{"never used", []string{"--unused"}},
-		{"no project", []string{"--project", ""}},
-	} {
+// TestCatalogApproved locks what the subcommand prints (configuration trees, indexing of the logs, linking, tables
+// and JSON) on fixtures, one approved file per way of asking. On a difference it writes <name>.received.txt next to
+// the approved file: read the diff, and only copy it over if the change is intended.
+func TestCatalogApproved(t *testing.T) {
+	// Given fixture configurations and session logs for the four harnesses, indexed by a first run
+	base := indexedCatalogHome(t)
+	for _, c := range catalogCases {
+		t.Run(c.name, func(t *testing.T) {
+			// When the catalogue is asked for this way
+			out, errOut := catalogOutput(t, append(append([]string{}, base...), c.args...)...)
+			received := out
+			if errOut != "" {
+				received += "--- stderr ---\n" + errOut
+			}
+
+			// Then it prints the approved output
+			path := filepath.Join("testdata", "catalog.approved", c.name+".txt")
+			approved, err := os.ReadFile(path)
+			if err != nil || string(approved) != received {
+				if werr := os.WriteFile(strings.TrimSuffix(path, ".txt")+".received.txt", []byte(received), 0o644); werr != nil {
+					t.Fatal(werr)
+				}
+				t.Fatalf("output differs from %s (%v); see the .received.txt next to it", path, err)
+			}
+			os.Remove(strings.TrimSuffix(path, ".txt") + ".received.txt")
+		})
+	}
+}
+
+func TestCatalogOutputNeverCarriesSecretsOrControlCharacters(t *testing.T) {
+	// Given fixture configurations holding fake credentials in MCP env, headers, URLs and package sources
+	base := indexedCatalogHome(t)
+	for _, c := range catalogCases {
+		// When the catalogue is printed any way
 		out, errOut := catalogOutput(t, append(append([]string{}, base...), c.args...)...)
-		got.WriteString("=== " + c.name + " ===\n" + out)
-		if errOut != "" {
-			got.WriteString("--- stderr ---\n" + errOut)
-		}
 
-		// Then no secret and no control character other than line breaks reaches the output
+		// Then no credential and no control character other than line breaks reaches the output
 		if strings.Contains(out+errOut, "SECRET") {
 			t.Errorf("%s: a secret reached the output", c.name)
 		}
@@ -87,17 +117,6 @@ func TestCatalogApproved(t *testing.T) {
 			t.Errorf("%s: control characters in the output", c.name)
 		}
 	}
-
-	// Then the output is the approved one
-	received := []byte(got.String())
-	approved, err := os.ReadFile("testdata/catalog.approved.txt")
-	if err != nil || !bytes.Equal(approved, received) {
-		if werr := os.WriteFile("testdata/catalog.received.txt", received, 0o644); werr != nil {
-			t.Fatal(werr)
-		}
-		t.Fatalf("output differs from testdata/catalog.approved.txt (%v); see testdata/catalog.received.txt", err)
-	}
-	os.Remove("testdata/catalog.received.txt")
 }
 
 func TestCatalogJSONTellsUnknownUsageFromNone(t *testing.T) {

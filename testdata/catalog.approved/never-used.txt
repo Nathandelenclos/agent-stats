@@ -1,0 +1,23 @@
+
+claude · 10 installed, 10 never used
+KIND   ITEM              SCOPE        USES  LAST USED
+mcp    inline-server     plugin:demo  0     never
+mcp    local-db          project      0     never
+mcp    project-server    project      0     never
+mcp    remote            user         0     never
+skill  frontmatter-name  user         0     never
+skill  no-frontmatter    user         0     never
+skill  project-skill     project      0     never
+agent  demo:checker      plugin:demo  0     never
+agent  plain-agent       user         0     never
+agent  project-agent     project      0     never
+
+codex · 1 installed, 1 never used
+KIND  ITEM         SCOPE  USES  LAST USED
+mcp   quoted.name  user   0     never
+
+omp · 1 installed, 1 never used
+KIND  ITEM            SCOPE    USES  LAST USED
+mcp   project-server  project  0     never
+--- stderr ---
+skipped /etc: points outside its directory
