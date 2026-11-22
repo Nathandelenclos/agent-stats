@@ -1,0 +1,51 @@
+---
+title: CLI reference
+description: Find report filters, output formats, server flags, and price overrides.
+---
+
+```sh
+agent-stats --help
+agent-stats serve --help
+agent-stats catalog --help
+```
+
+## Report
+
+`agent-stats` opens the interactive terminal when input and output are a terminal. Pipe or redirect output for a text report, or use `--json` to read it in a script.
+
+| Flag | Effect |
+| --- | --- |
+| `--since` | Start the period at a duration such as `24h` or `7d`, or a date such as `2026-11-01`. |
+| `--harness` | Filter to one [coding agent](/docs/coding-agents/). |
+| `--all` | Include every project. Takes precedence over `--project`. |
+| `--project DIR` | Include sessions that worked in the directory or below it. |
+| `--no-sync` | Read the existing index without re-reading session logs. |
+| `--db FILE` | Use a different index database. |
+| `--prices FILE` | Override model prices with a JSON file. |
+| `--plain` | Print the text report even in a terminal. Available in development builds after v0.6.0. |
+| `--json` | Print the report as JSON. |
+
+The text report gives the project scope in its first line. JSON follows the same scope without adding a project field. Empty report groups may be `null`. [See the JSON fields](https://github.com/Nathandelenclos/agent-stats#json-output).
+
+## Subcommands
+
+| Command | Use |
+| --- | --- |
+| `agent-stats serve` | Start the [local dashboard](/docs/dashboard/) and [JSON API](/docs/api/). |
+| `agent-stats prompts` | [Review flagged and recurring prompts](/docs/prompts/). Defaults to seven days. |
+| `agent-stats catalog` | [List installed items](/docs/catalog-and-quotas/#catalog) and recorded usage. |
+| `agent-stats quota record-claude` | [Record Claude Code quota windows](/docs/catalog-and-quotas/#account-quotas) from status-line JSON on stdin. Available in development builds after v0.6.0. |
+
+## Dashboard
+
+`serve` accepts the common scope, filter, and storage flags above. It also accepts `--addr` to select a listener, with `127.0.0.1:7373` as the default. Read [remote access and privacy](/docs/privacy/#remote-access) before using `--allow-remote`.
+
+## Override prices
+
+Give `--prices` a JSON file with four USD-per-token rates in order: input, output, cache read, and cache write.
+
+```json
+{ "my-model": [0.000003, 0.000015, 0.0000003, 0.00000375] }
+```
+
+A positive cost recorded in a session takes precedence. [Read how pricing works](https://github.com/Nathandelenclos/agent-stats#pricing).

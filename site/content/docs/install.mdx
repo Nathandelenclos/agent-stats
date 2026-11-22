@@ -1,0 +1,68 @@
+---
+title: Install
+description: Install agent-stats on macOS, Linux, or Windows and verify the binary.
+---
+
+Published binaries include the CLI, JSON API, and local dashboard. Releases cover `amd64` and `arm64` on macOS, Linux, and Windows.
+
+## Choose your operating system
+
+<Tabs items={["macOS", "Linux", "Windows"]}>
+<Tab value="macOS">
+
+```sh
+brew install nathandelenclos/tap/agent-stats
+```
+
+You can also download an archive for `darwin` from [GitHub Releases](https://github.com/Nathandelenclos/agent-stats/releases).
+
+</Tab>
+<Tab value="Linux">
+
+Download the package for your distribution from [GitHub Releases](https://github.com/Nathandelenclos/agent-stats/releases), [verify it](#verify-the-download), then install it with your package manager.
+
+| Distribution | Package | Example |
+| --- | --- | --- |
+| Debian or Ubuntu | `.deb` | `sudo apt install ./agent-stats_<version>_linux_amd64.deb` |
+| Fedora | `.rpm` | `sudo dnf install ./agent-stats_<version>_linux_amd64.rpm` |
+| Alpine | `.apk` | `sudo apk add --allow-untrusted ./agent-stats_<version>_linux_amd64.apk` |
+
+Replace each example filename with the exact name of the verified package you downloaded. You can also extract a Linux archive and put the binary on your `PATH`.
+
+</Tab>
+<Tab value="Windows">
+
+Download the Windows ZIP for your CPU from [GitHub Releases](https://github.com/Nathandelenclos/agent-stats/releases) and [verify it](#verify-the-download). Extract it and add the folder containing `agent-stats.exe` to your `PATH`.
+
+</Tab>
+</Tabs>
+
+## Verify the installation
+
+```sh
+agent-stats --help
+```
+
+You should see the available filters and flags. Then [run your first report](/docs/first-report/).
+
+## Verify the download
+
+Compare the SHA-256 of the package or archive with the matching line in `checksums.txt` from the same release.
+
+| Platform | Command |
+| --- | --- |
+| macOS | `shasum -a 256 <filename>` |
+| Linux | `sha256sum <filename>` |
+| Windows PowerShell | `Get-FileHash -Algorithm SHA256 <filename>` |
+
+Releases also include signed build attestations. See the [verification commands](https://github.com/Nathandelenclos/agent-stats#install) for the expected workflow and source commit.
+
+## Install with Go
+
+With Go 1.26.11 or later:
+
+```sh
+go install github.com/Nathandelenclos/agent-stats@latest
+```
+
+This installs the CLI and local JSON API. For the full dashboard, use a release binary or [build it from the repository](/docs/troubleshooting/#the-dashboard-shows-a-build-notice).

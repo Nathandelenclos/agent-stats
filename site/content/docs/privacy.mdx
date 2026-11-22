@@ -1,0 +1,22 @@
+---
+title: Privacy and local data
+description: Understand what the local index stores and what the dashboard exposes.
+---
+
+agent-stats opens session logs read-only and stores its index under `agent-stats/index.db` in your user cache directory by default. Reports use local logs and an embedded price table.
+
+## What the index stores
+
+The SQLite index contains full prompt text, session titles, working folders, and request and tool statistics. Old indexed rows can remain after a coding agent removes its original logs.
+
+Treat the database as private. The CLI's usage totals exclude prompt text, but report output can still reveal paths or names. Prompt reviews and screenshots can include excerpts. Check them before sharing.
+
+## Remote access
+
+The dashboard defaults to the loopback address `127.0.0.1:7373`. Use this default for private access on the machine running the CLI.
+
+<Callout type="warn">
+With `--allow-remote`, anyone who can reach the listener can read usage reports and session metadata. The server has no login or TLS.
+</Callout>
+
+Remote mode omits prompt excerpts and disables Catalog and Quotas. Session titles can still be based on the first prompt. Read the [server security details](https://github.com/Nathandelenclos/agent-stats#security) before enabling remote access.
