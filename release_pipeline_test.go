@@ -780,3 +780,34 @@ func TestTheSummaryJobHandsOverOnlyTheSummary(t *testing.T) {
 		t.Error("the summary job does not hand over summary.md")
 	}
 }
+
+// TestTheCallerGrantsEveryPermissionTheReleaseWorkflowAsks guards against a run that GitHub refuses to start: a called
+// workflow cannot ask for a permission its calling job does not grant (startup_failure on 2026-11-22, actions: read).
+func TestTheCallerGrantsEveryPermissionTheReleaseWorkflowAsks(t *testing.T) {
+	// Given the permissions the jobs of the release workflow ask for
+	asked := map[string]bool{}
+	perm := regexp.MustCompile(`(?m)^\s+(actions|attestations|contents|id-token|packages|pull-requests|issues|checks|statuses|deployments|pages|security-events): (write|read)\b`)
+	for _, m := range perm.FindAllStringSubmatch(withoutComments(workflowText(t)), -1) {
+		asked[m[1]+": "+m[2]] = true
+	}
+	// When the CI job that calls it is read
+	raw, err := os.ReadFile(".github/workflows/ci.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ci := withoutComments(string(raw))
+	call := ci[strings.Index(ci, "uses: ./.github/workflows/release.yml")-600 : strings.Index(ci, "uses: ./.github/workflows/release.yml")]
+	granted := map[string]bool{}
+	for _, m := range perm.FindAllStringSubmatch(call, -1) {
+		granted[m[1]+": "+m[2]] = true
+		if m[2] == "write" {
+			granted[m[1]+": read"] = true
+		}
+	}
+	// Then it grants each of them
+	for p := range asked {
+		if !granted[p] {
+			t.Errorf("the release workflow asks for %q, which the calling job in ci.yml does not grant", p)
+		}
+	}
+}
