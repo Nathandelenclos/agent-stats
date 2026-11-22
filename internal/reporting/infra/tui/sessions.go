@@ -130,7 +130,7 @@ func (m Model) sessionsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.harness = (m.harness + 1) % len(harnessChoices)
 		return m.reload()
 	case "s":
-		m.sessions.sort = m.sessions.sort.next(sessionsGrid(m.sessions.list.Sessions))
+		m.sessions.sort = m.sessions.sort.next(m.sessionsGrid())
 		m.layout()
 		m.sessions.table.SetCursor(0)
 	case "o":
@@ -186,30 +186,35 @@ func sessionTitle(s reporting.SessionSummary) string {
 	return s.Title
 }
 
-// sessionsGrid lays out the sessions: the first column takes what the terminal leaves, so the least
-// important columns come last and a narrow terminal cuts those first.
+// sessionsGrid lays out the sessions, the most important columns first: what a session cost and what the user typed
+// come right after its title, so a narrow terminal leaves out the columns at the end, whole (see narrowedTo).
 func sessionsGrid(list []reporting.SessionSummary) grid {
 	g := grid{
-		headers: []string{"TITLE", "HARNESS", "START", "DURATION", "REQUESTS", "COST", "MODELS", "PROMPTS", "AVG PROMPT", "AGENT", "SUBAGENTS", "FOLDER"},
-		numeric: []bool{false, false, false, true, true, true, false, true, true, false, true, false},
+		headers: []string{"TITLE", "COST", "PROMPTS", "AVG PROMPT", "REQUESTS", "DURATION", "START", "HARNESS", "MODELS", "SUBAGENTS", "AGENT", "FOLDER"},
+		numeric: []bool{false, true, true, true, true, true, false, false, false, true, false, false},
 	}
 	for _, s := range list {
 		g.rows = append(g.rows, []cell{
 			textCell(sessionTitle(s)),
-			textCell(s.Harness.String()),
-			{timeText(s.Start, "2006-01-02 15:04"), unixMillis(s.Start)},
-			durationCell(s),
-			countCell(s.Requests),
 			{fmt.Sprintf("$%.2f", float64(s.Cost)), float64(s.Cost)},
-			textCell(modelsText(s)),
 			countCell(s.PromptCount),
 			avgPromptCell(s),
-			textCell(textfmt.Head(s.AgentType, 16)),
+			countCell(s.Requests),
+			durationCell(s),
+			{timeText(s.Start, "2006-01-02 15:04"), unixMillis(s.Start)},
+			textCell(s.Harness.String()),
+			textCell(modelsText(s)),
 			countCell(int64(s.SubagentCount)),
+			textCell(textfmt.Head(s.AgentType, 16)),
 			textCell(textfmt.Shorten(s.Folder, 28)),
 		})
 	}
 	return g
+}
+
+// sessionsGrid is the table of the sessions as far as the terminal's width holds it.
+func (m Model) sessionsGrid() grid {
+	return sessionsGrid(m.sessions.list.Sessions).narrowedTo(m.width)
 }
 
 func timeText(t time.Time, layout string) string {
@@ -264,7 +269,7 @@ func (m Model) sessionsSummary() string {
 		return noSessions + "\n"
 	}
 	return fmt.Sprintf("%s sessions · %s requests · $%.2f\n", textfmt.Number(int64(len(l.Sessions))), textfmt.Number(l.Total.Requests), float64(l.Total.Cost)) +
-		faintStyle.Render("cost, requests and models cover subagents · PROMPTS and AVG PROMPT (characters) count what you typed")
+		faintStyle.Render("cost, requests, models cover subagents · prompts count what you typed")
 }
 
 const noSessions = "No sessions in this range."

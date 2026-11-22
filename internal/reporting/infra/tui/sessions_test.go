@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
@@ -169,6 +170,60 @@ func TestSessionsTableShowsWhatToCompareCosts(t *testing.T) {
 	}
 }
 
+func TestOnAn80ColumnTerminalTheSessionsKeepTheirCostAndPromptFigures(t *testing.T) {
+	// Given the sessions on a terminal of the classic 80 columns
+	m := send(t, inSessions(t, sampleSessions()), tea.WindowSizeMsg{Width: 80, Height: 30})
+
+	// Then the cost, the prompts and the average prompt length of each session are on screen, headers included
+	view := m.View()
+	for _, want := range []string{"COST", "PROMPTS", "AVG PROMPT", "$0.40", "$12.50", "200", "30"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view lacks %q:\n%s", want, view)
+		}
+	}
+	var cheap string
+	for _, l := range strings.Split(view, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), "refactor") {
+			cheap = l
+		}
+	}
+	if !strings.Contains(strings.Join(strings.Fields(cheap), " "), "$0.40 10 200") {
+		t.Errorf("the row of the first session does not show cost, prompts and average prompt: %q", cheap)
+	}
+	// And the figures come with the session's title, whatever the terminal could not hold was left out whole
+	if !strings.Contains(view, "refactor the billing") || !strings.Contains(view, "quick fix") {
+		t.Errorf("titles lost:\n%s", view)
+	}
+	for _, l := range strings.Split(view, "\n") {
+		if w := lipgloss.Width(l); w > 80 {
+			t.Errorf("line of %d columns on an 80-column terminal: %q", w, l)
+		}
+	}
+}
+
+func TestASortOnAColumnTheNarrowedTerminalCannotHoldIsDropped(t *testing.T) {
+	// Given the sessions sorted by their folder, the last column, on a wide terminal
+	m := press(t, inSessions(t, sampleSessions()), "s", "s", "s", "s", "s", "s", "s", "s", "s", "s", "s", "s")
+	if view := m.View(); !strings.Contains(view, "FOLDER▲") {
+		t.Fatalf("not sorted by folder:\n%s", view)
+	}
+
+	// When the terminal shrinks to 80 columns, which cannot hold that column
+	m = send(t, m, tea.WindowSizeMsg{Width: 80, Height: 30})
+
+	// Then the sessions are back in the order of the index, and the sort keys still work
+	view := m.View()
+	if !strings.Contains(view, "most recent first") || strings.ContainsAny(view, "▲▼") {
+		t.Errorf("sort left behind:\n%s", view)
+	}
+	if got := order(view, "refactor", "quick fix", "(untitled)"); got != "refactor quick fix (untitled)" {
+		t.Errorf("order = %q", got)
+	}
+	if view := press(t, m, "s", "s").View(); !strings.Contains(view, "COST▼") {
+		t.Errorf("s does not sort by the second column:\n%s", view)
+	}
+}
+
 func TestSessionsFollowThePeriodAndHarnessFilters(t *testing.T) {
 	sessions := sampleSessions()
 	m := inSessions(t, sessions)
@@ -196,8 +251,8 @@ func TestSessionsSortByCost(t *testing.T) {
 		t.Fatalf("initial order = %q, want the index's", got)
 	}
 
-	// When the user sorts by the COST column (the sixth), the most expensive comes first
-	m = press(t, m, "s", "s", "s", "s", "s", "s")
+	// When the user sorts by the COST column (the second), the most expensive comes first
+	m = press(t, m, "s", "s")
 	if got, view := order(m.View(), names...), m.View(); got != "quick fix refactor the billing (untitled)" || !strings.Contains(view, "COST▼") || !strings.Contains(view, "sorted by COST▼") {
 		t.Errorf("by cost: %q\n%s", got, view)
 	}
@@ -218,8 +273,8 @@ func TestSessionsSortByCost(t *testing.T) {
 
 func TestSessionsSortByAveragePromptLength(t *testing.T) {
 	m := inSessions(t, sampleSessions())
-	// When the user sorts by AVG PROMPT (the ninth column), the longest prompts come first
-	m = press(t, m, "s", "s", "s", "s", "s", "s", "s", "s", "s")
+	// When the user sorts by AVG PROMPT (the fourth column), the longest prompts come first
+	m = press(t, m, "s", "s", "s", "s")
 	if got, view := order(m.View(), "refactor the billing", "quick fix"), m.View(); got != "refactor the billing quick fix" || !strings.Contains(view, "AVG PROMPT▼") {
 		t.Errorf("by average prompt: %q\n%s", got, view)
 	}
@@ -229,7 +284,7 @@ func TestEnterOpensTheSelectedSessionWhateverTheSort(t *testing.T) {
 	// Given sessions sorted by cost, the first row being the most expensive session
 	sessions := sampleSessions()
 	sessions.details["claude:dear"] = detailOf(sessions.list[1])
-	m := press(t, inSessions(t, sessions), "s", "s", "s", "s", "s", "s")
+	m := press(t, inSessions(t, sessions), "s", "s")
 
 	// When the user presses Enter
 	m, cmd := pressType(t, m, tea.KeyEnter)
@@ -265,7 +320,7 @@ func TestDetailShowsWhatTheSessionDid(t *testing.T) {
 	sessions := sampleSessions()
 	sessions.details["claude:dear"] = detailOf(sessions.list[1])
 	m := send(t, inSessions(t, sessions), tea.WindowSizeMsg{Width: 100, Height: 40})
-	m = press(t, m, "s", "s", "s", "s", "s", "s")
+	m = press(t, m, "s", "s")
 
 	// When the user opens it
 	m = openDetail(t, m)

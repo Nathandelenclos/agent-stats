@@ -23,11 +23,12 @@ In the interactive view: `tab`/`←→` or `1`–`5` switch between harness, mod
 `h` cycles the harness, `r` indexes the logs again and `q` quits.
 
 `m` switches between the **Usage** report and the **Sessions** view; the title shows which one is open (`[Usage] Sessions` or `Usage [Sessions]`).
-Sessions lists one row per session (a subagent whose parent log was not indexed has its own row): title, harness, start, duration,
-requests, cost, main model with its share of the cost, number of prompts you typed and their average length in characters, agent type,
-number of subagents and folder. Requests, cost and models cover the session and its subagents, so a costly session shows even when it delegated its work.
+Sessions lists one row per session (a subagent whose parent log was not indexed, or a conversation forked from another, has its own row): title, cost,
+number of prompts you typed and their average length in characters, requests, duration, start, harness, main model with its share of the cost,
+number of subagents, agent type and folder. A narrow terminal leaves out the last columns whole: at 80 columns the title, cost, prompts, average prompt,
+requests and duration stay. Requests, cost and models cover the session and its subagents (nested ones too), so a costly session shows even when it delegated its work.
 Prompts count what you typed in the session itself, not the briefs it sent to its subagents.
-The period and harness filters apply as in Usage: a session is listed when its last activity falls in the period, and its figures then cover the whole session.
+The period and harness filters apply as in Usage: a session is listed when its last activity, or its subagents', falls in the period, and its figures then cover the whole session.
 `s`/`o` sort by any column (cost, average prompt length…); the order starts with the most recent session.
 `Enter` opens the selected session: its requests by model, the tools it called, its subagents, and its prompts in order, each with the frustration signals
 found in it (yelling, profanity, anguish, negation, blame, repeated). Prompt text is shown cut to a line, with control characters replaced.

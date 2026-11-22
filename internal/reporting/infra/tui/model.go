@@ -335,7 +335,10 @@ func (m Model) grid() grid {
 // layout fills the tables with the current report and fits them to the terminal.
 func (m *Model) layout() {
 	fit(&m.table, m.grid(), m.sorts[m.tab], m.width, m.height)
-	sg := sessionsGrid(m.sessions.list.Sessions)
+	sg := m.sessionsGrid()
+	if m.sessions.sort.col >= len(sg.headers) { // sorted by a column this terminal cannot hold
+		m.sessions.sort = reportOrder
+	}
 	m.sessions.shown = nil
 	for _, i := range sg.order(m.sessions.sort) {
 		m.sessions.shown = append(m.sessions.shown, m.sessions.list.Sessions[i])
@@ -353,19 +356,13 @@ func (m *Model) layout() {
 // fit fills t with the rows of g ordered by s and fits it to a terminal of the given size.
 func fit(t *table.Model, g grid, s sortState, width, height int) {
 	g.rows = g.sorted(s)
-	widths := make([]int, len(g.headers))
-	for i, h := range g.headers {
-		widths[i] = lipgloss.Width(h) + 1 // room for the sort arrow
-		for _, r := range g.rows {
-			widths[i] = max(widths[i], lipgloss.Width(r[i].text))
-		}
-	}
+	widths := columnWidths(g)
 	// The first column takes what the others leave; each column also pays two cells of padding.
 	rest := width
 	for i := 1; i < len(widths); i++ {
 		rest -= widths[i] + 2
 	}
-	widths[0] = max(10, min(widths[0], rest-2))
+	widths[0] = max(minFirstColumn, min(widths[0], rest-2))
 
 	cols := make([]table.Column, len(g.headers))
 	for i, h := range g.headers {
