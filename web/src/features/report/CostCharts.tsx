@@ -94,7 +94,18 @@ function shortDay(day: string): string {
 }
 
 /** Cost by group, biggest first; the same figures are in the table of that group below the charts. */
-export function CostBy({ title, tableName, model: { rows, groupCount, unpriced, domainMax } }: { title: string; tableName: string; model: CostByModel }) {
+export function CostBy({
+  title,
+  tableName,
+  model: { rows, groupCount, unpriced },
+  domainMax,
+}: {
+  title: string;
+  tableName: string;
+  model: CostByModel;
+  /** The cost axis, shared with the charts shown beside this one. */
+  domainMax: number;
+}) {
   if (rows.length === 0) return null;
   const lead = rows[0]!;
   const summary = `${formatUSD(lead.cost)} for ${lead.name}, the most expensive of ${groupCount}. Exact figures in the ${tableName} table below. Charts side by side share one cost scale.${unpricedNote(unpriced)}`;

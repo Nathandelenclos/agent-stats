@@ -2,7 +2,7 @@
 export { useMeta, useReport } from "./api";
 export { CostBy, CostOverTime } from "./CostCharts";
 export { FilterBar } from "./Filters";
-export { buildCostBy, buildCostOverTime } from "./series";
+export { buildCostBy, buildCostOverTime, sharedDomainMax } from "./series";
 export { ToolsTable, UsageTable } from "./Tables";
 export { Totals } from "./Totals";
 export type { Filters, Meta, Report } from "./types";

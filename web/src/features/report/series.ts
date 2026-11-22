@@ -70,14 +70,18 @@ export function buildCostOverTime(daily: UsageGroup[]): CostOverTimeModel | null
   };
 }
 
-/** What a cost-by-group chart shows. domainMax is shared by charts that sit side by side, so equal bars mean equal costs. */
+/** What a cost-by-group chart shows. */
 export interface CostByModel {
   rows: { name: string; cost: number; requests: number }[];
   groupCount: number;
   unpriced: number;
-  domainMax: number;
 }
 
-export function buildCostBy(groups: UsageGroup[], limit: number, domainMax: number): CostByModel {
-  return { rows: topGroups(groups, limit), groupCount: groups.length, unpriced: unpricedRequests(groups), domainMax };
+export function buildCostBy(groups: UsageGroup[], limit: number): CostByModel {
+  return { rows: topGroups(groups, limit), groupCount: groups.length, unpriced: unpricedRequests(groups) };
+}
+
+/** The cost axis charts that sit side by side share, so equal bars mean equal costs: the biggest bar drawn in any of them. */
+export function sharedDomainMax(...models: CostByModel[]): number {
+  return Math.max(0, ...models.flatMap((m) => m.rows.map((r) => r.cost)));
 }

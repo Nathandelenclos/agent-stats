@@ -6,6 +6,7 @@ import { ApiError } from "./shared/api";
 import {
   buildCostBy,
   buildCostOverTime,
+  sharedDomainMax,
   CostBy,
   CostOverTime,
   FilterBar,
@@ -98,7 +99,9 @@ function Report({ filters, syncState }: { filters: Filters; syncState: SyncStatu
   const r = report.data;
   if (r.total.requests === 0) return <Totals total={r.total} />; // nothing to chart or tabulate
   const costOverTime = buildCostOverTime(r.daily);
-  const domainMax = Math.max(0, ...r.byHarness.map((g) => g.cost), ...r.byModel.map((g) => g.cost));
+  const byHarness = buildCostBy(r.byHarness, 10);
+  const byModel = buildCostBy(r.byModel, 10);
+  const domainMax = sharedDomainMax(byHarness, byModel);
   return (
     <div aria-busy={report.isFetching} className="flex flex-col gap-8">
       <Totals total={r.total} />
@@ -110,8 +113,8 @@ function Report({ filters, syncState }: { filters: Filters; syncState: SyncStatu
                 <CostOverTime model={costOverTime} />
               </div>
             )}
-            <CostBy title="Cost by harness" tableName="Harness" model={buildCostBy(r.byHarness, 10, domainMax)} />
-            <CostBy title="Cost by model" tableName="Model" model={buildCostBy(r.byModel, 10, domainMax)} />
+            <CostBy title="Cost by harness" tableName="Harness" model={byHarness} domainMax={domainMax} />
+            <CostBy title="Cost by model" tableName="Model" model={byModel} domainMax={domainMax} />
           </div>
         </ErrorBoundary>
       </Section>
