@@ -80,3 +80,6 @@ jobs:
       id-token: write # sign the build provenance attestation
       attestations: write
     uses: ./.github/workflows/release.yml
+    # Only this secret, not `secrets: inherit`. Optional, and read by one job that cannot write (release.yml).
+    secrets:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
