@@ -72,7 +72,7 @@ func TestPriceListCost(t *testing.T) {
 func TestTheSameTokensCostTheSameOnEveryCPU(t *testing.T) {
 	// Given a model's rates and the tokens of one request
 	r := rates(t, RatesPerToken{Input: 3e-6, Output: 15e-6})
-	tok, _ := kernel.NewTokens(kernel.TokenCounts{Input: 1, Output: 5})
+	tok := tokens(t, kernel.TokenCounts{Input: 1, Output: 5})
 
 	// When the request is priced
 	c, err := r.Cost(tok)
