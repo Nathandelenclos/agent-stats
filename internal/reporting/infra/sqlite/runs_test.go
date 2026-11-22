@@ -178,23 +178,33 @@ func TestASubagentListedOnItsOwnCanBeOpened(t *testing.T) {
 	// Given a subagent that worked in A, whose session started in B
 	c := newCrossing(t)
 
-	// When its description is asked for
-	asked := func(id string, p kernel.Project) (report.SessionDetail, error) {
-		return c.index.Sessions().Session(context.Background(), mustID(t, id), p)
-	}
-	d, err := asked("child-of-b-in-a", projectAt(t, c.a))
+	// When its description is asked for in A
+	d, err := c.index.Sessions().Session(context.Background(), mustID(t, "child-of-b-in-a"), projectAt(t, c.a))
 
 	// Then it describes that subagent alone
 	if err != nil || d.ID.String() != "child-of-b-in-a" || d.Cost != 16 || len(d.Subagents) != 0 {
 		t.Errorf("detail = %v %v %d subagents, %v", d.ID, d.Cost, len(d.Subagents), err)
 	}
-	// and it is listed nowhere else: not for every project, not in the project of its parent, and no other is
+}
+
+func TestASubagentIsOpenedOnlyInTheProjectThatListsItOnItsOwn(t *testing.T) {
+	// Given the same subagent
+	c := newCrossing(t)
+
 	for name, p := range map[string]kernel.Project{"every project": {}, "B": projectAt(t, c.b)} {
-		if _, err := asked("child-of-b-in-a", p); !errors.Is(err, report.ErrSessionNotFound) {
+		// When its description is asked for in a scope that lists it under its session
+		_, err := c.index.Sessions().Session(context.Background(), mustID(t, "child-of-b-in-a"), p)
+
+		// Then it is not found
+		if !errors.Is(err, report.ErrSessionNotFound) {
 			t.Errorf("in %s: %v", name, err)
 		}
 	}
-	if _, err := asked("nobody", projectAt(t, c.a)); !errors.Is(err, report.ErrSessionNotFound) {
+}
+
+func TestASessionThatNoListingHoldsIsNotFound(t *testing.T) {
+	c := newCrossing(t)
+	if _, err := c.index.Sessions().Session(context.Background(), mustID(t, "nobody"), projectAt(t, c.a)); !errors.Is(err, report.ErrSessionNotFound) {
 		t.Errorf("unknown session: %v", err)
 	}
 }

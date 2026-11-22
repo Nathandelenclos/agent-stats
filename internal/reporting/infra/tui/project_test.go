@@ -180,28 +180,32 @@ func TestTheKeyAListsTheSessionsOfEveryProject(t *testing.T) {
 	}
 }
 
-func TestASessionOpenedInAProjectIsDescribedAsThatProjectListsIt(t *testing.T) {
-	// Given the interface on a project, in the sessions mode, and then on every project
-	for name, c := range map[string]struct {
-		keys string
-		want kernel.Project
-	}{"on the project": {"", appProject(t)}, "on every project": {"a", kernel.Project{}}} {
+func TestASessionOpenedInAProjectShowsTheFiguresThatProjectListsForIt(t *testing.T) {
+	// Given a session that counts 77 requests in the app and 99 in every project together
+	for name, c := range map[string]struct{ keys, shown, notShown string }{
+		"on the project":   {"", "77 requests", "99 requests"},
+		"on every project": {"a", "99 requests", "77 requests"},
+	} {
 		m, sessions := onTheSessionsOfTheProject(t)
+		inApp, everywhere := detailOf(sessions.list[0]), detailOf(sessions.list[0])
+		inApp.Requests, everywhere.Requests = 77, 99
+		sessions.inProject = map[kernel.Project]map[string]reporting.SessionDetail{
+			appProject(t):    {"codex:cheap": inApp},
+			kernel.Project{}: {"codex:cheap": everywhere},
+		}
 		if c.keys != "" {
 			var cmd tea.Cmd
 			m, cmd = pressCmd(t, m, c.keys)
 			m = answer(t, m, cmd)
 		}
 
-		// When the user opens the selected session
-		_, cmd := pressType(t, m, tea.KeyEnter)
-		if cmd != nil {
-			cmd()
-		}
+		// When the user opens the most recent session
+		m, cmd := pressType(t, m, tea.KeyEnter)
+		m = send(t, m, cmd())
 
-		// Then its description is asked for that project, so that it counts what the list showed
-		if len(sessions.askedIn) != 1 || sessions.askedIn[0] != c.want {
-			t.Errorf("%s: described in %v", name, sessions.askedIn)
+		// Then the screen shows the figures of the scope the list was in
+		if view := m.View(); !strings.Contains(view, c.shown) || strings.Contains(view, c.notShown) {
+			t.Errorf("%s: want %q and not %q:\n%s", name, c.shown, c.notShown, view)
 		}
 	}
 }

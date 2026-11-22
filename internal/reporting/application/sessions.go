@@ -50,7 +50,7 @@ type ShowSession struct {
 	Queries SessionQueries
 }
 
-// Run describes the session id names, as the listing of the project (every project for the zero Project) shows it.
-func (uc ShowSession) Run(ctx context.Context, id SessionID, project kernel.Project) (SessionDetail, error) {
-	return uc.Queries.Session(ctx, id, project)
+// Run describes the session id names, as the listing that q asked for shows it: q's project is the scope of its figures.
+func (uc ShowSession) Run(ctx context.Context, id SessionID, q Query) (SessionDetail, error) {
+	return uc.Queries.Session(ctx, id, q.Project)
 }

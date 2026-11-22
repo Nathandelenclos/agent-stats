@@ -348,7 +348,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case scopeMsg:
 		if msg.err == nil {
-			m.project, m.restricted = kernel.Redetect(m.project, m.restricted, msg.project)
+			m.project, m.restricted = reporting.Redetect(m.project, m.restricted, msg.project)
 		}
 		return m.reload()
 	case spinner.TickMsg:

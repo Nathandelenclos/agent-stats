@@ -240,19 +240,25 @@ func TestTheCurrentProjectIsRefusedWhenNoneWasDetected(t *testing.T) {
 	}
 }
 
-func TestTheProjectFoundWhenIndexingEndsIsTheOneTheMetaNamesAndThePageOpensOn(t *testing.T) {
-	// Given a server started where no project was found, because the index was empty, and detection that finds the app
-	// once the indexing has read its logs
+// indexingThatFindsTheApp is a server started where no project was found, because the index was empty, whose indexing
+// makes the app findable. seen is what the page reads of /api/sync at the moment detection runs.
+func indexingThatFindsTheApp(t *testing.T) (r *rig, seen *string) {
+	t.Helper()
 	var found kernel.Project
-	var stateWhenDetecting string
-	var r *rig
+	seen = new(string)
 	r = newRig(t, func(o *Options) {
 		o.Sync = func(context.Context, func(int)) (string, error) { found = appProject(t); return "", nil }
 		o.Detect = func() (kernel.Project, error) {
-			stateWhenDetecting = r.handler.sync.snapshot().State
+			*seen = decode[syncStatus](t, r.get("/api/sync")).State
 			return found, nil
 		}
 	})
+	return r, seen
+}
+
+func TestTheProjectFoundWhenIndexingEndsIsTheOneTheMetaNamesAndThePageOpensOn(t *testing.T) {
+	// Given a server that knew no project because its index was empty
+	r, _ := indexingThatFindsTheApp(t)
 	if before := decode[metaJSON](t, r.get("/api/meta")); before.Project != "" || before.Defaults.Scope != "all" {
 		t.Fatalf("meta before = %+v", before)
 	}
@@ -260,17 +266,39 @@ func TestTheProjectFoundWhenIndexingEndsIsTheOneTheMetaNamesAndThePageOpensOn(t 
 	// When the indexing ends
 	r.handler.sync.run(context.Background(), r.handler.indexing())
 
-	// Then the meta names the project and the page opens on it, and the project can be asked for
-	got := decode[metaJSON](t, r.get("/api/meta"))
-	if got.Project != "app" || got.Defaults.Scope != "current" {
+	// Then the meta names the project and the page opens on it
+	if got := decode[metaJSON](t, r.get("/api/meta")); got.Project != "app" || got.Defaults.Scope != "current" {
 		t.Errorf("meta after = %+v", got)
 	}
+}
+
+func TestTheProjectFoundWhenIndexingEndsCanBeAskedFor(t *testing.T) {
+	// Given a server that knew no project, whose page could only ask for every project
+	r, _ := indexingThatFindsTheApp(t)
+	if rec := r.get("/api/report?project=current"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("current before: status %d", rec.Code)
+	}
+
+	// When the indexing ends
+	r.handler.sync.run(context.Background(), r.handler.indexing())
+
+	// Then the page can ask for the project
 	if rec := r.get("/api/report?project=current"); rec.Code != http.StatusOK {
 		t.Errorf("current: status %d, %s", rec.Code, rec.Body)
 	}
-	// and the page, which watches the indexing, is told it ended only once the scope was decided
-	if stateWhenDetecting != syncRunning || r.handler.sync.snapshot().State != syncDone {
-		t.Errorf("detection ran while the indexing was %q, which is now %q", stateWhenDetecting, r.handler.sync.snapshot().State)
+}
+
+func TestThePageIsToldTheIndexingEndedOnlyOnceTheProjectIsDecided(t *testing.T) {
+	// Given a server whose detection runs when the indexing ends
+	r, seen := indexingThatFindsTheApp(t)
+
+	// When the indexing runs
+	r.handler.sync.run(context.Background(), r.handler.indexing())
+
+	// Then the page read it as still running while the project was decided, and as done after: it never sees the end
+	// of the indexing before the scope it opens on
+	if after := decode[syncStatus](t, r.get("/api/sync")).State; *seen != syncRunning || after != syncDone {
+		t.Errorf("sync read %q during detection, %q after", *seen, after)
 	}
 }
 

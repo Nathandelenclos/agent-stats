@@ -129,3 +129,37 @@ func TestTheTimelineOfAProjectCountsItsRequestsOnly(t *testing.T) {
 		t.Errorf("requests = %d, %v", r.Total.Requests, err)
 	}
 }
+
+func TestAProjectFoundAfterTheIndexGrewIsWhatTheViewsOpenOn(t *testing.T) {
+	// Given views that found no project, because the index was empty
+	app := appProject(t)
+
+	// When detection runs again and finds the project of the working folder
+	got, restricted := Redetect(kernel.Project{}, false, app)
+
+	// Then it is the project, and the views are restricted to it
+	if got != app || !restricted {
+		t.Errorf("project = %v, restricted = %v", got, restricted)
+	}
+}
+
+func TestAProjectAlreadyKnownKeepsTheScopeTheUserChose(t *testing.T) {
+	app := appProject(t)
+	for name, chosen := range map[string]bool{"the project": true, "every project": false} {
+		// Given views on the project, or switched to every project by the user
+		// When detection runs again and finds the same project
+		got, restricted := Redetect(app, chosen, app)
+
+		// Then the scope is still the one the user chose
+		if got != app || restricted != chosen {
+			t.Errorf("%s: project = %v, restricted = %v", name, got, restricted)
+		}
+	}
+}
+
+func TestNoProjectFoundLeavesNothingToRestrictTo(t *testing.T) {
+	got, restricted := Redetect(appProject(t), true, kernel.Project{})
+	if !got.IsZero() || restricted {
+		t.Errorf("project = %v, restricted = %v", got, restricted)
+	}
+}

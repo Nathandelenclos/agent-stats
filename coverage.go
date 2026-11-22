@@ -76,7 +76,8 @@ func homeProject() kernel.Project {
 // and the project stays available to switch to. The home folder is nobody's project, given or not: naming it asks for
 // every project.
 func chooseCoverage(all bool, given, working, home kernel.Project, detect func(kernel.Project) (kernel.Project, error)) (coverage, error) {
-	if !given.IsZero() && given == home {
+	given, viaHome := kernel.NamedProject(given, home)
+	if viaHome {
 		return coverage{viaHome: true}, nil
 	}
 	if !given.IsZero() {

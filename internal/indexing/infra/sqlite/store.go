@@ -1,5 +1,5 @@
 // Package sqlite is the SQLite index of the indexing context. It owns the schema and every write;
-// other contexts read only the usage_* views, the index's published read model.
+// other contexts read only the usage_* and session_* views, the index's published read model.
 package sqlite
 
 import (

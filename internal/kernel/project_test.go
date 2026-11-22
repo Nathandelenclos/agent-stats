@@ -155,36 +155,24 @@ func TestAnIndexThatCannotBeReadIsReportedNotTakenForAnEmptyOne(t *testing.T) {
 	}
 }
 
-func TestAProjectFoundAfterTheIndexGrewIsWhatTheViewsOpenOn(t *testing.T) {
-	// Given views that found no project, because the index was empty
-	app := projectAt(t, "/work/app")
+func TestNamingTheHomeFolderAsTheProjectAsksForEveryProject(t *testing.T) {
+	// Given the home folder and an app below it
+	home, app := projectAt(t, "/home/me"), projectAt(t, "/home/me/app")
 
-	// When detection runs again and finds the project of the working folder
-	got, restricted := Redetect(Project{}, false, app)
+	for name, c := range map[string]struct {
+		given, want Project
+		isHome      bool
+	}{
+		"the home folder":   {home, Project{}, true},
+		"a project":         {app, app, false},
+		"no project at all": {Project{}, Project{}, false},
+	} {
+		// When the user names it as the project
+		got, isHome := NamedProject(c.given, home)
 
-	// Then it is the project, and the views are restricted to it
-	if got != app || !restricted {
-		t.Errorf("project = %v, restricted = %v", got, restricted)
-	}
-}
-
-func TestAProjectAlreadyKnownKeepsTheScopeTheUserChose(t *testing.T) {
-	app := projectAt(t, "/work/app")
-	for name, chosen := range map[string]bool{"the project": true, "every project": false} {
-		// Given views on the project, or switched to every project by the user
-		// When detection runs again and finds the same project
-		got, restricted := Redetect(app, chosen, app)
-
-		// Then the scope is still the one the user chose
-		if got != app || restricted != chosen {
-			t.Errorf("%s: project = %v, restricted = %v", name, got, restricted)
+		// Then the home folder stands for every project, and the others are what they are
+		if got != c.want || isHome != c.isHome {
+			t.Errorf("%s: project = %v, home = %v", name, got, isHome)
 		}
-	}
-}
-
-func TestNoProjectFoundLeavesNothingToRestrictTo(t *testing.T) {
-	got, restricted := Redetect(projectAt(t, "/work/app"), true, Project{})
-	if !got.IsZero() || restricted {
-		t.Errorf("project = %v, restricted = %v", got, restricted)
 	}
 }

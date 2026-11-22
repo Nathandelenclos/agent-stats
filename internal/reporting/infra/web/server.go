@@ -120,7 +120,7 @@ func (s *Server) indexing() Sync {
 			return note, err
 		}
 		s.mu.Lock()
-		s.project, s.restricted = kernel.Redetect(s.project, s.restricted, found)
+		s.project, s.restricted = reporting.Redetect(s.project, s.restricted, found)
 		s.mu.Unlock()
 		return note, err
 	}

@@ -8,6 +8,19 @@ type ProjectQueries interface {
 	HasSessions(kernel.Project) (bool, error)
 }
 
+// Redetect gives the project the views can switch to, and whether they are restricted to it, once detection ran again
+// because the index grew and found. A project found where there was none is the scope the views open on; one already
+// known keeps the scope the user chose; none found leaves nothing to restrict to.
+func Redetect(known kernel.Project, restricted bool, found kernel.Project) (kernel.Project, bool) {
+	switch {
+	case found.IsZero():
+		return kernel.Project{}, false
+	case known.IsZero():
+		return found, true
+	}
+	return found, restricted
+}
+
 // DetectProject decides which project a view is about when the user did not name one, as kernel.WorkingProject states.
 type DetectProject struct {
 	Queries ProjectQueries

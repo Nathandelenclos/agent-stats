@@ -55,17 +55,13 @@ func WorkingProject(candidate, home Project, workedIn func(Project) (bool, error
 	return candidate, nil
 }
 
-// Redetect gives the project the views can switch to, and whether they are restricted to it, once detection ran again
-// because the index grew and found. A project found where there was none is the scope the views open on; one already
-// known keeps the scope the user chose; none found leaves nothing to restrict to.
-func Redetect(known Project, restricted bool, found Project) (Project, bool) {
-	switch {
-	case found.IsZero():
-		return Project{}, false
-	case known.IsZero():
-		return found, true
+// NamedProject is the project the user named, with whether it was the home folder. The home folder is nobody's project,
+// as WorkingProject states: naming it asks for every project, the zero Project.
+func NamedProject(given, home Project) (project Project, isHome bool) {
+	if !given.IsZero() && given == home {
+		return Project{}, true
 	}
-	return found, restricted
+	return given, false
 }
 
 // Contains reports whether folder is the project's root or lies below it. The paths are compared element by element,
