@@ -255,7 +255,7 @@ what the usage covers.
 | oh-my-pi    | `~/.omp/agent/mcp.json`, skills (`~/.omp/agent/skills`, `~/.agents/skills`), agents (`~/.omp/agent/agents`), plugins (`~/.omp/plugins`) |
 | pi          | skills (`~/.pi/agent/skills`, `~/.agents/skills`), packages of `~/.pi/agent/settings.json`                           |
 
-OpenCode, Kilo Code, Gemini CLI, GitHub Copilot CLI, Zed Agent, Grok Build CLI and Cursor IDE have no configuration reader yet: their tools show up with the `logs` scope, from the
+OpenCode, Kilo Code, Gemini CLI, GitHub Copilot CLI, Zed Agent, Grok Build CLI, Cursor IDE and Goose have no configuration reader yet: their tools show up with the `logs` scope, from the
 usage their sessions record, and nothing of them is listed as installed (so none is reported unused).
 
 The per-project MCP servers of `~/.claude.json` are listed for every project it names, not only for `--project`.
@@ -303,6 +303,7 @@ file, a name with control characters) is left out and noted on stderr (`skipped`
 | Zed Agent | `threads/threads.db` in `~/Library/Application Support/Zed` on macOS, `${FLATPAK_XDG_DATA_HOME:-$XDG_DATA_HOME}/zed` on Linux (`~/.local/share/zed` by default), or `%LOCALAPPDATA%/Zed` on Windows |
 | Grok Build CLI | `~/.grok/sessions/<encoded-cwd>/<id>/updates.jsonl` (under `$GROK_HOME` when set), with session metadata and usage from neighbouring files |
 | Cursor IDE | `~/.cursor/projects/<project>/agent-transcripts/<id>/<id>.jsonl` and `User/globalStorage/state.vscdb` under Cursor's application data directory |
+| Goose | `~/.local/share/goose/sessions/sessions.db` |
 
 A harness that is not installed is simply skipped. The index lives in the user cache directory
 (`agent-stats/index.db`). Only changed log files are re-read, and indexed rows survive when a harness deletes its
@@ -357,6 +358,14 @@ A SQLite database holds many sessions, while the index keeps one record per log:
 own, named `<database>#<session id>`. Zed revisions hash each thread's stored payload and metadata. OpenCode and Kilo
 re-read a session when what its tables hold of it changes: for its messages and
 for its parts, the number of rows, the sum of their update times and the bytes of their data, with the time the session
+- **Goose** reads the working directory, session dates, parent links, prompts, and tool requests and results from
+  `sessions` and `messages`. Older SQLite schemas provide activity without per-message usage. When present, message
+  metadata provides the model, tokens, logged cost, request duration and time to first token. Cache reads and writes
+  are part of Goose's input count and reported separately. Compaction, aggregate usage and pre-migration JSONL are
+  excluded. Tool durations are unknown.
+
+A SQLite database holds many sessions, while the index keeps one record per log: each session of a database is a log of its
+own, named `<database>#<session id>`, and it is read again when what its tables hold of it changes. For its messages and parts, OpenCode and Kilo use the number of rows, the sum of their update times and the bytes of their data, with the time the session
 was updated (one grouped query per table, which reads the data of every row). The sum of the times, not the latest,
 - **Cursor IDE** combines local Composer headers and JSONL transcripts by conversation ID. Composer headers supply session
   dates and project folders when `User/workspaceStorage/<workspaceId>/workspace.json` names a local folder.
@@ -373,8 +382,8 @@ is read again when its update time or its message and part statistics change. Th
 sum of update times and total data bytes (one grouped query per table, which reads the data of every row). The sum of the times, not the latest,
 because a row stamped in the future would hide every later update; the bytes, because a tool call that goes from running to
 error keeps its row. A session with no message is listed too, as an empty session: one that lost its last message is read
-again and loses its rows. The size and modification time of the database file would
-not do, as they change whenever any session is written and every session would be read again. Databases are opened
+again and loses its rows. Goose checks the size and modification time of the database and its WAL. A change
+refreshes all Goose sessions because a message can be edited without changing the session timestamp. Databases are opened
 read-only (`mode=ro`) and the database file is never written. A database in write-ahead mode (how OpenCode keeps its
 own) needs its `-shm` file, and SQLite creates it, and a `-wal` file, beside the database when they are missing: the
 directory must be writable, or the database is reported as unreadable. A database is never opened as immutable, as a

@@ -55,6 +55,7 @@ func DefaultSources(home string) []Source {
 		{Harness: kernel.Zed, Root: zedThreadsDir(home), Database: zedDatabase{}},
 		grokSource(filepath.Join(envOr("GROK_HOME", filepath.Join(home, ".grok")), "sessions")),
 		{Harness: kernel.Cursor, Root: filepath.Join(home, ".cursor", "projects"), cursorUser: cursorUserDir(home)},
+		{Harness: kernel.Goose, Root: filepath.Join(home, ".local", "share", "goose", "sessions"), Database: gooseDatabase{}},
 	}
 }
 

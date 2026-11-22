@@ -28,6 +28,7 @@ var (
 	Zed      = Harness{"zed"}
 	Grok     = Harness{"grok"}
 	Cursor   = Harness{"cursor"}
+	Goose    = Harness{"goose"}
 )
 
 // String returns the harness name.
@@ -37,7 +38,7 @@ func (h Harness) String() string { return h.name }
 func (h Harness) IsZero() bool { return h.name == "" }
 
 // Harnesses lists every supported harness.
-var Harnesses = []Harness{Claude, Codex, OMP, Pi, OpenCode, Kilo, Gemini, Copilot, Zed, Grok, Cursor}
+var Harnesses = []Harness{Claude, Codex, OMP, Pi, OpenCode, Kilo, Gemini, Copilot, Zed, Grok, Cursor, Goose}
 
 // ErrUnknownHarness reports a harness name outside Harnesses.
 var ErrUnknownHarness = errors.New("unknown harness")
@@ -49,7 +50,7 @@ func ParseHarness(name string) (Harness, error) {
 			return h, nil
 		}
 	}
-	return Harness{}, fmt.Errorf("%w %q: use claude, codex, omp, pi, opencode, kilo, gemini, copilot, zed, grok or cursor", ErrUnknownHarness, name)
+	return Harness{}, fmt.Errorf("%w %q: use claude, codex, omp, pi, opencode, kilo, gemini, copilot, zed, grok, cursor or goose", ErrUnknownHarness, name)
 }
 
 // MaxTokenCount bounds one count of one request: far above any model's window (largest seen on real
