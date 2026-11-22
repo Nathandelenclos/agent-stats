@@ -94,8 +94,23 @@ func TestFlaggedPromptsAreTheUsersOwnPromptsThatShowASignal(t *testing.T) {
 			t.Errorf("not the user's flagged prompt: %+v", x)
 		}
 	}
-	if !list[0].At.After(list[3].At) && !list[0].At.Equal(list[3].At) {
-		t.Errorf("not most recent first: %v", promptTexts(list))
+}
+
+func TestFlaggedPromptsComeMostRecentFirst(t *testing.T) {
+	// Given flagged prompts typed at two different times
+	p := openPrompts(t)
+
+	// When the flagged prompts are listed
+	list, err := p.FlaggedPrompts(report.Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Then no prompt is typed later than the one before it
+	for i := 1; i < len(list); i++ {
+		if list[i].At.After(list[i-1].At) {
+			t.Errorf("not most recent first: %v", promptTexts(list))
+		}
 	}
 }
 
@@ -146,7 +161,7 @@ func TestABriefSentToASubagentWithoutIndexedParentIsNotTheUsersPrompt(t *testing
 }
 
 func TestFlaggedPromptsKeepHostileTextsAsData(t *testing.T) {
-	// Given a prompt that carries SQL metacharacters and a terminal escape, and a text over the limit
+	// Given a prompt that carries SQL metacharacters and a terminal escape
 	p := openPrompts(t)
 
 	// When the prompts are listed
@@ -155,14 +170,33 @@ func TestFlaggedPromptsKeepHostileTextsAsData(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Then the hostile text comes back as it was written, the table still exists, and the long text is cut
-	var seen, cut bool
+	// Then the hostile text comes back as it was written, and the table still exists
+	var seen bool
 	for _, x := range list {
 		seen = seen || x.Text == hostile+"\x1b[2J"
+	}
+	if !seen {
+		t.Errorf("hostile text lost: %v", promptTexts(list))
+	}
+}
+
+func TestFlaggedPromptsAreCutToTheTextLimit(t *testing.T) {
+	// Given a flagged prompt longer than the text limit
+	p := openPrompts(t)
+
+	// When the prompts are listed
+	list, err := p.FlaggedPrompts(report.Filter{Harness: kernel.Claude})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Then its text is cut to the limit, in characters
+	var cut bool
+	for _, x := range list {
 		cut = cut || len([]rune(x.Text)) == report.PromptTextLimit
 	}
-	if !seen || !cut {
-		t.Errorf("hostile text kept: %v, long text cut: %v", seen, cut)
+	if !cut {
+		t.Errorf("long text not cut: %v", promptTexts(list))
 	}
 }
 

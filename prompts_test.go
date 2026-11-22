@@ -190,12 +190,10 @@ func TestPromptsSubcommandTakesItsFlagsAfterItsName(t *testing.T) {
 		name string
 		args []string
 		want string
-		err  bool
 	}{
-		{"no flag", []string{"prompts"}, "7d", false},
-		{"flags after the name", []string{"prompts", "--since", "30d", "--harness", "codex", "--json"}, "30d", false},
-		{"flags before the name", []string{"--since", "24h", "prompts"}, "24h", false},
-		{"another word", []string{"prompts", "extra"}, "", true},
+		{"no flag", []string{"prompts"}, "7d"},
+		{"flags after the name", []string{"prompts", "--since", "30d", "--harness", "codex", "--json"}, "30d"},
+		{"flags before the name", []string{"--since", "24h", "prompts"}, "24h"},
 	} {
 		// Given the command line the user typed
 		fs := flag.NewFlagSet("agent-stats", flag.ContinueOnError)
@@ -210,18 +208,25 @@ func TestPromptsSubcommandTakesItsFlagsAfterItsName(t *testing.T) {
 		// When the subcommand is read
 		sub, err := subcommand(fs)
 
-		// Then the subcommand is recognised with its flags, or refused with a stray word
-		if (err != nil) != c.err {
-			t.Errorf("%s: err = %v", c.name, err)
-			continue
+		// Then the subcommand is recognised with its flags
+		got, _ := sinceOf(sub, *since, promptsBase)
+		want, _ := parseSince(c.want, promptsBase)
+		if err != nil || sub != "prompts" || !got.Equal(want) {
+			t.Errorf("%s: sub = %q, since = %v, want %v, err = %v", c.name, sub, got, want, err)
 		}
-		if err == nil {
-			got, _ := sinceOf(sub, *since, promptsBase)
-			want, _ := parseSince(c.want, promptsBase)
-			if sub != "prompts" || !got.Equal(want) {
-				t.Errorf("%s: sub = %q, since = %v, want %v", c.name, sub, got, want)
-			}
-		}
+	}
+}
+
+func TestPromptsSubcommandRefusesAStrayWord(t *testing.T) {
+	// Given a command line with a word after the subcommand's name
+	fs := flag.NewFlagSet("agent-stats", flag.ContinueOnError)
+	if err := fs.Parse([]string{"prompts", "extra"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// When the subcommand is read, then the stray word is refused
+	if _, err := subcommand(fs); err == nil {
+		t.Error("a stray word was accepted")
 	}
 }
 
