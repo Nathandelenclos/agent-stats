@@ -40,6 +40,10 @@ The text report gives the project scope in its first line. JSON follows the same
 
 `serve` accepts the common scope, filter, and storage flags above. It also accepts `--addr` to select a listener, with `127.0.0.1:7373` as the default. Read [remote access and privacy](/docs/privacy/#remote-access) before using `--allow-remote`.
 
+## Update model prices
+
+Run `agent-stats prices pull` to cache the latest weekly price snapshot. Normal reports use that cache offline. Restart a running dashboard to use the new rates when indexing logs. Costs already stored in the index keep their previous estimates.
+
 ## Override prices
 
 Give `--prices` a JSON file with four USD-per-token rates in order: input, output, cache read, and cache write.

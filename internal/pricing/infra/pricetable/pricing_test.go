@@ -11,7 +11,7 @@ import (
 )
 
 func TestEmbeddedListLoads(t *testing.T) {
-	l, err := Load("")
+	l, err := load("", "")
 	if err != nil || len(l) < 100 {
 		t.Fatalf("embedded list: %d entries, err %v", len(l), err)
 	}
