@@ -221,17 +221,17 @@ func TestSignalTagsNameWhatAPromptShows(t *testing.T) {
 	}
 }
 
-func TestAnAskHintsAtWritingItDown(t *testing.T) {
-	// Given an ask repeated three times in two sessions, and one repeated twice in one session
-	many := domain.RecurringAsk{Count: 3, Sessions: 2}
-	one := domain.RecurringAsk{Count: 2, Sessions: 1}
-
-	// When their hints are read
-	// Then they say how often and in how many sessions, with the right plural
-	if got := many.Hint(); got != "Repeated 3 times in 2 sessions: consider writing this down." {
-		t.Errorf("hint = %q", got)
+func TestARecurringAskHintsAtWritingItDown(t *testing.T) {
+	// Given an ask typed in two sessions, twice each
+	a := func(session string, m int) domain.FlaggedPrompt {
+		return flagged(session, "/work", "do not touch the lockfile", m, domain.PromptSignals{Negation: 1})
 	}
-	if got := one.Hint(); got != "Repeated 2 times in 1 session: consider writing this down." {
-		t.Errorf("hint = %q", got)
+
+	// When it is reviewed
+	r := review(t, a("claude:a", 0), a("claude:a", 1), a("claude:b", 2), a("claude:b", 3))
+
+	// Then its hint says how often it came back and in how many sessions
+	if len(r.Recurring) != 1 || r.Recurring[0].Hint() != "Repeated 4 times in 2 sessions: consider writing this down." {
+		t.Errorf("recurring = %+v", r.Recurring)
 	}
 }

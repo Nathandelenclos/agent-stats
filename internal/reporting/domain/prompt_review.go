@@ -37,6 +37,10 @@ func (s PromptSignals) Tags() []string {
 	return tags
 }
 
+// FlaggedPrompt, RecurringAsk, FolderFrustration and PromptReview are read models, like SessionSummary: plain data
+// the index adapter fills and NewPromptReview groups, which the interfaces only read. They are not value objects,
+// so they have no constructor of their own; NewPromptReview is the only place that decides what is recurring.
+
 // FlaggedPrompt is a prompt the user typed in a session that shows at least one frustration signal, with
 // the session it belongs to.
 type FlaggedPrompt struct {
@@ -59,15 +63,9 @@ type RecurringAsk struct {
 }
 
 // Hint suggests what to do about the ask: write it down once, where the agent reads its instructions.
+// A recurring ask comes back at least twice, in at least two sessions: its counts are never singular.
 func (a RecurringAsk) Hint() string {
-	return fmt.Sprintf("Repeated %s in %s: consider writing this down.", times(a.Count, "time"), times(a.Sessions, "session"))
-}
-
-func times(n int, noun string) string {
-	if n == 1 {
-		return fmt.Sprintf("%d %s", n, noun)
-	}
-	return fmt.Sprintf("%d %ss", n, noun)
+	return fmt.Sprintf("Repeated %d times in %d sessions: consider writing this down.", a.Count, a.Sessions)
 }
 
 // FolderFrustration is how many flagged prompts a working folder gathered.
