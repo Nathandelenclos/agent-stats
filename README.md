@@ -216,7 +216,7 @@ no toggle.
 
 ### API
 
-The page reads a small JSON API, which is also usable with `curl`. Every route is a `GET`; errors are
+The page uses a small JSON API. Its read endpoints are also usable with `curl`. Errors are
 [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem documents (`application/problem+json`) with a stable `type`.
 `since` and `harness` take the same values as the command-line flags and
 may be omitted. `project` is `current` (the project the server runs in) or `all`, and when omitted is what the page opens
