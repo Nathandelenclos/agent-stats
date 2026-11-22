@@ -23,10 +23,19 @@ const listenPort = "7373"
 
 var fixedNow = time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 
-// index is a reporting index that records the filter of the questions it is asked.
+// request is one indexed request of a ledger.
+type request struct {
+	at      time.Time
+	harness kernel.Harness
+	cost    domain.USD
+}
+
+// index is a reporting index that records the filter of the questions it is asked. Given a ledger, it totals the requests
+// the filter keeps; without one, it answers fixed figures.
 type index struct {
 	filters []domain.Filter
 	err     error
+	ledger  []request
 }
 
 func (x *index) Snapshot(fn func(reporting.UsageReader) error) error {
@@ -38,6 +47,16 @@ func (x *index) Snapshot(fn func(reporting.UsageReader) error) error {
 
 func (x *index) Total(f domain.Filter) (domain.Usage, error) {
 	x.filters = append(x.filters, f)
+	if x.ledger != nil {
+		var u domain.Usage
+		for _, r := range x.ledger {
+			if (f.Since.IsZero() || !r.at.Before(f.Since)) && (f.Harness.IsZero() || f.Harness == r.harness) {
+				u.Requests++
+				u.Cost += r.cost
+			}
+		}
+		return u, nil
+	}
 	return domain.Usage{Requests: 3, Cost: 1.5, CacheRead: 30, Input: 10}, nil
 }
 
@@ -202,20 +221,29 @@ func TestReportListsAreEmptyNotNull(t *testing.T) {
 	}
 }
 
-func TestReportAppliesThePeriodAndTheHarnessOfTheQuery(t *testing.T) {
-	// Given the clock is fixed
+func TestReportCoversOnlyThePeriodAndTheHarnessAskedFor(t *testing.T) {
+	// Given an index with a claude request and a codex request from yesterday, and an older claude request
 	r := newRig(t)
-
-	// When the report is asked for the last 7 days of codex
-	rec := r.get("/api/report?since=7d&harness=codex")
-
-	// Then the use case is asked for exactly that
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	r.idx.ledger = []request{
+		{fixedNow.AddDate(0, 0, -1), kernel.Claude, 1},
+		{fixedNow.AddDate(0, 0, -1), kernel.Codex, 2},
+		{fixedNow.AddDate(0, 0, -10), kernel.Claude, 4},
 	}
-	f := r.idx.filters[0]
-	if want := fixedNow.AddDate(0, 0, -7); !f.Since.Equal(want) || f.Harness != kernel.Codex {
-		t.Errorf("filter = %+v, want since %v and codex", f, want)
+
+	// When the report is asked for the last 7 days of claude, for the last 7 days of every harness, and for all time
+	claudeWeek := decode[reportJSON](t, r.get("/api/report?since=7d&harness=claude")).Total
+	anyWeek := decode[reportJSON](t, r.get("/api/report?since=7d")).Total
+	allTime := decode[reportJSON](t, r.get("/api/report")).Total
+
+	// Then each answer counts exactly what that period and harness hold
+	if claudeWeek.Requests != 1 || claudeWeek.Cost != 1 {
+		t.Errorf("claude, 7 days = %+v, want 1 request costing 1", claudeWeek)
+	}
+	if anyWeek.Requests != 2 || anyWeek.Cost != 3 {
+		t.Errorf("every harness, 7 days = %+v, want 2 requests costing 3", anyWeek)
+	}
+	if allTime.Requests != 3 || allTime.Cost != 7 {
+		t.Errorf("all time = %+v, want 3 requests costing 7", allTime)
 	}
 }
 
@@ -588,38 +616,73 @@ func TestAFailedIndexingIsReportedWithoutItsCause(t *testing.T) {
 	}
 }
 
-func TestServeAnswersOnTheListenerUntilItsContextEnds(t *testing.T) {
-	// Given a server on an ephemeral loopback port
+// serving starts the server on an ephemeral loopback port and returns its address, a way to end it and what Serve returns.
+func serving(t *testing.T) (addr string, stop context.CancelFunc, ended <-chan error) {
+	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	r := newRig(t)
 	ctx, stop := context.WithCancel(context.Background())
-	ended := make(chan error, 1)
-	go func() { ended <- Serve(ctx, ln, r.handler.opts) }()
+	done := make(chan error, 1)
+	go func() { done <- Serve(ctx, ln, r.handler.opts) }()
+	t.Cleanup(stop)
+	return ln.Addr().String(), stop, done
+}
 
-	// When a client asks for the page with the right Host, and with a rebinding Host
-	client := &http.Client{Timeout: 5 * time.Second}
-	ok, err := client.Get("http://" + ln.Addr().String() + "/api/meta")
+func status(t *testing.T, addr, host string) int {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, "http://"+addr+"/api/meta", nil)
+	if host != "" {
+		req.Host = host
+	}
+	res, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	io.Copy(io.Discard, ok.Body)
-	ok.Body.Close()
-	req, _ := http.NewRequest(http.MethodGet, "http://"+ln.Addr().String()+"/api/meta", nil)
-	req.Host = "evil.example:1"
-	bad, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bad.Body.Close()
+	io.Copy(io.Discard, res.Body)
+	res.Body.Close()
+	return res.StatusCode
+}
 
-	// Then the right one is served on the real port, the rebinding one is refused, and cancelling the context ends Serve cleanly
-	if ok.StatusCode != http.StatusOK || bad.StatusCode != http.StatusForbidden {
-		t.Errorf("statuses = %d, %d", ok.StatusCode, bad.StatusCode)
+func TestServeAnswersOnItsListener(t *testing.T) {
+	// Given a server on an ephemeral loopback port
+	addr, _, _ := serving(t)
+
+	// When a client asks for the API under the address it connected to
+	got := status(t, addr, "")
+
+	// Then it is served
+	if got != http.StatusOK {
+		t.Errorf("status = %d", got)
 	}
+}
+
+func TestServeRefusesARebindingHostOnItsListener(t *testing.T) {
+	// Given a server on an ephemeral loopback port
+	addr, _, _ := serving(t)
+
+	// When a client reaches it under another name, as a DNS rebinding page would
+	got := status(t, addr, "evil.example:1")
+
+	// Then it is refused
+	if got != http.StatusForbidden {
+		t.Errorf("status = %d", got)
+	}
+}
+
+func TestServeReturnsCleanlyWhenItsContextEnds(t *testing.T) {
+	// Given a running server
+	addr, stop, ended := serving(t)
+	if status(t, addr, "") != http.StatusOK {
+		t.Fatal("the server does not answer")
+	}
+
+	// When its context is cancelled
 	stop()
+
+	// Then Serve returns without an error
 	select {
 	case err := <-ended:
 		if err != nil {
