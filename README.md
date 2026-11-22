@@ -64,15 +64,19 @@ agent-stats serve                    # the same report in a browser, at http://1
 Run from a project, `agent-stats` reports on that project only: the report, the interactive view (usage and sessions)
 and `agent-stats catalog`. The project is the top-level folder of the Git repository the current folder is in (found by
 looking for `.git` upwards, no `git` process is run), or the current folder itself when it is in no repository. Links are
-resolved, so a project reached through a link is the same project. A linked Git worktree is a project of its own.
+resolved, and on a volume that ignores case (the default on macOS) a folder is read as it is named on disk, so a project reached through a link,
+or written in another case, is the same project. A linked Git worktree is a project of its own.
 
 - The project is used when an indexed session worked in its folder or below it. Otherwise the report covers every
-  project, as before. The home folder is never a project, since every other project lies below it.
+  project, as before. The home folder is never a project, since every other project lies below it: `--project` naming it
+  counts every project, and the first line says so. On an empty index the project is looked for again when each indexing ends.
 - `--all` forces every project. `--project DIR` forces the project at `DIR`, whether or not sessions worked there.
   With both, `--all` wins and the interface can switch to `DIR` with `a`.
 - A session belongs to a project when its working folder is the project's folder or lies below it. Folders are compared
   element by element, so `/work/app-2` is not in `/work/app`. A session with no folder, or a folder that is not an
-  absolute path, belongs to no project and shows only in the view of every project.
+  absolute path, belongs to no project and shows only in the view of every project. Inside a project, a session's figures
+  count only it and the subagents that worked in the project, so the sessions add up to the report; a subagent that
+  worked there whose session started in another project is listed on its own.
 - The plain-text report says what it covers on its first line (`Project: app (/work/app)` or `All projects`). The
   interactive view puts it in the title (`project: app` or `all projects`), and `a` switches between the project and
   every project.
@@ -180,7 +184,7 @@ Unknown or repeated parameters are refused with `400`.
 | Route | Answer |
 |-------|--------|
 | `/api/report?since=&harness=&project=` | The `--json` report (same fields), plus `daily`: one entry per local day with activity, oldest first, `key` being `2006-01-02`. Lists are `[]` when empty, never `null`. |
-| `/api/sessions?since=&harness=&project=&limit=` | The most recent sessions (`limit` 1 to 1000, default 100) with their usage, models and subagent count, without the prompts. `count` and `total` cover every matching session. `title` is the session title, which for an untitled session is the start of its first prompt. |
+| `/api/sessions?since=&harness=&project=&limit=` | The most recent sessions (`limit` 1 to 1000, default 100) with their usage, models and subagent count, without the prompts. `count` and `total` cover every matching session, and add up to the report of the same scope. `title` is the session title, which for an untitled session is the start of its first prompt. |
 | `/api/meta` | The harness names, the name of the project the server runs in (`project`, `""` when it found none), and the period, harness and scope (`defaults.scope`: `current` or `all`) the page opens on. |
 | `/api/sync` | The background indexing: `state` (`running`, `done`, `failed`, or `disabled` with `--no-sync`), files `indexed`, and what was skipped. |
 
