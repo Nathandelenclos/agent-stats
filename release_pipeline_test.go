@@ -298,7 +298,7 @@ func TestAFailureOfTheSummaryJobDoesNotStopTheRelease(t *testing.T) {
 
 func TestTheSummaryJobDoesNotStartWhenTheRepositoryVariableSaysOff(t *testing.T) {
 	m := regexp.MustCompile(`(?m)^    if: (.*)$`).FindStringSubmatch(jobWithoutComments(t, "release-notes"))
-	if m == nil || !strings.Contains(m[1], "vars.AI_RELEASE_NOTES != 'off'") || !strings.Contains(m[1], "needs.plan.outputs.release == 'true'") {
+	if m == nil || !strings.Contains(m[1], "vars.AI_RELEASE_NOTES != 'off'") || !strings.Contains(m[1], "needs.plan.outputs.release == 'true'") || !strings.Contains(m[1], "needs.plan.outputs.notes_id != ''") {
 		t.Errorf("the release-notes job still starts with AI_RELEASE_NOTES=off; its if is %q", m)
 	}
 }
@@ -403,6 +403,7 @@ func TestTheSummaryIsNotDownloadedUnlessItIsSmallAndExists(t *testing.T) {
 		{"too big", "7", "echo 100000", false},
 		{"API error", "7", "exit 1", false},
 		{"not a number", "7", "echo oops", false},
+		{"id that is not a number", "7/../../x", "echo 300", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			env := append(gh(tc.gh), "SUMMARY_ID="+tc.id, "GH_TOKEN=x", "GITHUB_REPOSITORY=o/r")
@@ -726,6 +727,30 @@ func TestTheNotesAloneArePublishedWhenTheSummaryIsNotPlainText(t *testing.T) {
 	}
 }
 
+// A check that cannot run is not a check that passed: when grep itself fails (exit 2), the summary is not published.
+func TestTheNotesAloneArePublishedWhenTheCheckCannotRun(t *testing.T) {
+	fake := t.TempDir()
+	if err := os.WriteFile(filepath.Join(fake, "grep"), []byte("#!/bin/sh\nexit 2\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	temp := t.TempDir()
+	for path, content := range map[string]string{filepath.Join(temp, "notes", "notes.md"): sampleNotes, filepath.Join(temp, "summary", "summary.md"): "A new catalog command."} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	output, out, err := runScript(t, script(t, "release", "name: Choose the release body"), temp, "RUNNER_TEMP="+temp, "PATH="+fake+":"+os.Getenv("PATH"))
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if want := "path=" + filepath.Join(temp, "notes", "notes.md"); strings.TrimSpace(output) != want {
+		t.Errorf("output %q, want %q", output, want)
+	}
+}
+
 func TestTheSummaryAtTheLimitIsKept(t *testing.T) {
 	if _, with := bodyWith(t, strings.Repeat("a", 1500)); !with {
 		t.Error("a summary of 1 500 characters was refused")
@@ -734,8 +759,9 @@ func TestTheSummaryAtTheLimitIsKept(t *testing.T) {
 
 func TestTheStepFailsWithoutTheNotesBecauseAReleaseMustCarryThem(t *testing.T) {
 	temp := t.TempDir()
-	if _, _, err := runScript(t, script(t, "release", "name: Choose the release body"), temp, "RUNNER_TEMP="+temp); err == nil {
-		t.Error("the step chose a body without notes")
+	output, _, err := runScript(t, script(t, "release", "name: Choose the release body"), temp, "RUNNER_TEMP="+temp)
+	if err == nil || output != "" {
+		t.Errorf("the step chose a body without notes: %v, %q", err, output)
 	}
 }
 

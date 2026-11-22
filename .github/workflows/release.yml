@@ -278,7 +278,7 @@ jobs:
   release-notes:
     name: Summarize the release notes
     needs: plan
-    if: needs.plan.outputs.release == 'true' && vars.AI_RELEASE_NOTES != 'off'
+    if: needs.plan.outputs.release == 'true' && needs.plan.outputs.notes_id != '' && vars.AI_RELEASE_NOTES != 'off'
     runs-on: ubuntu-latest
     timeout-minutes: 3
     continue-on-error: true
@@ -404,6 +404,9 @@ jobs:
             echo "::notice::No AI summary was handed over: publishing the notes alone."
             exit 0
           fi
+          case $SUMMARY_ID in
+            *[!0-9]*) echo "::notice::The AI summary artifact ID is not a number: publishing the notes alone."; exit 0 ;;
+          esac
           size=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SUMMARY_ID" --jq '.size_in_bytes') || size=
           case $size in
             '' | *[!0-9]*) echo "::notice::The size of the AI summary is unknown: publishing the notes alone."; exit 0 ;;
@@ -437,16 +440,18 @@ jobs:
           # Curly single and double quotes, en and em dash, ellipsis: as UTF-8 bytes, for grep in the C locale.
           typographic=$'\xe2\x80\x98|\xe2\x80\x99|\xe2\x80\x9c|\xe2\x80\x9d|\xe2\x80\x93|\xe2\x80\x94|\xe2\x80\xa6'
           [ -s "$notes" ] || { echo "::error::The release notes are missing."; exit 1; }
+          # absent: grep found nothing (exit 1). A grep that fails (exit 2) is not "found nothing": the check fails closed.
+          absent() { local rc=0; LC_ALL=C grep -a "$@" "$summary" >/dev/null || rc=$?; [ "$rc" -eq 1 ]; }
           plain() {
             [ -f "$summary" ] && [ ! -L "$summary" ] || return 1
             [ "$(wc -c < "$summary")" -le 6000 ] || return 1
             [ "$(LC_ALL=C.UTF-8 wc -m < "$summary")" -le 1500 ] || return 1
             [ -n "$(tr -d ' \n' < "$summary" | head -c 1)" ] || return 1
             [ "$(tr -d '\000' < "$summary" | wc -c)" -eq "$(wc -c < "$summary")" ] || return 1 # grep does not see a NUL
-            ! LC_ALL=C grep -aqiE '[][#<>`@&\\|~]|//|www\.' "$summary" || return 1
-            ! LC_ALL=C grep -aqvE "^([ -~]|$typographic)*\$" "$summary" || return 1
-            ! LC_ALL=C grep -aqvE '^$|^(- )?(\*{1,2}|_{1,2})?[A-Za-z0-9]' "$summary" || return 1
-            ! LC_ALL=C grep -aqE '^(- )?(\*{1,2}|_{1,2})?[0-9]+[.)]( |$)' "$summary" || return 1
+            absent -qiE '[][#<>`@&\\|~]|//|www\.' || return 1
+            absent -qvE "^([ -~]|$typographic)*\$" || return 1
+            absent -qvE '^$|^(- )?(\*{1,2}|_{1,2})?[A-Za-z0-9]' || return 1
+            absent -qE '^(- )?(\*{1,2}|_{1,2})?[0-9]+[.)]( |$)' || return 1
           }
           if plain; then
             { printf '## Summary\n\n%s\n\n' "$(cat "$summary")"; cat "$notes"; } > "$body"
