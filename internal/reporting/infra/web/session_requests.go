@@ -10,6 +10,8 @@ import (
 )
 
 type sessionRequestJSON struct {
+	SessionID  string  `json:"sessionId"`
+	Folder     string  `json:"folder"`
 	TS         int64   `json:"ts"`
 	Model      string  `json:"model"`
 	Provider   string  `json:"provider"`
@@ -54,8 +56,8 @@ func (s *Server) sessionRequests(w http.ResponseWriter, r *http.Request) {
 		invalidParameter(failedParam, "use 1 to show only failed requests").write(w)
 		return
 	}
-	id, err := reporting.NewSessionID(r.PathValue("id"))
-	if err != nil || s.opts.SessionRequests.Queries == nil {
+	id, _ := reporting.NewSessionID(r.PathValue("id")) // a zero id lists the requests of the whole view
+	if s.opts.SessionRequests.Queries == nil {
 		sessionMissing(w)
 		return
 	}
@@ -73,7 +75,7 @@ func (s *Server) sessionRequests(w http.ResponseWriter, r *http.Request) {
 	out := sessionRequestsJSON{Requests: make([]sessionRequestJSON, 0, size), HasMore: len(rows) > size}
 	for _, row := range rows[:size] {
 		item := sessionRequestJSON{
-			TS: kernel.UnixMilli(row.At), Model: row.Model, AgentType: row.AgentType,
+			SessionID: row.SessionID, Folder: row.Folder, TS: kernel.UnixMilli(row.At), Model: row.Model, AgentType: row.AgentType,
 			Provider: row.Provider, StopReason: row.StopReason,
 			Input: row.Input, Output: row.Output, CacheRead: row.CacheRead, CacheWrite: row.CacheWrite,
 			Cost: float64(row.Cost), Priced: row.Priced, DurationMS: float64(row.Duration),

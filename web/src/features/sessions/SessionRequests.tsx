@@ -26,10 +26,19 @@ const columns: Column<Row>[] = [
   },
 ];
 
-export function SessionRequests({ id, filters, project }: { id: string; filters: Filters; project: string }) {
+export function SessionRequests({ id, filters, project, openSession }: {
+  id?: string;
+  filters: Filters;
+  project: string;
+  openSession?: (id: string) => void;
+}) {
   const [failed, setFailed] = useState(false);
   const [offset, setOffset] = useState(0);
   const page = useSessionRequests(id, filters, project, failed, offset);
+  const shownColumns: Column<Row>[] = openSession ? [{
+    id: "session", header: "Session", value: (r) => r.folder || r.sessionId, truncate: true,
+    render: (r) => <button type="button" className="dashboard-link" onClick={() => openSession(r.sessionId)}>{r.folder || r.sessionId}</button>,
+  }, ...columns] : columns;
   return <>
     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
       <label className="flex min-h-9 items-center gap-2 text-sm">
@@ -45,8 +54,8 @@ export function SessionRequests({ id, filters, project }: { id: string; filters:
     {page.isPending && <p role="status">Loading requests…</p>}
     {page.isError && <Failure title="The requests could not be loaded." message={describe(page.error)} retry={() => void page.refetch()} />}
     {page.isSuccess && <DataTable
-      caption="Session requests"
-      columns={columns}
+      caption={id ? "Session requests" : "Model requests"}
+      columns={shownColumns}
       rows={page.data.requests.map((row, i) => ({ ...row, position: offset + i }))}
       rowKey={(row) => String(row.position)}
       initialSort="time"

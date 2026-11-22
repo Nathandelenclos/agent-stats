@@ -418,3 +418,26 @@ it("shows provider performance with the measured-request counts", async () => {
   expect(provider()?.textContent).toContain("250 ms (1/4)");
   expect(provider()?.textContent).toContain("30.0 (2/4)");
 });
+
+it("opens a linked session from the request journal", async () => {
+  window.history.replaceState(null, "", "?view=requests");
+  const base = serveReports(() => report()).getMockImplementation()!;
+  const fetch = vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input).startsWith("/api/requests?")) return new Response(JSON.stringify({
+      requests: [{
+        sessionId: "claude:session", folder: "/work/app", model: "opus", provider: "anthropic", ts: 1_700_000_000_000,
+        agentType: "main", input: 10, output: 2, cacheRead: 0, cacheWrite: 0, cost: 0.01, priced: true,
+        durationMs: 1000, ttftMs: 100, failed: false, stopReason: "stop",
+      }],
+      hasMore: false,
+    }));
+    return base(input);
+  });
+  vi.stubGlobal("fetch", fetch);
+  const { container } = render(withQueries(testQueryClient(), <App />));
+  const sessionLink = () => [...container.querySelectorAll("button")].find((el) => el.textContent === "/work/app");
+  await eventually(() => expect(sessionLink()).toBeDefined());
+  click(sessionLink()!);
+  expect(new URLSearchParams(window.location.search).get("session")).toBe("claude:session");
+  expect(new URLSearchParams(window.location.search).get("section")).toBe("Requests");
+});

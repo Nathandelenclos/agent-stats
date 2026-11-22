@@ -101,6 +101,7 @@ func New(o Options, addr net.Addr) *Server {
 	s.mux.HandleFunc("/api/report", s.report)
 	s.mux.HandleFunc("/api/sessions", s.sessions)
 	s.mux.HandleFunc("/api/sessions/{id}", s.session)
+	s.mux.HandleFunc("/api/requests", s.sessionRequests)
 	s.mux.HandleFunc("/api/sessions/{id}/requests", s.sessionRequests)
 	s.mux.HandleFunc("/api/sessions/{id}/prompts/{position}", s.sessionPrompt)
 	s.mux.HandleFunc("/api/related-sessions", s.relatedSessions)

@@ -334,3 +334,15 @@ func TestSessionRequestsPage(t *testing.T) {
 		t.Fatalf("filtered session error: %v", err)
 	}
 }
+
+func TestRequestJournalFiltersActivityRatherThanLastSessionActivity(t *testing.T) {
+	s := openSessions(t)
+	f := report.Filter{Since: time.UnixMilli(t1)}
+	rows, err := s.SessionRequests(t.Context(), report.SessionID{}, f, false, 25, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].SessionID != "claude:main" || rows[1].SessionID != "claude:main" || rows[1].AgentType == "main" {
+		t.Fatalf("expected only recent work, linked to the root session: %+v", rows)
+	}
+}

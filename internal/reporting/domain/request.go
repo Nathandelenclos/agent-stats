@@ -5,6 +5,8 @@ import "time"
 // SessionRequest describes one indexed usage record in a session run.
 type SessionRequest struct {
 	At         time.Time
+	SessionID  string
+	Folder     string
 	Provider   string
 	StopReason string
 	Model      string

@@ -95,6 +95,8 @@ export function useSessionPrompt(id: string, position: number, revision: string 
 }
 
 export interface SessionRequest {
+  sessionId: string;
+  folder: string;
   ts: number;
   model: string;
   provider: string;
@@ -114,7 +116,7 @@ export interface SessionRequest {
 
 export const requestPageSize = 25;
 
-export function useSessionRequests(id: string, filters: Filters, project: string, failed: boolean, offset: number) {
+export function useSessionRequests(id: string | undefined, filters: Filters, project: string, failed: boolean, offset: number) {
   const params = {
     ...filterParams(filters),
     limit: String(requestPageSize),
@@ -124,7 +126,7 @@ export function useSessionRequests(id: string, filters: Filters, project: string
   return useQuery({
     queryKey: ["sessions", "requests", id, params, project],
     queryFn: ({ signal }) => getJSON<{ requests: SessionRequest[]; hasMore: boolean }>(
-      `/api/sessions/${encodeURIComponent(id)}/requests`, params, signal,
+      id ? `/api/sessions/${encodeURIComponent(id)}/requests` : "/api/requests", params, signal,
     ),
     gcTime: 0,
     retry: shouldRetry,
