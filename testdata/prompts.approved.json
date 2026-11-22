@@ -121,13 +121,6 @@
       "sessions": 2,
       "firstTs": 1767607260000,
       "lastTs": 1767614460000
-    },
-    {
-      "excerpt": "run the linter before you answer",
-      "count": 2,
-      "sessions": 1,
-      "firstTs": 1767621660000,
-      "lastTs": 1767621720000
     }
   ],
   "byFolder": [

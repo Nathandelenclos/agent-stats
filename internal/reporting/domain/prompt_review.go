@@ -50,7 +50,7 @@ type FlaggedPrompt struct {
 }
 
 // RecurringAsk is a prompt the user typed again and again: the same text, give or take case and punctuation,
-// in at least two flagged prompts. It is what is worth writing down once, in the agent's instructions.
+// in flagged prompts of at least two sessions. It is what is worth writing down once, in the agent's instructions.
 type RecurringAsk struct {
 	Text        string // as typed in the latest of the prompts
 	Count       int    // how many flagged prompts say it
@@ -91,6 +91,9 @@ type PromptReview struct {
 // is an interruption, not an instruction to write down.
 const minRecurringWords = 2
 
+// minRecurringSessions is how many sessions an ask has to come back in to be recurring.
+const minRecurringSessions = 2
+
 // NewPromptReview reviews prompts. A prompt without any signal is not flagged and is left out.
 func NewPromptReview(prompts []FlaggedPrompt) PromptReview {
 	var r PromptReview
@@ -127,7 +130,7 @@ func askKey(text string) string {
 }
 
 // recurringAsks groups prompts (already ordered most recent first within equal signals) by ask and keeps the
-// asks said at least twice.
+// asks that come back in at least two sessions: said twice in one session, a prompt is only flagged as repeated.
 func recurringAsks(prompts []FlaggedPrompt) []RecurringAsk {
 	type group struct {
 		ask      RecurringAsk
@@ -157,7 +160,7 @@ func recurringAsks(prompts []FlaggedPrompt) []RecurringAsk {
 	}
 	var out []RecurringAsk
 	for _, key := range keys {
-		if g := groups[key]; g.ask.Count >= 2 {
+		if g := groups[key]; len(g.sessions) >= minRecurringSessions {
 			g.ask.Sessions = len(g.sessions)
 			out = append(out, g.ask)
 		}

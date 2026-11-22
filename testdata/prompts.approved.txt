@@ -3,8 +3,6 @@
 RECURRING
   non n'utilise pas de point virgule dans ce projet !
     Repeated 2 times in 2 sessions: consider writing this down.
-  run the linter before you answer
-    Repeated 2 times in 1 session: consider writing this down.
 
      FOLDER  PROMPTS  SESSIONS  SIGNALS
   /work/api        3         2        9

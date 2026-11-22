@@ -134,7 +134,7 @@ func TestAnAskTypedInSeveralSessionsIsRecurring(t *testing.T) {
 	}
 }
 
-func TestAnAskRepeatedInOneSessionCountsOneSession(t *testing.T) {
+func TestAnAskRepeatedInOneSessionIsNotRecurring(t *testing.T) {
 	// Given the same flagged ask typed three times in one session
 	p := func(m int) domain.FlaggedPrompt {
 		return flagged("claude:a", "/work", "run the tests before you answer", m, domain.PromptSignals{Repeated: true})
@@ -143,9 +143,9 @@ func TestAnAskRepeatedInOneSessionCountsOneSession(t *testing.T) {
 	// When it is reviewed
 	r := review(t, p(0), p(1), p(2))
 
-	// Then it is recurring three times in one session
-	if len(r.Recurring) != 1 || r.Recurring[0].Count != 3 || r.Recurring[0].Sessions != 1 {
-		t.Errorf("recurring = %+v", r.Recurring)
+	// Then the prompts are listed as flagged, but the ask did not come back across sessions
+	if len(r.Prompts) != 3 || len(r.Recurring) != 0 {
+		t.Errorf("review = %+v", r)
 	}
 }
 

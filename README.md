@@ -73,10 +73,10 @@ The sessions are not part of `--json` or the plain-text report.
 
 The **Prompts** mode and the `agent-stats prompts` subcommand help you spot what you keep correcting or repeating, so you can
 write it down once in `AGENTS.md` or `CLAUDE.md`. They look at the prompts you typed (not the briefs your agents sent to their
-subagents) that show at least one frustration signal, over the period and harness filters of the report:
+subagents, whose parent session is indexed or not) that show at least one frustration signal, over the period and harness filters of the report:
 
-- **Recurring**: flagged prompts that say the same thing across sessions, give or take case and punctuation (at least two words),
-  with a hint line each: `Repeated 3 times in 2 sessions: consider writing this down.` A correction that shows no signal is not
+- **Recurring**: flagged prompts that say the same thing in at least two sessions, give or take case and punctuation (at least
+  two words), with a hint line each: `Repeated 3 times in 2 sessions: consider writing this down.` A correction that shows no signal is not
   looked at, and a rephrasing is a different ask: the grouping is an exact match on the normalised text. Nothing is ever written
   to `AGENTS.md` for you.
 - **Folders**: how many flagged prompts, sessions and signals each working folder gathered, so you see where frustration concentrates.
