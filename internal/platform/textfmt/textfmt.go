@@ -72,3 +72,25 @@ func Plural(n int, one, many string) string {
 	}
 	return fmt.Sprintf("%d %s", n, many)
 }
+
+// UsageDay formats a dated total for linear reading in a terminal.
+func UsageDay(day string, requests, tokens int64, knownUSD float64, unpriced int64) []string {
+	requestLabel, tokenLabel := "requests", "tokens"
+	if requests == 1 {
+		requestLabel = "request"
+	}
+	if tokens == 1 {
+		tokenLabel = "token"
+	}
+	lines := []string{Printable(day), "  " + Number(requests) + " " + requestLabel, "  " + Number(tokens) + " " + tokenLabel}
+	if requests > 0 && requests == unpriced {
+		return append(lines, "  Cost unavailable")
+	}
+	lines = append(lines, "  "+strconv.FormatFloat(knownUSD, 'f', -1, 64)+" USD known cost")
+	if unpriced == 1 {
+		lines = append(lines, "  1 request without a cost")
+	} else if unpriced > 1 {
+		lines = append(lines, "  "+Number(unpriced)+" requests without a cost")
+	}
+	return lines
+}

@@ -61,6 +61,7 @@ agent-stats                          # on a terminal: open the interactive view,
 agent-stats --since 7d               # last 7 days (also 24h, 30d, or a date: 2026-11-01)
 agent-stats --harness codex          # filter to one harness
 agent-stats --harness claude --json  # machine-readable report
+agent-stats --plain                   # static report with daily values, even on a terminal
 agent-stats --no-sync                # report from the existing index, skip re-reading the logs
 agent-stats prompts                  # review the prompts that showed frustration, last 7 days (see below)
 agent-stats --all                    # every project, even from inside one
@@ -152,14 +153,17 @@ before pasting it anywhere.
 | `--all` | Count every project, not only the one of the current folder, see [Per-project view](#per-project-view). |
 | `--project DIR` | Count only the project at `DIR` (folder or below), see [Per-project view](#per-project-view). |
 | `--json` | Print the report as JSON instead of tables. |
+| `--plain` | Print a static report with daily values, without terminal updates or styling. |
 | `--no-sync` | Skip the indexing step and read the index as it is. |
 | `--prices file.json` | Override or add model prices, see [Pricing](#pricing). |
 | `--db path` | Index database to use (default: `agent-stats/index.db` in the user cache directory). |
 
 On a terminal, `agent-stats` opens an interactive view: `tab`/`←→` or `1`–`5` switch between harness, model,
 folder, agent and tools tables, `↑↓` scroll, `s` sorts by the next column and `o` reverses it, `p` cycles the period
-(24h, 7d, 30d, all), `h` cycles the harness, `a` switches between the project and every project, `r` indexes the logs again and `q` quits. With `--json`, or when the
-output is redirected, it prints the plain report described below instead.
+(24h, 7d, 30d, all), `h` cycles the harness, `a` switches between the project and every project, `r` indexes the logs
+again and `q` quits. Usage shows recent daily trends for requests, tokens and known costs. Press `g` for the exact daily
+values and `Esc` to return to the table. Set `NO_COLOR=1` for a monochrome interface, or run `agent-stats --plain` for a
+static report with the daily values. `--json` and redirected output use the report formats below.
 
 The report has a one-line total (requests, failures, cost, tokens in and out, cache rate, date range), then one table
 per harness, model, folder and agent type, then the most used tools with their MCP server, call count, errors and
@@ -188,7 +192,7 @@ absent or `null` list as empty.
 ### Interfaces
 
 - **Plain-text report and JSON**: available today.
-- **Interactive terminal UI**: in development, not part of the current release.
+- **Interactive terminal UI**: run `agent-stats` in a terminal.
 - **Web UI**: `agent-stats serve`, see [Web interface](#web-interface).
 
 ## Web interface

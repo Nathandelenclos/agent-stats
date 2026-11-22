@@ -23,7 +23,7 @@ type Sync func(ctx context.Context, progress func(indexed int)) (note string, er
 
 // Options configures the interface.
 type Options struct {
-	Reports reporting.BuildReport
+	Reports reporting.BuildTimelineReport
 	// Sessions and Session read the sessions behind the report; the sessions mode (key m) is offered when both have queries.
 	Sessions reporting.ListSessions
 	Session  reporting.ShowSession

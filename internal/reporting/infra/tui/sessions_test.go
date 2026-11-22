@@ -189,7 +189,7 @@ func TestOnAn80ColumnTerminalTheSessionsKeepTheirCostAndPromptFigures(t *testing
 	}
 	var cheap string
 	for _, l := range strings.Split(view, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(l), "refactor") {
+		if strings.HasPrefix(strings.TrimPrefix(strings.TrimSpace(l), ">"), "refactor") {
 			cheap = l
 		}
 	}

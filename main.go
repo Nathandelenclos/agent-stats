@@ -47,10 +47,14 @@ func indexWorkers() int {
 
 // indexBeforeReport indexes while the plain-text report waits, narrating on stderr so stdout stays the report.
 func indexBeforeReport(run indexRun) error {
-	rep, err := run(context.Background(), func(r indexing.IndexReport) {
+	return indexForReport(run, func(r indexing.IndexReport) {
 		fmt.Fprintf(os.Stderr, "\rindexing… %d files", r.Indexed)
 	})
-	if rep.Indexed >= 50 {
+}
+
+func indexForReport(run indexRun, progress func(indexing.IndexReport)) error {
+	rep, err := run(context.Background(), progress)
+	if progress != nil && rep.Indexed >= 50 {
 		fmt.Fprintln(os.Stderr)
 	}
 	if err != nil {
@@ -89,6 +93,7 @@ func run() error {
 	since := flag.String("since", "", "only count activity after this: 24h, 7d, 30d or 2006-01-02")
 	harness := flag.String("harness", "", "only one harness (default: all)")
 	asJSON := flag.Bool("json", false, "print the report as JSON")
+	plain := flag.Bool("plain", false, "print a static text report with daily values, even on a terminal")
 	noSync := flag.Bool("no-sync", false, "skip re-reading the logs")
 	all := flag.Bool("all", false, "count every project, not only the one of the current folder (it wins over --project)")
 	projectDir := flag.String("project", "", "only count the sessions that worked in this folder or below it (default: the project of the current folder, if sessions worked in it)")
@@ -127,9 +132,14 @@ func run() error {
 			return err
 		}
 	}
-	ui := sub == "" && interactive(*asJSON, os.Stdout)
+	ui := sub == "" && !*plain && interactive(*asJSON, os.Stdout)
 	if indexLogs != nil && !ui { // the interface indexes in the background instead
-		if err := indexBeforeReport(indexLogs); err != nil {
+		if *plain {
+			err = indexForReport(indexLogs, nil)
+		} else {
+			err = indexBeforeReport(indexLogs)
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -149,7 +159,7 @@ func run() error {
 	}
 	if ui {
 		sessions := usage.Sessions()
-		o := tui.Options{Reports: reporting.BuildReport{Queries: usage}, Harness: only, SinceLabel: *since, Since: from,
+		o := tui.Options{Reports: reporting.BuildTimelineReport{Queries: usage}, Harness: only, SinceLabel: *since, Since: from,
 			Sessions: reporting.ListSessions{Queries: sessions}, Session: reporting.ShowSession{Queries: sessions},
 			Prompts: reporting.ReviewPrompts{Queries: usage.Prompts()},
 			Project: cov.project, Restricted: cov.restricted, Detect: redetection(*all, *projectDir, detect)}
@@ -158,7 +168,17 @@ func run() error {
 		}
 		return tui.Run(o)
 	}
-	rep, err := reporting.BuildReport{Queries: usage}.Run(context.Background(), reporting.Query{Since: from, Harness: only, Project: cov.restriction()})
+	q := reporting.Query{Since: from, Harness: only, Project: cov.restriction()}
+	if *plain && !*asJSON {
+		rep, err := (reporting.BuildTimelineReport{Queries: usage}).Run(context.Background(), q)
+		if err != nil {
+			return err
+		}
+		reportcli.WriteText(os.Stdout, rep.Report, cov.label())
+		reportcli.WriteDaily(os.Stdout, rep.Daily)
+		return nil
+	}
+	rep, err := reporting.BuildReport{Queries: usage}.Run(context.Background(), q)
 	if err != nil {
 		return err
 	}

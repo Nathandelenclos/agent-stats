@@ -66,15 +66,15 @@ func (m Model) promptsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) promptsView() string {
 	var b strings.Builder
 	b.WriteString(m.titleBar() + "\n")
-	b.WriteString(activeTab.Render("Prompts") + faintStyle.Render("  what you keep correcting or repeating · nothing is written for you") + "\n")
+	b.WriteString(activeTab.Render("Prompts") + "  what you keep correcting or repeating · nothing is written for you" + "\n")
 	switch {
 	case m.prompts.loaded:
 		b.WriteString(m.prompts.visible() + "\n")
 	default:
-		b.WriteString(faintStyle.Render("loading…") + strings.Repeat("\n", max(0, m.prompts.display-1)) + "\n")
+		b.WriteString("loading…" + strings.Repeat("\n", max(0, m.prompts.display-1)) + "\n")
 	}
 	b.WriteString(m.status() + "\n")
-	b.WriteString(faintStyle.Render(m.help()))
+	b.WriteString(m.help())
 	return lipgloss.NewStyle().MaxWidth(m.width).Render(b.String())
 }
 
@@ -92,10 +92,10 @@ func reviewLines(r reporting.PromptReview, width int) []string {
 
 	section("RECURRING")
 	if len(r.Recurring) == 0 {
-		out = append(out, faintStyle.Render("no ask came back"))
+		out = append(out, "no ask came back")
 	}
 	for _, a := range r.Recurring {
-		out = append(out, "  "+textfmt.Excerpt(a.Text, max(10, width-2)), "    "+faintStyle.Render(a.Hint()))
+		out = append(out, "  "+textfmt.Excerpt(a.Text, max(10, width-2)), "    "+a.Hint())
 	}
 
 	section("FOLDERS")

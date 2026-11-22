@@ -36,10 +36,13 @@ var (
 	titleStyle    = lipgloss.NewStyle().Bold(true)
 	activeTab     = lipgloss.NewStyle().Bold(true).Reverse(true).Padding(0, 1)
 	inactiveTab   = lipgloss.NewStyle().Padding(0, 1)
-	faintStyle    = lipgloss.NewStyle().Faint(true)
-	errorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
+	chartStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#10263D")).Background(lipgloss.Color("#B6EAFE"))
+	errorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#7A1726")).Background(lipgloss.Color("#FFE1E5"))
 	headerStyle   = lipgloss.NewStyle().Bold(true).Padding(0, 1)
-	selectedStyle = lipgloss.NewStyle().Reverse(true)
+	selectedStyle = lipgloss.NewStyle().Reverse(true).Transform(func(row string) string {
+		// Use the cell's leading padding for a marker that works in monochrome.
+		return ">" + strings.TrimPrefix(row, " ")
+	})
 )
 
 // chromeLines is what the view draws besides the table: title, tabs, two summary lines, status and help.
@@ -69,7 +72,7 @@ type reportMsg struct {
 	seq             int
 	period, harness int  // the filters the report was asked for
 	restricted      bool // and whether it was restricted to the project
-	report          reporting.Report
+	report          reporting.TimelineReport
 	err             error
 }
 
@@ -93,7 +96,7 @@ type scopeMsg struct {
 
 // Model is the Bubble Tea model of the interface.
 type Model struct {
-	reports  reporting.BuildReport
+	reports  reporting.BuildTimelineReport
 	lister   reporting.ListSessions // without queries, the sessions mode is off
 	shower   reporting.ShowSession
 	reviewer reporting.ReviewPrompts        // without queries, the prompts mode is off
@@ -126,6 +129,9 @@ type Model struct {
 	tab           tab
 	sorts         [tabCount]sortState // each tab keeps its own order
 	report        reporting.Report
+	daily         []reporting.UsageGroup
+	dailyOpen     bool
+	dailyPager    pager
 	loaded        bool
 	err           error
 	table         table.Model
@@ -312,7 +318,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pending = false
 		m.err = msg.err
 		if msg.err == nil {
-			m.report, m.loaded = msg.report, true
+			if m.shown.period != msg.period || m.shown.harness != msg.harness || m.shown.restricted != msg.restricted {
+				m.dailyPager.scroll = 0
+			}
+			m.report, m.daily, m.loaded = msg.report.Report, msg.report.Daily, true
 			m.shown.period, m.shown.harness, m.shown.restricted = msg.period, msg.harness, msg.restricted
 		}
 		m.layout()
@@ -391,6 +400,13 @@ func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.sessionsKey(msg)
 	}
+	if m.dailyOpen {
+		return m.dailyKey(msg)
+	}
+	return m.usageKey(msg)
+}
+
+func (m Model) usageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k := msg.String(); k {
 	case "q", "ctrl+c":
 		m.syncs.cancel() // Run waits for the sync to stop once the program has
@@ -401,7 +417,12 @@ func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.selectTab((m.tab + tabCount - 1) % tabCount)
 	case "1", "2", "3", "4", "5":
 		m.selectTab(tab(k[0] - '1'))
+	case "g":
+		m.dailyOpen = true
+		m.dailyPager.scroll = 0
+		m.layout()
 	case "m":
+		m.dailyOpen = false
 		return m.switchMode()
 	case "r":
 		return m.reindex()
@@ -466,22 +487,39 @@ func (m *Model) selectTab(t tab) {
 // grid is the table of the current tab.
 func (m Model) grid() grid {
 	r := m.report
+	var g grid
 	switch m.tab {
 	case modelTab:
-		return usageGrid("MODEL", r.ByModel)
+		g = usageGrid("MODEL", r.ByModel)
 	case folderTab:
-		return usageGrid("FOLDER", r.ByFolder)
+		g = usageGrid("FOLDER", r.ByFolder)
 	case agentTab:
-		return usageGrid("AGENT", r.ByAgent)
+		g = usageGrid("AGENT", r.ByAgent)
 	case toolsTab:
-		return toolsGrid(r.Tools)
+		g = toolsGrid(r.Tools)
+	default:
+		g = usageGrid("HARNESS", r.ByHarness)
 	}
-	return usageGrid("HARNESS", r.ByHarness)
+	return g.narrowedTo(m.width)
 }
 
 // layout fills the tables with the current report and fits them to the terminal.
 func (m *Model) layout() {
-	fit(&m.table, m.grid(), m.sorts[m.tab], m.width, m.height)
+	height := m.height - m.extraTitleLines()
+	g := m.grid()
+	if m.sorts[m.tab].col >= len(g.headers) {
+		m.sorts[m.tab] = reportOrder
+	}
+	fit(&m.table, g, m.sorts[m.tab], m.width, height-len(m.trendPreview()))
+	if m.dailyOpen {
+		m.dailyPager.display = max(1, height-detailChromeLines)
+		if m.loaded {
+			m.dailyPager.lines = dailyLines(m.daily)
+		} else {
+			m.dailyPager.lines = []string{"Loading daily usage…"}
+		}
+		m.dailyPager.scrollBy(0)
+	}
 	sg := m.sessionsGrid()
 	if m.sessions.sort.col >= len(sg.headers) { // sorted by a column this terminal cannot hold
 		m.sessions.sort = reportOrder
@@ -491,21 +529,21 @@ func (m *Model) layout() {
 	for _, i := range sg.order(m.sessions.sort) {
 		m.sessions.shown = append(m.sessions.shown, m.sessions.list.Sessions[i])
 	}
-	fit(&m.sessions.table, sg, m.sessions.sort, m.width, m.height)
+	fit(&m.sessions.table, sg, m.sessions.sort, m.width, height)
 	for i, s := range m.sessions.shown { // the selection follows its session, not its row: fit may have put the cursor back at the top
 		if s.ID == selected {
 			m.sessions.table.SetCursor(i)
 		}
 	}
 	if d := &m.sessions.detail; d.open {
-		d.display = max(4, m.height-detailChromeLines)
+		d.display = max(4, height-detailChromeLines)
 		if d.loaded {
 			d.lines = detailLines(d.data, m.width)
 		}
 		d.scrollBy(0) // a longer terminal or a shorter body leaves no empty page
 	}
 	p := &m.prompts
-	p.display = max(4, m.height-detailChromeLines)
+	p.display = max(4, height-detailChromeLines)
 	if p.loaded {
 		p.lines = reviewLines(p.review, m.width)
 	}
@@ -538,19 +576,23 @@ func fit(t *table.Model, g grid, s sortState, width, height int) {
 		}
 		rows[i] = row
 	}
-	if len(t.Columns()) != len(cols) {
-		// bubbles/table indexes the old rows by the new columns: never let their counts differ. Only a switch
-		// to a tab with another column count gets here (selectTab puts the cursor back at the top anyway);
-		// clearing on every resize would lose the scroll.
-		t.SetRows(nil)
+	tableHeight := max(4, height-chromeLines)
+	cursor := t.Cursor()
+	resize := len(t.Columns()) != len(cols) || t.Width() != width || t.Height()+1 != tableHeight
+	if resize {
+		// Bubbles keeps its old viewport offset across resizes. Rebuild it before moving back to the selected row.
+		*t = table.New(table.WithFocused(t.Focused()))
 	}
 	t.SetColumns(cols)
-	t.SetRows(rows)     // keeps the cursor and the scroll, clamped to a shorter report
-	if t.Cursor() < 0 { // emptied above, or the report had no row
+	t.SetRows(rows)
+	t.SetWidth(width)
+	t.SetHeight(tableHeight)
+	if t.Cursor() < 0 {
 		t.SetCursor(0)
 	}
-	t.SetWidth(width)
-	t.SetHeight(max(4, height-chromeLines))
+	if resize && cursor > 0 {
+		t.MoveDown(cursor)
+	}
 	st := table.DefaultStyles()
 	st.Header, st.Selected, st.Cell = headerStyle, selectedStyle, lipgloss.NewStyle().Padding(0, 1)
 	t.SetStyles(st)
@@ -583,17 +625,24 @@ func (m Model) View() string {
 	if m.mode == sessionsMode {
 		return m.sessionsView()
 	}
+	if m.dailyOpen {
+		return m.dailyView()
+	}
 	var b strings.Builder
 	b.WriteString(m.titleBar() + "\n")
 	b.WriteString(m.tabBar() + "\n")
 	b.WriteString(m.summary() + "\n")
+	preview := m.trendPreview()
+	for _, line := range preview {
+		b.WriteString(line + "\n")
+	}
 	if m.loaded && !m.empty() {
 		b.WriteString(m.table.View() + "\n")
 	} else {
-		b.WriteString(m.emptyBody() + "\n")
+		b.WriteString(m.emptyBody(len(preview)) + "\n")
 	}
 	b.WriteString(m.status() + "\n")
-	b.WriteString(faintStyle.Render(m.help()))
+	b.WriteString(m.help())
 	return lipgloss.NewStyle().MaxWidth(m.width).Render(b.String()) // cut what a narrow terminal cannot show
 }
 
@@ -603,7 +652,17 @@ func (m Model) titleBar() string {
 	if h := harnessChoices[m.shown.harness]; !h.IsZero() {
 		harness = h.String()
 	}
-	bar := titleStyle.Render("agent-stats") + m.modeLabel() + faintStyle.Render(fmt.Sprintf("  period: %s · harness: %s · %s", m.periods[m.shown.period].label, harness, m.coverageLabel()))
+	bar := titleStyle.Render("agent-stats") + m.modeLabel()
+	filters := fmt.Sprintf("period: %s · harness: %s", m.periods[m.shown.period].label, harness)
+	scope := m.coverageLabel()
+	switch {
+	case m.mode != usageMode || lipgloss.Width(bar+"  "+filters+" · "+scope) <= m.width:
+		bar += "  " + filters + " · " + scope
+	case lipgloss.Width(filters+" · "+scope) <= m.width:
+		bar += "\n" + filters + " · " + scope
+	default:
+		bar += "\n" + filters + "\n" + scope
+	}
 	if m.syncing {
 		bar += "  " + m.spinner.View() + " indexing…"
 		if m.indexed > 0 {
@@ -612,6 +671,8 @@ func (m Model) titleBar() string {
 	}
 	return bar
 }
+
+func (m Model) extraTitleLines() int { return strings.Count(m.titleBar(), "\n") }
 
 // modeLabel shows which mode is on screen, the others in plain text beside it; empty when there is only the usage report.
 func (m Model) modeLabel() string {
@@ -640,8 +701,14 @@ func (m Model) help() string {
 		keys, filters = []string{"↑↓ scroll", "enter open"}, []string{"s sort", "o reverse", "p period", "h harness"}
 	case m.mode == promptsMode:
 		keys, filters = []string{"↑↓ pgup/pgdn scroll"}, []string{"p period", "h harness"}
+	case m.dailyOpen:
+		keys, filters = []string{"esc back", "↑↓ scroll"}, []string{"p period", "h harness"}
 	default:
-		keys, filters = []string{"tab/←→ tabs", "↑↓ scroll"}, []string{"s sort", "o reverse", "p period", "h harness"}
+		keys = []string{"tab/←→ tabs", "↑↓ scroll", "g daily values"}
+		if m.width < 50 {
+			keys = []string{"g daily", "tab tabs", "↑↓ scroll"}
+		}
+		filters = []string{"s sort", "o reverse", "p period", "h harness"}
 	}
 	if next := m.nextMode(); next != m.mode {
 		keys = append(keys, "m "+strings.ToLower(modeNames[next]))
@@ -673,18 +740,21 @@ func (m Model) tabBar() string {
 	for i, name := range tabNames {
 		label := fmt.Sprintf("%d %s", i+1, name)
 		if tab(i) == m.tab {
-			parts[i] = activeTab.Render(label)
+			parts[i] = activeTab.Render("[" + label + "]")
 		} else {
 			parts[i] = inactiveTab.Render(label)
 		}
 	}
-	return strings.Join(parts, "")
+	if line := strings.Join(parts, ""); lipgloss.Width(line) <= m.width {
+		return line
+	}
+	return parts[m.tab] + " · 1–5 switch"
 }
 
 // summary is the report's totals on two lines, in the words of the plain-text report.
 func (m Model) summary() string {
 	if !m.loaded {
-		return faintStyle.Render("loading…") + "\n"
+		return "loading…\n"
 	}
 	if m.empty() {
 		return emptyMessages[m.tab] + "\n"
@@ -714,8 +784,8 @@ const noRequests = "No requests in this range."
 func (m Model) empty() bool { return len(m.table.Rows()) == 0 }
 
 // emptyBody fills the table's place while there is nothing to tabulate.
-func (m Model) emptyBody() string {
-	return strings.Repeat("\n", max(0, m.height-chromeLines-1))
+func (m Model) emptyBody(previewLines int) string {
+	return strings.Repeat("\n", max(0, m.height-m.extraTitleLines()-chromeLines-1-previewLines))
 }
 
 // status lists what the user should know besides the table: failures, work in flight, notes.
@@ -728,13 +798,13 @@ func (m Model) status() string {
 		parts = append(parts, errorStyle.Render("indexing failed: "+textfmt.Printable(m.syncErr.Error())))
 	}
 	if m.pending {
-		parts = append(parts, faintStyle.Render("updating…"))
+		parts = append(parts, "updating…")
 	}
 	if m.syncNote != "" {
-		parts = append(parts, faintStyle.Render(textfmt.Printable(m.syncNote)))
+		parts = append(parts, textfmt.Printable(m.syncNote))
 	}
 	if n := m.unpriced(); n > 0 {
-		parts = append(parts, faintStyle.Render(fmt.Sprintf("%s requests have no known cost", textfmt.Number(n))))
+		parts = append(parts, fmt.Sprintf("%s requests have no known cost", textfmt.Number(n)))
 	}
 	return strings.Join(parts, " · ")
 }

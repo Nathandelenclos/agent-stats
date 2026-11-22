@@ -324,14 +324,14 @@ func modelsText(s reporting.SessionSummary) string {
 // sessionsSummary is the sessions' totals on two lines.
 func (m Model) sessionsSummary() string {
 	if !m.sessions.loaded {
-		return faintStyle.Render("loading…") + "\n"
+		return "loading…" + "\n"
 	}
 	l := m.sessions.list
 	if len(l.Sessions) == 0 {
 		return noSessions + "\n"
 	}
 	return fmt.Sprintf("%s sessions · %s requests · $%.2f\n", textfmt.Number(int64(len(l.Sessions))), textfmt.Number(l.Total.Requests), float64(l.Total.Cost)) +
-		faintStyle.Render("cost, requests, models cover subagents · prompts count what you typed")
+		"cost, requests, models cover subagents · prompts count what you typed"
 }
 
 const noSessions = "No sessions in this range."
@@ -341,19 +341,19 @@ func (m Model) sessionsView() string {
 	var b strings.Builder
 	b.WriteString(m.titleBar() + "\n")
 	if d := m.sessions.detail; d.open {
-		b.WriteString(activeTab.Render("Session") + faintStyle.Render("  one session, its subagents included") + "\n")
+		b.WriteString(activeTab.Render("Session") + "  one session, its subagents included" + "\n")
 		b.WriteString(m.detailBody() + "\n")
 	} else {
-		b.WriteString(activeTab.Render("Sessions") + faintStyle.Render(m.sortLabel()) + "\n")
+		b.WriteString(activeTab.Render("Sessions") + m.sortLabel() + "\n")
 		b.WriteString(m.sessionsSummary() + "\n")
 		if m.sessions.loaded && len(m.sessions.list.Sessions) > 0 {
 			b.WriteString(m.sessions.table.View() + "\n")
 		} else {
-			b.WriteString(m.emptyBody() + "\n")
+			b.WriteString(m.emptyBody(0) + "\n")
 		}
 	}
 	b.WriteString(m.status() + "\n")
-	b.WriteString(faintStyle.Render(m.help()))
+	b.WriteString(m.help())
 	return lipgloss.NewStyle().MaxWidth(m.width).Render(b.String())
 }
 
@@ -373,7 +373,7 @@ func (m Model) detailBody() string {
 	case d.err != nil:
 		return errorStyle.Render("error: "+textfmt.Printable(d.err.Error())) + strings.Repeat("\n", max(0, d.display-1))
 	case !d.loaded:
-		return faintStyle.Render("loading…") + strings.Repeat("\n", max(0, d.display-1))
+		return "loading…" + strings.Repeat("\n", max(0, d.display-1))
 	}
 	return d.visible()
 }
@@ -401,14 +401,14 @@ func detailLines(d reporting.SessionDetail, width int) []string {
 
 	section("TOOLS")
 	if len(d.Tools) == 0 {
-		out = append(out, faintStyle.Render("no tool calls"))
+		out = append(out, "no tool calls")
 	} else {
 		out = append(out, plainTable(toolsGrid(d.Tools))...)
 	}
 
 	section("SUBAGENTS")
 	if len(d.Subagents) == 0 {
-		out = append(out, faintStyle.Render("none"))
+		out = append(out, "none")
 	} else {
 		sg := grid{headers: []string{"TYPE", "TITLE", "REQUESTS", "COST"}, numeric: []bool{false, false, true, true}}
 		for _, s := range d.Subagents {
@@ -420,7 +420,7 @@ func detailLines(d reporting.SessionDetail, width int) []string {
 
 	section("PROMPTS")
 	if len(d.Prompts) == 0 {
-		out = append(out, faintStyle.Render("none"))
+		out = append(out, "none")
 	}
 	for i, p := range d.Prompts {
 		meta := fmt.Sprintf("#%d · %s · %s characters", i+1, timeText(p.At, "01-02 15:04:05"), textfmt.Number(int64(p.Chars)))

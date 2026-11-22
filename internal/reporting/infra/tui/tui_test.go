@@ -17,10 +17,11 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 )
 
-// fakeReports is the usage index behind BuildReport: it answers every filter with report, and remembers
+// fakeReports is the usage index behind BuildTimelineReport: it answers every filter with report, and remembers
 // the queries it was asked (one Total call per report).
 type fakeReports struct {
 	report  reporting.Report
+	daily   []reporting.UsageGroup
 	err     error
 	queries []reporting.Query
 }
@@ -38,12 +39,15 @@ func (f *fakeReports) UsageBy(_ domain.Filter, d domain.Dimension) ([]domain.Usa
 	return map[domain.Dimension][]domain.UsageGroup{
 		domain.ByHarness: f.report.ByHarness, domain.ByModel: f.report.ByModel,
 		domain.ByFolder: f.report.ByFolder, domain.ByAgentType: f.report.ByAgent,
+		domain.ByDay: f.daily,
 	}[d], nil
 }
 
 func (f *fakeReports) Tools(domain.Filter) ([]domain.ToolUsage, error) { return f.report.Tools, nil }
 
-func build(f *fakeReports) reporting.BuildReport { return reporting.BuildReport{Queries: f} }
+func build(f *fakeReports) reporting.BuildTimelineReport {
+	return reporting.BuildTimelineReport{Queries: f}
+}
 
 func usage(requests, failed, input, output, cacheRead int64, cost float64) reporting.Usage {
 	return reporting.Usage{Requests: requests, Failed: failed, Input: input, Output: output, CacheRead: cacheRead,

@@ -12,8 +12,8 @@ type TimelineReport struct {
 	Daily []UsageGroup // Group is the day, as 2006-01-02
 }
 
-// BuildTimelineReport summarises indexed usage and when it happened. Interfaces that chart cost over time use it;
-// the plain report and the terminal view keep BuildReport and do not pay for the per-day grouping.
+// BuildTimelineReport summarises indexed usage and when it happened for the web, terminal and static daily report.
+// The regular CLI summary keeps BuildReport and does not pay for per-day grouping.
 type BuildTimelineReport struct {
 	Queries UsageQueries
 }
