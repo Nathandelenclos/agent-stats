@@ -1,0 +1,47 @@
+# GoReleaser configuration, run by .github/workflows/release.yml on a tag it has just created.
+# The version comes from the git tag (computed by git-cliff); the release notes are supplied with
+# --release-notes, so GoReleaser's own changelog is disabled.
+version: 2
+
+project_name: agent-stats
+
+# Future web front: dist/ is not versioned, build it here before compiling (and embed it in the binary).
+# before:
+#   hooks:
+#     - sh -c 'cd web && npm ci && npm run build'
+
+builds:
+  - id: agent-stats
+    main: .
+    binary: agent-stats
+    # The SQLite driver (modernc.org/sqlite) is pure Go: static binaries, no C toolchain.
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
+archives:
+  - id: agent-stats
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+changelog:
+  disable: true
+
+# The GitHub release is created by this run, after the workflow pushed the tag; notes come from git-cliff.
+release:
+  draft: false
