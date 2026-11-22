@@ -651,3 +651,31 @@ func TestShorterReportKeepsASelectedRow(t *testing.T) {
 		t.Errorf("cursor = %d; view:\n%s", m.table.Cursor(), m.View())
 	}
 }
+
+func TestToolsTabShowsToolCallsWhenNoRequestFallsInTheRange(t *testing.T) {
+	// Given a range holding a tool call but no request (a request before the period start and its tool call
+	// after it are filtered separately, each by its own timestamp)
+	r := reporting.Report{Tools: []reporting.ToolUsage{{Name: "Bash", Calls: 1}}}
+	m := start(t, &fakeReports{report: r})
+
+	// When the user opens the tools tab
+	m = press(t, m, "5")
+
+	// Then the tool call is listed
+	if view := m.View(); !strings.Contains(view, "Bash") || !strings.Contains(view, "MCP SERVER") {
+		t.Errorf("tools tab hides the tool call:\n%s", view)
+	}
+}
+
+func TestEmptyMessageIsPerTab(t *testing.T) {
+	m := start(t, &fakeReports{})
+	for _, c := range []struct{ key, want, not string }{
+		{"1", "No requests in this range.", "No tool calls"},
+		{"5", "No tool calls in this range.", "No requests"},
+	} {
+		view := press(t, m, c.key).View()
+		if !strings.Contains(view, c.want) || strings.Contains(view, c.not) {
+			t.Errorf("tab %s, want %q:\n%s", c.key, c.want, view)
+		}
+	}
+}

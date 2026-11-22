@@ -348,7 +348,7 @@ func (m Model) View() string {
 	b.WriteString(m.titleBar() + "\n")
 	b.WriteString(m.tabBar() + "\n")
 	b.WriteString(m.summary() + "\n")
-	if m.loaded && m.report.Total.Requests > 0 {
+	if m.loaded && !m.empty() {
 		b.WriteString(m.table.View() + "\n")
 	} else {
 		b.WriteString(m.emptyBody() + "\n")
@@ -400,9 +400,12 @@ func (m Model) summary() string {
 	if !m.loaded {
 		return faintStyle.Render("loading…") + "\n"
 	}
+	if m.empty() {
+		return emptyMessages[m.tab] + "\n"
+	}
 	t := m.report.Total
-	if t.Requests == 0 {
-		return "No requests in this range.\n"
+	if t.Requests == 0 { // tool calls and requests are filtered by their own timestamps: only the former may be left
+		return noRequests + "\n"
 	}
 	first, last := "—", "—"
 	if !t.First.IsZero() {
@@ -415,6 +418,14 @@ func (m Model) summary() string {
 		textfmt.Number(t.Requests), textfmt.Number(t.Failed), float64(t.Cost), textfmt.Number(t.InputWithCache()),
 		textfmt.Number(t.Output), t.CacheRate()*100, first, last)
 }
+
+// emptyMessages say, per tab, what is missing when its table has no row.
+var emptyMessages = [tabCount]string{harnessTab: noRequests, modelTab: noRequests, folderTab: noRequests, agentTab: noRequests, toolsTab: "No tool calls in this range."}
+
+const noRequests = "No requests in this range."
+
+// empty reports whether the current tab has nothing to tabulate.
+func (m Model) empty() bool { return len(m.grid().rows) == 0 }
 
 // emptyBody fills the table's place while there is nothing to tabulate.
 func (m Model) emptyBody() string {
