@@ -3,7 +3,9 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -59,14 +61,27 @@ CREATE VIEW IF NOT EXISTS usage_requests AS
 CREATE VIEW IF NOT EXISTS usage_tool_calls AS
 	SELECT t.ts, t.name, t.server, t.args_chars, t.result_chars, t.is_error, t.duration_ms, s.harness
 	FROM tool_calls t JOIN sessions s ON s.id = t.session_id;
+-- position is the prompt's place in its session: rows are inserted in log order.
+CREATE VIEW IF NOT EXISTS session_prompts AS
+	SELECT p.session_id, p.rowid AS position, p.ts, p.text, p.chars, p.words, p.yelling, p.profanity, p.anguish, p.negation,
+		p.repetition, p.blame
+	FROM prompts p;
+`
+
+// schemaVersion is the index's user_version once migrate has brought it up to date. 0 is an index from before
+// migrations: it is migrated when opened, never twice.
+const schemaVersion = 1
+
+// sessionViews is the sessions read model. It holds no data, so migrate replaces it whenever its definition changes.
+const sessionViews = `
+DROP VIEW IF EXISTS session_requests;
+DROP VIEW IF EXISTS session_tool_calls;
+DROP VIEW IF EXISTS session_overview;
 -- Session views. root_id is the session a listing shows: the session itself, or the top session whose chain of
 -- subagents it belongs to. A subagent whose parent log was never indexed (or was deleted) is its own root, and so
 -- is a main conversation forked from another one: only subagents roll up into their parent.
 -- run_started_at and run_ended_at span the whole run (the root and its subagents): a session is active until its
 -- last subagent stops. 0 stands for unknown.
-DROP VIEW IF EXISTS session_requests;
-DROP VIEW IF EXISTS session_tool_calls;
-DROP VIEW IF EXISTS session_overview;
 CREATE VIEW session_overview AS
 	WITH RECURSIVE tree(id, root_id, depth) AS (
 		SELECT s.id, s.id, 0 FROM sessions s WHERE s.agent_type = 'main' OR NOT EXISTS (SELECT 1 FROM sessions p WHERE p.id = s.parent_id)
@@ -84,12 +99,54 @@ CREATE VIEW session_requests AS
 CREATE VIEW session_tool_calls AS
 	SELECT o.root_id, t.session_id, t.ts, t.name, t.server, t.args_chars, t.result_chars, t.is_error, t.duration_ms
 	FROM tool_calls t JOIN session_overview o ON o.id = t.session_id;
--- position is the prompt's place in its session: rows are inserted in log order.
-CREATE VIEW IF NOT EXISTS session_prompts AS
-	SELECT p.session_id, p.rowid AS position, p.ts, p.text, p.chars, p.words, p.yelling, p.profanity, p.anguish, p.negation,
-		p.repetition, p.blame
-	FROM prompts p;
 `
+
+// migrate runs steps in one transaction if the index is older than version, then records version: another
+// connection keeps reading the previous state until it commits, and a failure leaves it untouched.
+// An index that is up to date is not locked for writing.
+func migrate(db *sql.DB, version int, steps ...string) (err error) {
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	userVersion := func() (v int, err error) {
+		err = conn.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&v)
+		return v, err
+	}
+	if v, err := userVersion(); err != nil || v >= version {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, `PRAGMA busy_timeout = 5000`); err != nil {
+		return err
+	}
+	// IMMEDIATE: two processes opening the same old index queue up instead of failing on the upgrade.
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			conn.ExecContext(ctx, `ROLLBACK`)
+		}
+	}()
+	if v, err := userVersion(); err != nil || v >= version { // migrated by the other process meanwhile
+		if err == nil {
+			_, err = conn.ExecContext(ctx, `COMMIT`)
+		}
+		return err
+	}
+	for _, step := range steps {
+		if _, err := conn.ExecContext(ctx, step); err != nil {
+			return err
+		}
+	}
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, version)); err != nil {
+		return err
+	}
+	_, err = conn.ExecContext(ctx, `COMMIT`)
+	return err
+}
 
 // SQLiteIndex is the usage index kept in a local SQLite file.
 type SQLiteIndex struct {
@@ -120,6 +177,10 @@ func Open(o Options) (*SQLiteIndex, error) {
 	}
 	db.SetMaxOpenConns(1) // ponytail: one connection, SQLite serialises writes anyway
 	if _, err := db.Exec(schema); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := migrate(db, schemaVersion, sessionViews); err != nil {
 		db.Close()
 		return nil, err
 	}

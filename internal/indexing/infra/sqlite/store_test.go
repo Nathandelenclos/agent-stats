@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,6 +20,16 @@ func open(t *testing.T) *SQLiteIndex {
 	}
 	t.Cleanup(func() { s.Close() })
 	return s
+}
+
+// pathOf is the file the index lives in.
+func pathOf(t *testing.T, s *SQLiteIndex) string {
+	t.Helper()
+	var path string
+	if err := s.db.QueryRow(`SELECT file FROM pragma_database_list WHERE name = 'main'`).Scan(&path); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 // hostile carries SQL metacharacters in every text value that reaches the database.
@@ -309,5 +320,56 @@ func TestPromptsKeepTheOrderTheyWereTypedInAndTheirSignals(t *testing.T) {
 	}
 	if last != [7]int{9, 3, 1, 2, 4, 1, 5} {
 		t.Errorf("signals of the second prompt = %v", last)
+	}
+}
+
+func TestAFailedViewReplacementLeavesTheViewsAReaderUses(t *testing.T) {
+	// Given an index another process (here, a second connection) is reading the sessions from
+	s := open(t)
+	reader, err := sql.Open("sqlite", pathOf(t, s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { reader.Close() })
+	if _, err := s.db.Exec(`PRAGMA user_version = 0`); err != nil { // an index from before the views were versioned
+		t.Fatal(err)
+	}
+
+	// When replacing the views fails half way
+	if err := migrate(s.db, schemaVersion, sessionViews, `NOT SQL`); err == nil {
+		t.Fatal("the failing step was not reported")
+	}
+
+	// Then the reader still sees the previous views, and the index still asks to be migrated
+	var n int
+	if err := reader.QueryRow(`SELECT COUNT(*) FROM session_overview`).Scan(&n); err != nil {
+		t.Errorf("the reader lost the views: %v", err)
+	}
+	var version int
+	if err := reader.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 0 {
+		t.Errorf("version = %d, %v", version, err)
+	}
+}
+
+func TestAnIndexFromANewerVersionIsLeftAlone(t *testing.T) {
+	// Given an index a newer build migrated
+	s := open(t)
+	if _, err := s.db.Exec(`PRAGMA user_version = 99; DROP VIEW session_overview; DROP VIEW session_requests; DROP VIEW session_tool_calls`); err != nil {
+		t.Fatal(err)
+	}
+	path := pathOf(t, s)
+	s.Close()
+
+	// When this build opens it
+	again, err := Open(Options{Path: path, User: "me@host"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Close()
+
+	// Then it does not migrate it back
+	var version int
+	if err := again.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 99 {
+		t.Errorf("version = %d, %v", version, err)
 	}
 }
