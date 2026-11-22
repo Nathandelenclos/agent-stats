@@ -202,25 +202,37 @@ func TestSkillUsageIsUnknownWhileSomeSkillCallAwaitsItsLogToBeReadAgain(t *testi
 	}
 }
 
-func TestSkillCallsThatNamedNoValidSkillAreShownApartAndLeaveSkillUsageKnown(t *testing.T) {
-	// Given an installed Claude skill, three Skill calls that named no valid skill, and one load of another skill
+// unnamedSkillCallsLinked links an installed Claude skill, three Skill calls that named no valid skill, and one load of another skill.
+func unnamedSkillCallsLinked(t *testing.T) ([]Entry, time.Time) {
+	t.Helper()
 	items := []Item{item(t, kernel.Claude, Skill, "review", ScopeUser)}
 	last := time.Date(2026, 1, 4, 0, 0, 0, 0, time.UTC)
 	act := Activity{
 		UnnamedSkillCalls: []SkillActivity{{Harness: kernel.Claude, Calls: 3, Last: last}},
 		Skills:            []SkillActivity{{Harness: kernel.Claude, Skill: "other", Calls: 1}},
 	}
+	return Link(items, act), last
+}
 
+func TestSkillCallsThatNamedNoValidSkillAreListedApartAndCountedTogether(t *testing.T) {
+	// Given three Skill calls that named no valid skill
 	// When linked
-	entries := Link(items, act)
+	entries, last := unnamedSkillCallsLinked(t)
+
+	// Then they are listed as what they are, defined nowhere, counted together with the latest time
+	if u := find(t, entries, kernel.Claude, Skill, UnnamedSkillEntry); u.Installed() || u.Uses != 3 || !u.Last.Equal(last) {
+		t.Errorf("unnamed skill calls: %+v", u)
+	}
+}
+
+func TestSkillCallsThatNamedNoValidSkillAreCreditedToNoInstalledSkill(t *testing.T) {
+	// Given an installed skill and three Skill calls that named no valid skill
+	// When linked
+	entries, _ := unnamedSkillCallsLinked(t)
 
 	// Then the installed skill is known to be unused, as none of those calls can be credited to it
 	if s := find(t, entries, kernel.Claude, Skill, "review"); !s.Tracked || s.Uses != 0 || !s.Unused() {
 		t.Errorf("installed skill: %+v", s)
-	}
-	// And the calls are listed as what they are, counted together
-	if u := find(t, entries, kernel.Claude, Skill, UnnamedSkillEntry); u.Installed() || u.Uses != 3 || !u.Last.Equal(last) {
-		t.Errorf("unnamed skill calls: %+v", u)
 	}
 }
 

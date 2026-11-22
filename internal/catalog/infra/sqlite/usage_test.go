@@ -141,17 +141,24 @@ func TestASkillCallWhoseLogIsNotReadAgainYetMakesTheSkillUsageOfItsHarnessUnknow
 	}
 }
 
-func TestASkillCallThatNamedNoValidSkillIsCountedApartAndLeavesTheSkillUsageKnown(t *testing.T) {
+func TestASkillCallThatNamedNoValidSkillIsCountedAsUnnamed(t *testing.T) {
 	// Given a Claude Skill call, on 4 January, that named no valid skill
 	// When the activity is read for the whole period, and for the period after that call
 	all, later := activityWithSkillCall(t, "")
 
-	// Then the call is counted as unnamed for the first period only, no harness has an unknown skill usage,
-	// and the load of the named skill is still counted
+	// Then the call is counted as unnamed for the first period only
 	if len(all.UnnamedSkillCalls) != 1 || all.UnnamedSkillCalls[0].Harness != kernel.Claude || all.UnnamedSkillCalls[0].Calls != 1 || all.UnnamedSkillCalls[0].Skill != "" ||
 		!all.UnnamedSkillCalls[0].Last.Equal(time.Date(2026, 1, 4, 0, 0, 0, 0, time.UTC)) || len(later.UnnamedSkillCalls) != 0 {
 		t.Errorf("unnamed: all %+v, later %+v", all.UnnamedSkillCalls, later.UnnamedSkillCalls)
 	}
+}
+
+func TestASkillCallThatNamedNoValidSkillLeavesTheSkillUsageKnown(t *testing.T) {
+	// Given a Claude Skill call that named no valid skill, and two loads of a named skill
+	// When the activity is read
+	all, _ := activityWithSkillCall(t, "")
+
+	// Then no harness has an unknown skill usage, and the loads of the named skill are still counted
 	if len(all.PendingSkillLoads) != 0 || len(all.Skills) != 1 || all.Skills[0].Calls != 2 {
 		t.Errorf("pending %v, skills %+v", all.PendingSkillLoads, all.Skills)
 	}

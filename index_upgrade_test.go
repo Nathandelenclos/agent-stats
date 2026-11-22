@@ -126,7 +126,7 @@ func TestAFailedUpgradeOfTheIndexIsRunAgainOnceItsCauseIsGone(t *testing.T) {
 	}
 }
 
-func TestAnUpgradeByANewerBuildWhileThisOneOpensTheIndexIsNotUndone(t *testing.T) {
+func TestAnUpgradeByANewerBuildWhileThisOneOpensTheIndexIsNotRunAgain(t *testing.T) {
 	// Given an index due an upgrade that a newer build runs while this build is opening it
 	path, _ := indexAsMainMadeItBeforeItsMigrations(t)
 	newerBuild, err := sql.Open("sqlite", path)
@@ -148,18 +148,27 @@ func TestAnUpgradeByANewerBuildWhileThisOneOpensTheIndexIsNotUndone(t *testing.T
 	}()
 	time.Sleep(100 * time.Millisecond)
 
-	// When the newer build commits its upgrade, and this build finishes opening the index
+	// When the newer build commits its upgrade, this build finishes opening the index, and the newer build opens it again
 	if _, err := newerBuild.Exec(`CREATE TABLE newer_runs (n INTEGER); INSERT INTO newer_runs VALUES (1); PRAGMA user_version = 99; COMMIT`); err != nil {
 		t.Fatal(err)
 	}
 	if err := <-opened; err != nil {
 		t.Fatal(err)
 	}
-
-	// Then the index is still at the version of the newer build, so that its upgrade is not run again
 	var version int
-	if err := newerBuild.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 99 {
-		t.Errorf("user_version = %d, %v; want the newer build's 99", version, err)
+	if err := newerBuild.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version < 99 { // what a build does when its upgrade has not run: it runs it
+		if _, err := newerBuild.Exec(`INSERT INTO newer_runs VALUES (2); PRAGMA user_version = 99`); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Then the upgrade of the newer build ran once
+	var runs int
+	if err := newerBuild.QueryRow(`SELECT COUNT(*) FROM newer_runs`).Scan(&runs); err != nil || runs != 1 {
+		t.Errorf("runs of the newer build's upgrade = %d, %v", runs, err)
 	}
 }
 
