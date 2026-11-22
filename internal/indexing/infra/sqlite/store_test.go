@@ -695,3 +695,59 @@ func TestOpeningAnOlderIndexPublishesRecordedParentsWithoutReindexing(t *testing
 		t.Fatalf("recorded parent = %q (%v)", parent, err)
 	}
 }
+
+func TestUpgradeFromStandaloneOMPParityPreservesMetadataAndLineage(t *testing.T) {
+	for _, version := range []int{5, 6, 7} {
+		t.Run(fmt.Sprint(version), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "index.db")
+			db, err := sql.Open("sqlite", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			if _, err := db.Exec(schema); err != nil {
+				t.Fatal(err)
+			}
+			standalone := append(append([]migration{}, migrations[:4]...), sqlSteps(publishRequestDetails),
+				sqlSteps(recordRequestMetadata), sqlSteps(recordQuotaHistory))
+			if err := migrate(db, standalone[:version]); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`
+INSERT INTO sessions VALUES ('omp:child', '/logs/omp', 'omp', 'omp:parent', 'subagent', '', '/work', 'me', 1, 2);
+INSERT INTO requests VALUES ('/logs/omp', '1', 'omp:child', 1, 'model', 'provider', 10, 1, 0, 0, 0, 2, 1, NULL, NULL, NULL, NULL);
+`); err != nil {
+				t.Fatal(err)
+			}
+			if version >= 6 {
+				if _, err := db.Exec(`INSERT INTO request_metadata VALUES ('/logs/omp', 'omp:child', '1', .5, 'judge', 'priority')`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if version >= 7 {
+				if _, err := db.Exec(`INSERT INTO quota_snapshots VALUES (1, 'provider', 'weekly', 2, 75)`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			upgraded := reopen(t, path)
+			var parent string
+			var cost, units float64
+			if err := upgraded.db.QueryRow(`SELECT parent_id FROM session_lineage WHERE id = 'omp:child'`).Scan(&parent); err != nil || parent != "omp:parent" {
+				t.Fatalf("lineage = %q (%v)", parent, err)
+			}
+			wantUnits := 0.0
+			if version >= 6 {
+				wantUnits = .5
+			}
+			if err := upgraded.db.QueryRow(`SELECT cost, premium_units FROM usage_requests`).Scan(&cost, &units); err != nil || cost != 2 || units != wantUnits {
+				t.Fatalf("cost and units = %v and %v (%v)", cost, units, err)
+			}
+			if version >= 7 {
+				var quota float64
+				if err := upgraded.db.QueryRow(`SELECT remaining FROM quota_snapshots`).Scan(&quota); err != nil || quota != 75 {
+					t.Fatalf("quota = %v (%v)", quota, err)
+				}
+			}
+		})
+	}
+}

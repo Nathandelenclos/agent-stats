@@ -9,7 +9,7 @@ import (
 )
 
 const recordQuotaHistory = `
-CREATE TABLE quota_snapshots (
+CREATE TABLE IF NOT EXISTS quota_snapshots (
 	observed_at INTEGER NOT NULL, provider TEXT NOT NULL, label TEXT NOT NULL, reset_at INTEGER NOT NULL,
 	remaining REAL NOT NULL CHECK (remaining BETWEEN 0 AND 100),
 	PRIMARY KEY (observed_at, provider, label, reset_at)

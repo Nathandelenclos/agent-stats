@@ -139,11 +139,16 @@ var migrations = []migration{
 	sqlSteps(recordSkills),
 	sqlSteps(recordRevisions),
 	sqlSteps(publishFolders),
-	sqlSteps(`CREATE VIEW session_lineage AS SELECT id, parent_id FROM sessions WHERE parent_id IS NOT NULL AND parent_id <> id`),
+	sqlSteps(publishSessionLineage),
 	sqlSteps(publishRequestDetails),
 	sqlSteps(recordRequestMetadata),
-	sqlSteps(recordQuotaHistory),
+	// The standalone OMP parity branch used versions 5–7 for request and quota data.
+	// Its indexes skip the lineage step and can already contain the tables replayed here.
+	sqlSteps(recordQuotaHistory, publishSessionLineage),
 }
+
+const publishSessionLineage = `CREATE VIEW IF NOT EXISTS session_lineage AS
+	SELECT id, parent_id FROM sessions WHERE parent_id IS NOT NULL AND parent_id <> id`
 
 // recordSkills makes the index record the skill each Skill call loads. It is a table of its own, not a column of
 // tool_calls: a build from before it writes tool_calls with positional statements that a column more would refuse,
@@ -210,12 +215,12 @@ CREATE VIEW usage_requests AS
 `
 
 const recordRequestMetadata = `
-CREATE TABLE request_metadata (
+CREATE TABLE IF NOT EXISTS request_metadata (
 	file TEXT NOT NULL, session_id TEXT NOT NULL, key TEXT NOT NULL,
 	premium_units REAL NOT NULL, purpose TEXT NOT NULL, service_tier TEXT NOT NULL,
 	PRIMARY KEY (session_id, key)
 ) WITHOUT ROWID;
-CREATE INDEX request_metadata_file ON request_metadata (file);
+CREATE INDEX IF NOT EXISTS request_metadata_file ON request_metadata (file);
 DROP VIEW session_requests;
 CREATE VIEW session_requests AS
 	SELECT o.root_id, r.session_id, r.ts, r.model, r.input, r.output, r.cache_read, r.cache_write, r.cost, r.priced,
