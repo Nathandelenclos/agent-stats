@@ -18,8 +18,8 @@ var _ reporting.PromptQueries = (*SQLitePrompts)(nil)
 func (s *SQLiteUsage) Prompts() *SQLitePrompts { return &SQLitePrompts{s.db} }
 
 // FlaggedPrompts lists the prompts typed in the filter's range that show a signal, most recent first. One
-// statement reads one state of the index. The prompts are the user's own: those of a session that is a root of the
-// listing, not the briefs the run's subagents received. Each text is cut to report.PromptTextLimit characters.
+// statement reads one state of the index. The prompts are the user's own: those of a main conversation that is a root of the
+// listing, not the briefs a subagent received, even one whose parent was never indexed (it is its own root then). Each text is cut to report.PromptTextLimit characters.
 func (s *SQLitePrompts) FlaggedPrompts(f report.Filter) ([]report.FlaggedPrompt, error) {
 	cond, args := `(p.yelling + p.profanity + p.anguish + p.negation + p.blame > 0 OR p.repetition <> 0)`, []any{report.PromptTextLimit}
 	if !f.Since.IsZero() {
@@ -30,7 +30,7 @@ func (s *SQLitePrompts) FlaggedPrompts(f report.Filter) ([]report.FlaggedPrompt,
 	}
 	rows, err := s.db.Query(`SELECT p.session_id, o.harness, COALESCE(o.title, ''), COALESCE(o.folder, ''), p.ts, substr(p.text, 1, ?),
 			p.yelling, p.profanity, p.anguish, p.negation, p.repetition, p.blame
-		FROM session_prompts p JOIN session_overview o ON o.id = p.session_id AND o.id = o.root_id
+		FROM session_prompts p JOIN session_overview o ON o.id = p.session_id AND o.id = o.root_id AND o.agent_type = 'main'
 		WHERE `+cond+` ORDER BY p.ts DESC, p.session_id, p.position`, args...)
 	if err != nil {
 		return nil, err

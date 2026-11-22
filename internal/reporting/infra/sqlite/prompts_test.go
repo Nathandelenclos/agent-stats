@@ -15,7 +15,9 @@ import (
 //   - claude:main (hostile title and folder, last active t1), with a calm prompt, a flagged one with a hostile text and
 //     control characters (t0), a repeated one (t1) and a flagged one longer than the text limit (t1); its subagent
 //     claude:main/kid got a flagged brief that is not the user's;
-//   - codex:old (ended t0), with one flagged prompt (t0).
+//   - codex:old (ended t0), with one flagged prompt (t0);
+//   - claude:gone/orphan, a subagent whose parent was never indexed, and codex:explore, a subagent of a named type: each
+//     is its own root in the listing, and each got a flagged brief that is not the user's.
 func promptsIndexed(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "index.db")
@@ -33,16 +35,20 @@ func promptsIndexed(t *testing.T) string {
 		{`INSERT INTO session_overview VALUES
 			('claude:main', 'claude:main', 'claude', 'main', ?, ?, ?, ?, ?, ?),
 			('claude:main/kid', 'claude:main', 'claude', 'subagent', 'kid', NULL, ?, ?, ?, ?),
-			('codex:old', 'codex:old', 'codex', 'main', NULL, NULL, ?, ?, ?, ?)`,
-			[]any{hostile, hostile, t0, t1, t0, t1, t0, t1, t0, t1, t0, t0, t0, t0}},
+			('codex:old', 'codex:old', 'codex', 'main', NULL, NULL, ?, ?, ?, ?),
+			('claude:gone/orphan', 'claude:gone/orphan', 'claude', 'subagent', 'orphan', NULL, ?, ?, ?, ?),
+			('codex:explore', 'codex:explore', 'codex', 'Explore', NULL, NULL, ?, ?, ?, ?)`,
+			[]any{hostile, hostile, t0, t1, t0, t1, t0, t1, t0, t1, t0, t0, t0, t0, t0, t0, t0, t0, t0, t0, t0, t0}},
 		{`INSERT INTO session_prompts VALUES
 			('claude:main', 1, ?, 'add a test', 10, 3, 0, 0, 0, 0, 0, 0),
 			('claude:main', 2, ?, ?, 20, 3, 3, 1, 2, 4, 0, 5),
 			('claude:main', 3, ?, 'add a test', 10, 3, 0, 0, 0, 0, 1, 0),
 			('claude:main', 4, ?, ?, ?, 1, 0, 0, 0, 1, 0, 0),
 			('claude:main/kid', 1, ?, 'NO NO brief to the subagent', 27, 5, 2, 0, 0, 0, 0, 0),
-			('codex:old', 1, ?, 'stop that', 9, 2, 0, 0, 0, 1, 0, 0)`,
-			[]any{t0, t0, hostile + "\x1b[2J", t1, t1, long, len([]rune(long)), t0, t0}},
+			('codex:old', 1, ?, 'stop that', 9, 2, 0, 0, 0, 1, 0, 0),
+			('claude:gone/orphan', 1, ?, 'NO NO brief for the orphan', 26, 5, 2, 0, 0, 0, 0, 0),
+			('codex:explore', 1, ?, 'STOP STOP brief for the explorer', 32, 6, 2, 0, 0, 2, 0, 0)`,
+			[]any{t0, t0, hostile + "\x1b[2J", t1, t1, long, len([]rune(long)), t0, t0, t0, t0}},
 	} {
 		if _, err := db.Exec(stmt.sql, stmt.args...); err != nil {
 			t.Fatalf("%v: %s", err, stmt.sql)
@@ -95,6 +101,27 @@ func TestFlaggedPromptsAreTheUsersOwnPromptsThatShowASignal(t *testing.T) {
 	}
 	if !hostilePrompt.At.Equal(time.UnixMilli(t0)) || hostilePrompt.Signals != (report.PromptSignals{Yelling: 3, Profanity: 1, Anguish: 2, Negation: 4, Blame: 5}) {
 		t.Errorf("prompt = %+v", hostilePrompt)
+	}
+}
+
+func TestABriefSentToASubagentWithoutIndexedParentIsNotTheUsersPrompt(t *testing.T) {
+	// Given subagents that are their own roots in the listing: one whose parent was never indexed, one of a named type
+	p := openPrompts(t)
+
+	// When the flagged prompts are listed
+	list, err := p.FlaggedPrompts(report.Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Then their briefs are not among them, while the user's own flagged prompts all are
+	for _, x := range list {
+		if strings.Contains(x.Text, "brief for") || strings.Contains(x.Session.String(), "orphan") || x.Session.String() == "codex:explore" {
+			t.Errorf("a subagent's brief was listed: %+v", x)
+		}
+	}
+	if len(list) != 4 {
+		t.Errorf("prompts = %v", promptTexts(list))
 	}
 }
 
