@@ -15,13 +15,14 @@ import (
 
 func workflowJob(t *testing.T, name string) string {
 	t.Helper()
-	raw, err := os.ReadFile(".github/workflows/release.yml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, jobs, ok := strings.Cut(string(raw), "\njobs:\n")
+	return namedWorkflowJob(t, workflowText(t), name)
+}
+
+func namedWorkflowJob(t *testing.T, workflow, name string) string {
+	t.Helper()
+	_, jobs, ok := strings.Cut(workflow, "\njobs:\n")
 	if !ok {
-		t.Fatal("release.yml has no jobs")
+		t.Fatal("workflow has no jobs")
 	}
 	starts := regexp.MustCompile(`(?m)^  ([a-z-]+):$`).FindAllStringSubmatchIndex(jobs, -1)
 	for i, s := range starts {
@@ -34,7 +35,7 @@ func workflowJob(t *testing.T, name string) string {
 		}
 		return jobs[s[0]:end]
 	}
-	t.Fatalf("release.yml has no job %q", name)
+	t.Fatalf("workflow has no job %q", name)
 	return ""
 }
 
@@ -193,16 +194,35 @@ func runScript(t *testing.T, script, dir string, env ...string) (output string, 
 	return string(raw), out, err
 }
 
-// Every way to read the secrets context counts: the dotted form, secrets['X'], toJSON(secrets), secrets: inherit.
-// Three mentions are expected: the declaration of the optional secret of the workflow_call, and its two reads, both in
-// the release-notes job (a flag that says whether there is a key, and the key itself for the one step that uses it).
+// Check all mentions of the secrets context, including brackets, calls and inheritance.
 func TestTheSecretsContextIsReadOnlyByTheJobThatHoldsTheKey(t *testing.T) {
-	count := func(text string) int { return len(regexp.MustCompile(`\bsecrets\b`).FindAllString(text, -1)) }
-	if n := count(workflowText(t)); n != 3 {
-		t.Fatalf("release.yml mentions secrets %d times, want 3 (the declaration and two reads)", n)
+	count := func(text string) int {
+		return len(regexp.MustCompile(`\bsecrets\b`).FindAllString(withoutComments(text), -1))
+	}
+	if n := count(workflowText(t)); n != 5 {
+		t.Fatalf("release.yml mentions secrets %d times, want 5 (the declaration, two notes reads and the named forwarding)", n)
 	}
 	if n := count(jobWithoutComments(t, "release-notes")); n != 2 {
 		t.Fatalf("the release-notes job mentions secrets %d times, want 2", n)
+	}
+	caller := jobWithoutComments(t, "homebrew")
+	if count(caller) != 2 || !strings.Contains(caller, "HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}") {
+		t.Fatal("the release must forward only the tap deployment key to Homebrew")
+	}
+	raw, err := os.ReadFile(".github/workflows/homebrew.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	homebrew := string(raw)
+	if n := count(homebrew); n != 2 {
+		t.Fatalf("homebrew.yml mentions secrets %d times, want 2 (the declaration and one read)", n)
+	}
+	publish := namedWorkflowJob(t, homebrew, "publish")
+	holders := stepsMentioning(t, publish, "HOMEBREW_TAP_DEPLOY_KEY")
+	if count(publish) != 1 || len(holders) != 1 ||
+		!strings.Contains(holders[0], "name: Update the formula in the tap") ||
+		!strings.Contains(holders[0], "TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}") {
+		t.Fatal("only the Homebrew publishing step may read the tap deployment key")
 	}
 }
 
