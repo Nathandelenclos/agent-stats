@@ -23,6 +23,8 @@ type fakeSessions struct {
 	err     error
 	filters []domain.Filter
 	asked   []string
+	// askedIn is the project each description was asked for.
+	askedIn []kernel.Project
 }
 
 func (f *fakeSessions) Sessions(_ context.Context, fl domain.Filter) ([]domain.SessionSummary, error) {
@@ -30,8 +32,8 @@ func (f *fakeSessions) Sessions(_ context.Context, fl domain.Filter) ([]domain.S
 	return f.list, f.err
 }
 
-func (f *fakeSessions) Session(_ context.Context, id domain.SessionID) (domain.SessionDetail, error) {
-	f.asked = append(f.asked, id.String())
+func (f *fakeSessions) Session(_ context.Context, id domain.SessionID, p kernel.Project) (domain.SessionDetail, error) {
+	f.asked, f.askedIn = append(f.asked, id.String()), append(f.askedIn, p)
 	if d, ok := f.details[id.String()]; ok {
 		return d, nil
 	}

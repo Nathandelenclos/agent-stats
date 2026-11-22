@@ -177,3 +177,29 @@ func TestTheKeyAListsTheSessionsOfEveryProject(t *testing.T) {
 		t.Errorf("sessions asked about %v:\n%s", got, m.View())
 	}
 }
+
+func TestASessionOpenedInAProjectIsDescribedAsThatProjectListsIt(t *testing.T) {
+	// Given the interface on a project, in the sessions mode, and then on every project
+	for name, c := range map[string]struct {
+		keys string
+		want kernel.Project
+	}{"on the project": {"", appProject(t)}, "on every project": {"a", kernel.Project{}}} {
+		m, sessions := onTheSessionsOfTheProject(t)
+		if c.keys != "" {
+			var cmd tea.Cmd
+			m, cmd = pressCmd(t, m, c.keys)
+			m = answer(t, m, cmd)
+		}
+
+		// When the user opens the selected session
+		_, cmd := pressType(t, m, tea.KeyEnter)
+		if cmd != nil {
+			cmd()
+		}
+
+		// Then its description is asked for that project, so that it counts what the list showed
+		if len(sessions.askedIn) != 1 || sessions.askedIn[0] != c.want {
+			t.Errorf("%s: described in %v", name, sessions.askedIn)
+		}
+	}
+}

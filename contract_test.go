@@ -122,7 +122,7 @@ func TestSessionReadModelContract(t *testing.T) {
 	if d, ok := s.Duration(); !ok || d != time.Hour {
 		t.Errorf("duration = %v %v", d, ok)
 	}
-	d, err := r.Session(context.Background(), s.ID)
+	d, err := r.Session(context.Background(), s.ID, kernel.Project{})
 	if err != nil || len(d.Tools) != 1 || d.Tools[0].Name != hostile || len(d.Subagents) != 1 || d.Subagents[0].Title != "kid" || d.Subagents[0].Cost != 2 {
 		t.Fatalf("detail = %+v %v", d, err)
 	}

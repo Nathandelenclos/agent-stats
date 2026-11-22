@@ -179,7 +179,7 @@ func TestSessionDetailTellsWhatTheSessionDid(t *testing.T) {
 	id, _ := report.NewSessionID("claude:main")
 
 	// When the session is described
-	d, err := s.Session(context.Background(), id)
+	d, err := s.Session(context.Background(), id, kernel.Project{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +229,7 @@ func TestSessionDetailRefusesWhatTheListingDoesNotShow(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = s.Session(context.Background(), id)
+		_, err = s.Session(context.Background(), id, kernel.Project{})
 
 		// Then it is not found, and the value was only ever data
 		if !errors.Is(err, report.ErrSessionNotFound) {
@@ -294,7 +294,7 @@ func TestNoSessionIsShownToACallerThatGaveUp(t *testing.T) {
 	id, _ := report.NewSessionID("claude:s1")
 
 	// When it asks for a session, then the index answers with the context's error
-	if _, err := s.Session(ctx, id); !errors.Is(err, context.Canceled) {
+	if _, err := s.Session(ctx, id, kernel.Project{}); !errors.Is(err, context.Canceled) {
 		t.Errorf("Session error = %v, want context.Canceled", err)
 	}
 }

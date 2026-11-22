@@ -237,12 +237,13 @@ func (r reader) Tools(f report.Filter) ([]report.ToolUsage, error) {
 	if err != nil {
 		return nil, err
 	}
-	return toolUsage(r.q, "usage_tool_calls", cond, args)
+	return toolUsage(r.q, "", "usage_tool_calls", cond, args)
 }
 
-// toolUsage aggregates the calls of view (aliased t) that cond selects, most used first.
-func toolUsage(q querier, view, cond string, args []any) ([]report.ToolUsage, error) {
-	rows, err := q.Query(`SELECT t.name, t.server, COUNT(*), SUM(t.is_error), SUM(t.args_chars), SUM(t.result_chars),
+// toolUsage aggregates the calls of view (aliased t) that cond selects, most used first. with, when it is not empty, is a
+// WITH clause cond may use.
+func toolUsage(q querier, with, view, cond string, args []any) ([]report.ToolUsage, error) {
+	rows, err := q.Query(with+` SELECT t.name, t.server, COUNT(*), SUM(t.is_error), SUM(t.args_chars), SUM(t.result_chars),
 		COALESCE(AVG(t.duration_ms), 0), MAX(t.ts)
 		FROM `+view+` t`+cond+`
 		GROUP BY 1, 2 ORDER BY 3 DESC`, args...)

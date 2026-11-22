@@ -91,7 +91,7 @@ func (x sessionIndex) Sessions(context.Context, domain.Filter) ([]domain.Session
 	return out, x.err
 }
 
-func (x sessionIndex) Session(context.Context, domain.SessionID) (domain.SessionDetail, error) {
+func (x sessionIndex) Session(context.Context, domain.SessionID, kernel.Project) (domain.SessionDetail, error) {
 	return domain.SessionDetail{}, domain.ErrSessionNotFound
 }
 

@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 
+	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	"github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 )
 
@@ -28,8 +29,9 @@ var (
 type SessionQueries interface {
 	// Sessions lists the sessions active in the filter's range, most recent first.
 	Sessions(context.Context, domain.Filter) ([]domain.SessionSummary, error)
-	// Session describes one listed session; ErrSessionNotFound when the index lists none with that identity.
-	Session(context.Context, domain.SessionID) (domain.SessionDetail, error)
+	// Session describes one session as the listing of the project shows it (every project for the zero Project);
+	// ErrSessionNotFound when that listing has none with that identity.
+	Session(context.Context, domain.SessionID, kernel.Project) (domain.SessionDetail, error)
 }
 
 // ListSessions lists the sessions active in a range, with what each used.
@@ -48,7 +50,7 @@ type ShowSession struct {
 	Queries SessionQueries
 }
 
-// Run describes the session id names.
-func (uc ShowSession) Run(ctx context.Context, id SessionID) (SessionDetail, error) {
-	return uc.Queries.Session(ctx, id)
+// Run describes the session id names, as the listing of the project (every project for the zero Project) shows it.
+func (uc ShowSession) Run(ctx context.Context, id SessionID, project kernel.Project) (SessionDetail, error) {
+	return uc.Queries.Session(ctx, id, project)
 }

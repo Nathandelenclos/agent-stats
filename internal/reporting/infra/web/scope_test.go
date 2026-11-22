@@ -61,7 +61,7 @@ func (x *workedIn) Sessions(_ context.Context, f domain.Filter) ([]domain.Sessio
 	return out, nil
 }
 
-func (x *workedIn) Session(context.Context, domain.SessionID) (domain.SessionDetail, error) {
+func (x *workedIn) Session(context.Context, domain.SessionID, kernel.Project) (domain.SessionDetail, error) {
 	return domain.SessionDetail{}, domain.ErrSessionNotFound
 }
 

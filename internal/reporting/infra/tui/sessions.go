@@ -84,11 +84,11 @@ func (m Model) loadSessions() tea.Cmd {
 
 // loadDetail asks the use case to describe a session, off the UI loop; answers to earlier requests no longer count.
 func (m *Model) loadDetail(id reporting.SessionID) tea.Cmd {
-	shower := m.shower
+	shower, project := m.shower, m.query().Project
 	m.sessions.detailSeq++
 	seq := m.sessions.detailSeq
 	return func() tea.Msg {
-		d, err := shower.Run(context.Background(), id)
+		d, err := shower.Run(context.Background(), id, project)
 		return detailMsg{seq, id, d, err}
 	}
 }

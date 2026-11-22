@@ -37,7 +37,7 @@ func (x recordedByProject) Sessions(_ context.Context, f domain.Filter) ([]domai
 	}
 	return make([]domain.SessionSummary, 3), nil
 }
-func (x recordedByProject) Session(context.Context, domain.SessionID) (domain.SessionDetail, error) {
+func (x recordedByProject) Session(context.Context, domain.SessionID, kernel.Project) (domain.SessionDetail, error) {
 	return domain.SessionDetail{}, domain.ErrSessionNotFound
 }
 

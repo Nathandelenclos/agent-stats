@@ -32,72 +32,103 @@ func (s *SQLiteSessions) snapshot(ctx context.Context, fn func(querier) error) e
 	return fn(scoped{ctx, tx})
 }
 
-// sessionCols selects the listed sessions: a session, or a subagent whose parent was never indexed (a root).
-// Their time span is the run's: from the session's start to the last activity of any of its subagents.
-// The prompt figures count the session's own prompts, not the briefs it sent to its subagents.
-const sessionCols = `SELECT s.id, s.harness, s.agent_type, COALESCE(s.title, ''), COALESCE(s.folder, ''), s.run_started_at, s.run_ended_at,
-	(SELECT COUNT(*) FROM session_overview c WHERE c.root_id = s.id AND c.id <> s.id),
+// A run is what a row of the listing stands for: a root session (a main session, or a subagent whose parent was never
+// indexed) and the subagents below it. Their time span is the run's: from the first start to the last activity of any
+// of them. Inside a project a run holds only the sessions that worked in the project, so that the sessions add up to
+// what the report of the project counts; a subagent that worked in the project whose root did not stands for a run of
+// its own. Without a project a run is the root and all its subagents, as the index's session_overview places them.
+//
+// runs is the WITH clause that gives the queries two tables: unit(id, run_id), the run each session is in, and
+// run(id, harness, started, ended), each run by the id of the session that heads it (and its harness).
+type runs struct {
+	with string
+	args []any
+}
+
+const runTable = `run(id, harness, started, ended) AS (
+	SELECT u.run_id, h.harness, COALESCE(MIN(NULLIF(o.started_at, 0)), 0), COALESCE(MAX(o.ended_at), 0)
+	FROM unit u JOIN session_overview o ON o.id = u.id JOIN session_overview h ON h.id = u.run_id
+	GROUP BY u.run_id, h.harness)`
+
+// runsOf places the sessions of the index, or the ones that worked in project p, in runs.
+func runsOf(q querier, p kernel.Project) (runs, error) {
+	if p.IsZero() { // the view already spans each run
+		return runs{with: `WITH unit(id, run_id) AS (SELECT id, root_id FROM session_overview),
+			run(id, harness, started, ended) AS (SELECT id, harness, run_started_at, run_ended_at FROM session_overview WHERE id = root_id)`}, nil
+	}
+	list, err := projectfolders.List(q, p)
+	if err != nil {
+		return runs{}, err
+	}
+	return runs{`WITH unit(id, run_id) AS (
+		SELECT o.id, CASE WHEN h.folder IN (SELECT value FROM json_each(?)) THEN o.root_id ELSE o.id END
+		FROM session_overview o JOIN session_overview h ON h.id = o.root_id
+		WHERE o.folder IN (SELECT value FROM json_each(?))), ` + runTable, []any{list, list}}, nil
+}
+
+// sessionCols selects the listed sessions, the head of each run. The prompt figures count the session's own prompts,
+// not the briefs it sent to its subagents.
+const sessionCols = `SELECT s.id, s.harness, s.agent_type, COALESCE(s.title, ''), COALESCE(s.folder, ''), run.started, run.ended,
+	(SELECT COUNT(*) FROM unit c WHERE c.run_id = s.id AND c.id <> s.id),
 	(SELECT COUNT(*) FROM session_prompts p WHERE p.session_id = s.id),
 	(SELECT COALESCE(SUM(p.chars), 0) FROM session_prompts p WHERE p.session_id = s.id)
-	FROM session_overview s WHERE s.id = s.root_id`
+	FROM run JOIN session_overview s ON s.id = run.id WHERE 1 = 1`
 
 // Sessions lists the sessions whose last activity is in the filter's range, most recent first.
 func (s *SQLiteSessions) Sessions(ctx context.Context, f report.Filter) (out []report.SessionSummary, err error) {
 	err = s.snapshot(ctx, func(q querier) error {
-		cond, args, err := rootsCondition(q, f)
+		r, err := runsOf(q, f.Project)
 		if err != nil {
 			return err
 		}
-		if out, err = sessionRows(q, cond, args); err != nil {
+		cond, args := rangeCondition(f)
+		if out, err = sessionRows(q, r, cond, args); err != nil {
 			return err
 		}
-		// The usage queries narrow to the same sessions with a subquery, so a short range stays cheap.
-		return addUsage(q, out, `r.root_id IN (SELECT s.id FROM session_overview s WHERE s.id = s.root_id`+cond+`)`, args)
+		// The usage queries narrow to the same runs with a subquery, so a short range stays cheap.
+		return addUsage(q, out, r, `u.run_id IN (SELECT run.id FROM run WHERE 1 = 1`+cond+`)`, args)
 	})
 	return out, err
 }
 
-// rootsCondition narrows the roots (aliased s) to the filter, as " AND ..." conditions; every value is a bound parameter.
-// A run belongs to the project of its root session.
-func rootsCondition(q querier, f report.Filter) (cond string, args []any, err error) {
+// rangeCondition narrows the runs (aliased run) to the filter's period and harness, as " AND ..." conditions; every
+// value is a bound parameter. The project is not here: it decides what a run holds.
+func rangeCondition(f report.Filter) (cond string, args []any) {
 	if !f.Since.IsZero() {
-		cond, args = cond+" AND s.run_ended_at >= ?", append(args, kernel.UnixMilli(f.Since))
+		cond, args = cond+" AND run.ended >= ?", append(args, kernel.UnixMilli(f.Since))
 	}
 	if !f.Harness.IsZero() {
-		cond, args = cond+" AND s.harness = ?", append(args, f.Harness.String())
+		cond, args = cond+" AND run.harness = ?", append(args, f.Harness.String())
 	}
-	inProject, projectArgs, err := projectfolders.Condition(q, f.Project, "s.folder")
-	if err != nil {
-		return "", nil, err
-	}
-	if inProject != "" {
-		cond, args = cond+" AND "+inProject, append(args, projectArgs...)
-	}
-	return cond, args, nil
+	return cond, args
 }
 
-// Session describes one session of the listing.
-func (s *SQLiteSessions) Session(ctx context.Context, id report.SessionID) (d report.SessionDetail, err error) {
-	root := []any{id.String()}
+// Session describes one session of the listing of project p (of every project for the zero Project).
+func (s *SQLiteSessions) Session(ctx context.Context, id report.SessionID, p kernel.Project) (d report.SessionDetail, err error) {
 	err = s.snapshot(ctx, func(q querier) error {
-		rows, err := sessionRows(q, " AND s.id = ?", root)
+		r, err := runsOf(q, p)
+		if err != nil {
+			return err
+		}
+		head := []any{id.String()}
+		rows, err := sessionRows(q, r, " AND run.id = ?", head)
 		if err != nil {
 			return err
 		}
 		if len(rows) == 0 {
 			return report.ErrSessionNotFound
 		}
-		if err = addUsage(q, rows, "r.root_id = ?", root); err != nil {
+		if err = addUsage(q, rows, r, "u.run_id = ?", head); err != nil {
 			return err
 		}
 		d.SessionSummary = rows[0]
-		if d.Tools, err = toolUsage(q, "session_tool_calls", " WHERE t.root_id = ?", root); err != nil {
+		if d.Tools, err = toolUsage(q, r.with, "session_tool_calls", " WHERE t.session_id IN (SELECT u.id FROM unit u WHERE u.run_id = ?)", append(slices.Clone(r.args), head...)); err != nil {
 			return err
 		}
 		slices.SortStableFunc(d.Tools, func(a, b report.ToolUsage) int { // the query leaves equal counts in any order
 			return cmp.Or(cmp.Compare(b.Calls, a.Calls), strings.Compare(a.Name, b.Name), strings.Compare(a.Server, b.Server))
 		})
-		if d.Subagents, err = subagents(q, id); err != nil {
+		if d.Subagents, err = subagents(q, r, id); err != nil {
 			return err
 		}
 		d.Prompts, err = prompts(q, id)
@@ -106,9 +137,9 @@ func (s *SQLiteSessions) Session(ctx context.Context, id report.SessionID) (d re
 	return d, err
 }
 
-// sessionRows reads the listed sessions that cond narrows to, most recent first, without their usage.
-func sessionRows(q querier, cond string, args []any) ([]report.SessionSummary, error) {
-	rows, err := q.Query(sessionCols+cond+` ORDER BY s.run_ended_at DESC, s.run_started_at DESC, s.id`, args...)
+// sessionRows reads the listed sessions of runs that cond narrows to, most recent first, without their usage.
+func sessionRows(q querier, r runs, cond string, args []any) ([]report.SessionSummary, error) {
+	rows, err := q.Query(r.with+" "+sessionCols+cond+` ORDER BY run.ended DESC, run.started DESC, s.id`, append(slices.Clone(r.args), args...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -134,31 +165,34 @@ func sessionRows(q querier, cond string, args []any) ([]report.SessionSummary, e
 }
 
 // addUsage fills the usage of each session from the requests of its run, and the models it used.
-// roots selects the requests (aliased r) of those runs.
-func addUsage(q querier, sessions []report.SessionSummary, roots string, args []any) error {
+// cond selects the runs (aliased u, by u.run_id) whose requests (aliased r) count.
+func addUsage(q querier, sessions []report.SessionSummary, r runs, cond string, args []any) error {
 	at := make(map[string]int, len(sessions))
 	for i, s := range sessions {
 		at[s.ID.String()] = i
 	}
-	if err := usageGroups(q, "r.root_id", roots, args, func(keys []string, u report.Usage) {
+	from := "session_requests r JOIN unit u ON u.id = r.session_id"
+	args = append(slices.Clone(r.args), args...)
+	if err := usageGroups(q, r.with, "u.run_id", from, cond, args, func(keys []string, u report.Usage) {
 		if i, ok := at[keys[0]]; ok {
 			sessions[i].Usage = u
 		}
 	}); err != nil {
 		return err
 	}
-	return usageGroups(q, "r.root_id, r.model", roots, args, func(keys []string, u report.Usage) {
+	return usageGroups(q, r.with, "u.run_id, r.model", from, cond, args, func(keys []string, u report.Usage) {
 		if i, ok := at[keys[0]]; ok {
 			sessions[i].Models = append(sessions[i].Models, report.UsageGroup{Group: keys[1], Usage: u})
 		}
 	})
 }
 
-// usageGroups aggregates the requests of session_requests (aliased r) that cond selects, grouped by the columns
-// keys names, most expensive first; fn gets each group's key values and usage.
-func usageGroups(q querier, keys, cond string, args []any, fn func(keys []string, u report.Usage)) error {
-	rows, err := q.Query(`SELECT `+keys+`, `+usageCols+`
-		FROM session_requests r WHERE `+cond+`
+// usageGroups aggregates the requests of from (a table of requests aliased r) that cond selects, grouped by the columns
+// keys names, most expensive first; fn gets each group's key values and usage. with, when it is not empty, is a WITH clause
+// from and cond may use.
+func usageGroups(q querier, with, keys, from, cond string, args []any, fn func(keys []string, u report.Usage)) error {
+	rows, err := q.Query(with+` SELECT `+keys+`, `+usageCols+`
+		FROM `+from+` WHERE `+cond+`
 		GROUP BY `+keys+` ORDER BY SUM(r.cost) DESC, COUNT(*) DESC, `+keys, args...)
 	if err != nil {
 		return err
@@ -179,9 +213,9 @@ func usageGroups(q querier, keys, cond string, args []any, fn func(keys []string
 	return rows.Err()
 }
 
-// subagents lists the subagents the session started, most expensive first.
-func subagents(q querier, root report.SessionID) ([]report.SubagentUsage, error) {
-	ids, out, err := subagentRows(q, root)
+// subagents lists the subagents of the run the session heads, most expensive first.
+func subagents(q querier, r runs, root report.SessionID) ([]report.SubagentUsage, error) {
+	ids, out, err := subagentRows(q, r, root)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +223,8 @@ func subagents(q querier, root report.SessionID) ([]report.SubagentUsage, error)
 	for i, id := range ids {
 		at[id] = i
 	}
-	err = usageGroups(q, "r.session_id", "r.root_id = ? AND r.session_id <> r.root_id", []any{root.String()}, func(keys []string, u report.Usage) {
+	args := append(slices.Clone(r.args), root.String())
+	err = usageGroups(q, r.with, "r.session_id", "session_requests r JOIN unit u ON u.id = r.session_id", "u.run_id = ? AND r.session_id <> u.run_id", args, func(keys []string, u report.Usage) {
 		if i, ok := at[keys[0]]; ok {
 			out[i].Usage = u
 		}
@@ -200,10 +235,10 @@ func subagents(q querier, root report.SessionID) ([]report.SubagentUsage, error)
 	return out, err
 }
 
-// subagentRows reads the subagents of a session, with the identity the index gives each (needed to add up its requests).
-func subagentRows(q querier, root report.SessionID) (ids []string, out []report.SubagentUsage, err error) {
-	rows, err := q.Query(`SELECT o.id, o.agent_type, COALESCE(o.title, '') FROM session_overview o
-		WHERE o.root_id = ? AND o.id <> o.root_id ORDER BY o.id`, root.String())
+// subagentRows reads the subagents of a run, with the identity the index gives each (needed to add up its requests).
+func subagentRows(q querier, r runs, root report.SessionID) (ids []string, out []report.SubagentUsage, err error) {
+	rows, err := q.Query(r.with+` SELECT o.id, o.agent_type, COALESCE(o.title, '') FROM session_overview o JOIN unit u ON u.id = o.id
+		WHERE u.run_id = ? AND o.id <> u.run_id ORDER BY o.id`, append(slices.Clone(r.args), root.String())...)
 	if err != nil {
 		return nil, nil, err
 	}

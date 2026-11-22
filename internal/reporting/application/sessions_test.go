@@ -27,7 +27,7 @@ func (r *recordedSessions) Sessions(ctx context.Context, f domain.Filter) ([]dom
 	return r.list, r.err
 }
 
-func (r *recordedSessions) Session(ctx context.Context, id domain.SessionID) (domain.SessionDetail, error) {
+func (r *recordedSessions) Session(ctx context.Context, id domain.SessionID, _ kernel.Project) (domain.SessionDetail, error) {
 	if err := ctx.Err(); err != nil {
 		return domain.SessionDetail{}, err
 	}
@@ -59,7 +59,7 @@ func TestShowSessionDescribesTheSessionAskedFor(t *testing.T) {
 	idx := &recordedSessions{detail: domain.SessionDetail{SessionSummary: domain.SessionSummary{ID: id}, Prompts: []domain.Prompt{{Text: "hi"}}}}
 
 	// When that session is shown
-	d, err := ShowSession{Queries: idx}.Run(context.Background(), id)
+	d, err := ShowSession{Queries: idx}.Run(context.Background(), id, kernel.Project{})
 
 	// Then the index was asked about it and its prompts are in the answer
 	if err != nil || idx.asked != id || len(d.Prompts) != 1 {
@@ -73,7 +73,7 @@ func TestShowSessionReportsAnUnknownSession(t *testing.T) {
 	id, _ := NewSessionID("claude:gone")
 
 	// When it is shown, then the caller can tell it is missing
-	if _, err := (ShowSession{Queries: idx}).Run(context.Background(), id); !errors.Is(err, ErrSessionNotFound) {
+	if _, err := (ShowSession{Queries: idx}).Run(context.Background(), id, kernel.Project{}); !errors.Is(err, ErrSessionNotFound) {
 		t.Errorf("err = %v", err)
 	}
 }
@@ -175,7 +175,7 @@ func TestNoSessionIsShownToACallerThatGaveUp(t *testing.T) {
 	idx := &recordedSessions{detail: domain.SessionDetail{SessionSummary: domain.SessionSummary{ID: id}}}
 
 	// When the session is shown
-	_, err := ShowSession{Queries: idx}.Run(ctx, id)
+	_, err := ShowSession{Queries: idx}.Run(ctx, id, kernel.Project{})
 
 	// Then the caller is told it gave up
 	if !errors.Is(err, context.Canceled) {
