@@ -34,13 +34,15 @@ type Options struct {
 	ErrorSignatures reporting.ListErrorSignatures
 	Trace           reporting.ShowSessionTrace
 	SessionPrompt   reporting.ShowSessionPrompt
-	Prompts         reporting.ReviewPrompts
-	ModelSignals    reporting.CompareModelSignals
-	ToolModels      reporting.AttributeTools
-	Catalog         func(catalog.Query) (catalog.Catalog, error)
-	Quotas          quota.Reader
-	RecordQuotas    func(context.Context, []quota.Window) error
-	QuotaHistory    func(context.Context, time.Time, int) ([]quota.Window, error)
+	// OmitPromptExcerpts keeps the prompt references while requiring a separate request for their text.
+	OmitPromptExcerpts bool
+	Prompts            reporting.ReviewPrompts
+	ModelSignals       reporting.CompareModelSignals
+	ToolModels         reporting.AttributeTools
+	Catalog            func(catalog.Query) (catalog.Catalog, error)
+	Quotas             quota.Reader
+	RecordQuotas       func(context.Context, []quota.Window) error
+	QuotaHistory       func(context.Context, time.Time, int) ([]quota.Window, error)
 	// Sync, when set, runs at startup and on request. Serve cancels and waits for it when its context ends.
 	Sync         Sync
 	SyncInterval time.Duration

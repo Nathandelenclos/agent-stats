@@ -27,7 +27,7 @@ func (s *Server) relatedSessions(w http.ResponseWriter, r *http.Request) {
 		relationMissing(w)
 		return
 	}
-	p, bad := s.parseParamsBounded(r, maxRelationQuery, paramSince, paramHarness, paramProject, paramLimit,
+	p, bad := s.parseParamsBounded(r, maxRelationQuery, paramSince, paramHarness, paramProject, paramLimit, paramOffset,
 		paramKind, paramValue, paramServer, paramItemHarness, paramItemScope, paramItemOrigin)
 	if bad != nil {
 		bad.write(w)

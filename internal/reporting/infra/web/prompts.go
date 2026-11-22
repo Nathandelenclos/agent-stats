@@ -48,7 +48,7 @@ type folderJSON struct {
 }
 
 func (s *Server) prompts(w http.ResponseWriter, r *http.Request) {
-	p, bad := s.parseParams(r, paramSince, paramHarness, paramProject, paramLimit)
+	p, bad := s.parseParams(r, paramSince, paramHarness, paramProject, paramLimit, paramOffset)
 	if bad != nil {
 		bad.write(w)
 		return
@@ -62,11 +62,12 @@ func (s *Server) prompts(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, "reviewing the prompts", err)
 		return
 	}
-	writeJSON(w, s.log, promptReview(review, p.scope, s.localOnly, p.limit))
+	writeJSON(w, s.log, promptReview(review, p.scope, s.localOnly, !s.opts.OmitPromptExcerpts, p.limit, p.offset))
 }
 
-func promptReview(r reporting.PromptReview, scope string, localPrompts bool, limit int) promptReviewJSON {
-	shown := r.Prompts[:min(len(r.Prompts), limit)]
+func promptReview(r reporting.PromptReview, scope string, localPrompts, includeExcerpts bool, limit, offset int) promptReviewJSON {
+	start := min(offset, len(r.Prompts))
+	shown := r.Prompts[start : start+min(limit, len(r.Prompts)-start)]
 	out := promptReviewJSON{
 		Scope: scope, Count: len(r.Prompts), Sessions: r.Sessions, PromptsVisible: localPrompts,
 		Prompts: make([]flaggedJSON, 0, len(shown)), Recurring: make([]repeatedJSON, 0, len(r.Recurring)),
@@ -76,7 +77,9 @@ func promptReview(r reporting.PromptReview, scope string, localPrompts bool, lim
 		row := flaggedJSON{Session: p.Session.String(), Harness: p.Harness.String(), Title: p.Title, Folder: p.Folder,
 			TS: kernel.UnixMilli(p.At), Signals: encodeSignals(p.Signals)}
 		if localPrompts {
-			row.Excerpt = textfmt.Excerpt(p.Text, promptExcerptChars)
+			if includeExcerpts {
+				row.Excerpt = textfmt.Excerpt(p.Text, promptExcerptChars)
+			}
 			if p.Position > 0 {
 				row.Position = p.Position
 				row.Revision = promptRevision(row.TS, p.Chars, p.Text)
@@ -86,7 +89,7 @@ func promptReview(r reporting.PromptReview, scope string, localPrompts bool, lim
 	}
 	for _, ask := range r.Recurring {
 		row := repeatedJSON{Count: ask.Count, Sessions: ask.Sessions, FirstTS: kernel.UnixMilli(ask.First), LastTS: kernel.UnixMilli(ask.Last)}
-		if localPrompts {
+		if localPrompts && includeExcerpts {
 			row.Excerpt = textfmt.Excerpt(ask.Text, promptExcerptChars)
 		}
 		out.Recurring = append(out.Recurring, row)

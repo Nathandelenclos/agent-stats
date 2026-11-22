@@ -76,7 +76,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	case !sessionMatches(d.SessionSummary, p.query):
 		sessionMissing(w)
 	default:
-		writeJSON(w, s.log, sessionDetails(d, p.scope, s.localOnly))
+		writeJSON(w, s.log, sessionDetails(d, p.scope, s.localOnly, !s.opts.OmitPromptExcerpts))
 	}
 }
 
@@ -88,7 +88,7 @@ func sessionMissing(w http.ResponseWriter) {
 	problem{Type: problemNotFound, Title: "Session not found in this view", Status: http.StatusNotFound}.write(w)
 }
 
-func sessionDetails(d reporting.SessionDetail, scope string, localPrompts bool) sessionDetailJSON {
+func sessionDetails(d reporting.SessionDetail, scope string, localPrompts, includeExcerpts bool) sessionDetailJSON {
 	out := sessionDetailJSON{
 		Scope: scope, Session: sessionSummary(d.SessionSummary), Tools: tools(d.Tools), ForkedFrom: d.ForkedFrom,
 		Subagents: make([]subagentJSON, 0, len(d.Subagents)), PromptsVisible: localPrompts,
@@ -106,7 +106,9 @@ func sessionDetails(d reporting.SessionDetail, scope string, localPrompts bool) 
 			Signals: encodeSignals(p.Signals),
 		}
 		if localPrompts {
-			row.Excerpt = p.Text
+			if includeExcerpts {
+				row.Excerpt = p.Text
+			}
 			if p.Position > 0 {
 				row.Position = p.Position
 				row.Revision = promptRevision(row.TS, row.Chars, p.Text)

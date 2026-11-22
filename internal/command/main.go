@@ -71,6 +71,9 @@ func indexForReport(run indexRun, progress func(indexing.IndexReport)) error {
 
 // Run executes agent-stats using the process arguments and standard streams.
 func Run() error {
+	if len(os.Args) > 1 && os.Args[1] == "query" {
+		return runQuery(context.Background(), os.Args[2:], os.Stdout, os.Stderr)
+	}
 	if len(os.Args) > 1 && os.Args[1] == "serve" {
 		return runServe(os.Args[2:])
 	}
@@ -88,11 +91,7 @@ func Run() error {
 	if len(os.Args) > 1 && os.Args[1] == "catalog" {
 		return runCatalog(os.Args[2:], os.Stdout, os.Stderr)
 	}
-	defaultDB := ""
-	if cache, err := os.UserCacheDir(); err == nil {
-		defaultDB = filepath.Join(cache, "agent-stats", "index.db")
-	}
-	dbPath := flag.String("db", defaultDB, "index database (default: agent-stats/index.db in the user cache directory)")
+	dbPath := flag.String("db", defaultIndexPath(), "index database (default: agent-stats/index.db in the user cache directory)")
 	pricesPath := flag.String("prices", "", "JSON file overriding embedded prices: {\"model\": [input, output, cacheRead, cacheWrite]} in USD per token")
 	since := flag.String("since", "", "only count activity after this: 24h, 7d, 30d or 2006-01-02")
 	harness := flag.String("harness", "", "only one harness (default: all)")
@@ -212,6 +211,14 @@ func parseSince(s string, now time.Time) (time.Time, error) {
 		return t, nil
 	}
 	return time.Time{}, fmt.Errorf("invalid --since %q: use 24h, 7d or 2006-01-02", s)
+}
+
+func defaultIndexPath() string {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(cache, "agent-stats", "index.db")
 }
 
 func currentUser() string {

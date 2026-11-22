@@ -153,9 +153,9 @@ type totalJSON struct {
 	Unpriced int64   `json:"unpriced"`
 }
 
-// sessions answers GET /api/sessions?since=&harness=&project=&limit=: the most recent sessions, without their prompts.
+// sessions answers GET /api/sessions?since=&harness=&project=&limit=&offset=: the most recent sessions, without their prompts.
 func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
-	p, bad := s.parseParams(r, paramSince, paramHarness, paramProject, paramLimit)
+	p, bad := s.parseParams(r, paramSince, paramHarness, paramProject, paramLimit, paramOffset)
 	if bad != nil {
 		bad.write(w)
 		return
@@ -169,10 +169,8 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func sessionListing(list reporting.SessionList, p params) sessionsJSON {
-	shown := list.Sessions
-	if len(shown) > p.limit {
-		shown = shown[:p.limit]
-	}
+	start := min(p.offset, len(list.Sessions))
+	shown := list.Sessions[start : start+min(p.limit, len(list.Sessions)-start)]
 	out := sessionsJSON{Scope: p.scope, Count: len(list.Sessions), Sessions: make([]sessionJSON, 0, len(shown)),
 		Total: totalJSON{list.Total.Requests, list.Total.Failed, float64(list.Total.Cost), list.Total.Unpriced}}
 	for _, x := range shown {

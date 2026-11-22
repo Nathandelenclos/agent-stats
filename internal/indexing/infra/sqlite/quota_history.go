@@ -2,6 +2,9 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
+	"net/url"
+	"path/filepath"
 	"time"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
@@ -39,9 +42,28 @@ func (s *SQLiteIndex) RecordQuotaWindows(ctx context.Context, windows []quota.Wi
 }
 
 func (s *SQLiteIndex) QuotaHistory(ctx context.Context, since time.Time, limit int) ([]quota.Window, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT observed_at, provider, label, reset_at, remaining
-		FROM quota_snapshots WHERE observed_at >= ? ORDER BY observed_at DESC, provider, label, reset_at LIMIT ?`,
-		kernel.UnixMilli(since), limit)
+	return quotaHistory(ctx, s.db, since, limit, 0)
+}
+
+// ReadQuotaHistory reads recorded windows without opening the index for writes.
+func ReadQuotaHistory(ctx context.Context, path string, since time.Time, limit, offset int) ([]quota.Window, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	dsn := (&url.URL{Scheme: "file", Path: abs, RawQuery: "mode=ro"}).String()
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	return quotaHistory(ctx, db, since, limit, offset)
+}
+
+func quotaHistory(ctx context.Context, db *sql.DB, since time.Time, limit, offset int) ([]quota.Window, error) {
+	rows, err := db.QueryContext(ctx, `SELECT observed_at, provider, label, reset_at, remaining
+		FROM quota_snapshots WHERE observed_at >= ? ORDER BY observed_at DESC, provider, label, reset_at LIMIT ? OFFSET ?`,
+		kernel.UnixMilli(since), limit, offset)
 	if err != nil {
 		return nil, err
 	}

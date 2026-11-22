@@ -22,13 +22,9 @@ import (
 
 // runCatalog is the `agent-stats catalog` subcommand: what each harness has installed, linked to how much it was used.
 func runCatalog(args []string, stdout, stderr io.Writer) error {
-	defaultDB := ""
-	if cache, err := os.UserCacheDir(); err == nil {
-		defaultDB = filepath.Join(cache, "agent-stats", "index.db")
-	}
 	fl := flag.NewFlagSet("agent-stats catalog", flag.ContinueOnError)
 	fl.SetOutput(stderr)
-	dbPath := fl.String("db", defaultDB, "index database (default: agent-stats/index.db in the user cache directory)")
+	dbPath := fl.String("db", defaultIndexPath(), "index database (default: agent-stats/index.db in the user cache directory)")
 	pricesPath := fl.String("prices", "", "JSON file overriding embedded prices, used when indexing")
 	since := fl.String("since", "", "only count usage after this: 24h, 7d, 30d or 2006-01-02")
 	harness := fl.String("harness", "", "only one harness (default: all)")

@@ -168,6 +168,45 @@ Costs are in USD, timestamps are Unix milliseconds (`0` when unknown). When ther
 index or a range without activity), a group or tool list with no entry is printed as `null`, not as `[]`: read an
 absent or `null` list as empty.
 
+## Querying the index
+
+`agent-stats query` reads the existing SQLite index and writes one JSON object to stdout.
+It can run without the web server. It starts in the current project's scope and returns an empty
+result if the project has no recorded activity. Use `--all` to include other projects.
+
+```sh
+agent-stats query overview --since 7d --project . --json
+agent-stats query models --since 30d --all
+agent-stats query requests --model example --provider provider --limit 20 --all
+agent-stats query related-sessions --kind tool --value read --server memory --since 7d
+agent-stats query session --session 'codex:session-id'
+agent-stats query quotas --since 7d
+```
+
+| Dataset | Contents |
+|---------|----------|
+| `overview` | Usage, prices, cache, errors, daily/hourly series, and totals by harness, model, provider, folder, agent type, and tool. |
+| `models`, `tools`, `tool-models` | Dated series by model/provider or tool/server, and the separate attribution of matching Pi and oh-my-pi tool calls to models. |
+| `sessions`, `session`, `related-sessions` | Session list, details and parent/fork links, and the sessions that contributed to the selected entity. |
+| `requests`, `errors`, `trace` | Individual model calls, error-signature counts, and a session's indexed events. |
+| `prompts`, `prompt-signals`, `prompt` | Flagged and recurring requests, signals grouped by model/provider, and selected prompt text. |
+| `catalog`, `quotas` | Installed inventory with usage, and stored account quota observations. |
+
+Run `agent-stats query <dataset> --help` for dataset flags. The JSON envelope contains
+`schemaVersion`, `dataset`, `scope`, `since`, and `data`, with `project` and `harness` when selected.
+`since` is the effective start time or `all`. `--db` selects another existing index.
+Use `--offset` with a bounded `--limit` for sessions, related sessions, requests, traces, flagged prompts,
+and quota history. Paging flagged prompts leaves the recurrence and folder totals intact.
+
+Session detail and prompt review include prompt positions and revisions. Add `--excerpts` to include previews,
+or use `query prompt --session ID --position N --revision HASH` for the indexed text of one prompt.
+Session titles can come from a prompt. The catalog reads the current project's installed configuration and
+the user inventory. `--all` broadens the catalog usage counters. Quota observations have account scope and are
+read from the index without polling providers. Each includes its observation time and known reset time.
+
+The [agent-stats-analysis skill](../.agents/skills/agent-stats-analysis/SKILL.md) gives agents query examples
+and describes how to connect usage totals with the requests, sessions, and tools behind them.
+
 ## Web interface
 
 ```sh
@@ -225,11 +264,11 @@ Unknown or repeated parameters are refused with `400`.
 | `/api/report?since=&harness=&project=` | The `--json` report (same fields), plus `daily`: one entry per local day with activity, oldest first, `key` being `2006-01-02`. Lists are `[]` when empty, never `null`. |
 | `/api/activity-series?kind=&since=&harness=&project=` | Dated samples for `kind=models` (model and provider) or `kind=tools` (tool and MCP server). Buckets are hourly for periods up to 72 hours, daily up to 120 days and monthly for longer periods or all time. Day and month keys use the server's local time. |
 | `/api/requests?since=&harness=&project=&model=&provider=` | Paginated model requests, newest first. With `model`, the request matches that exact model and provider. An omitted provider with a model matches rows whose provider is unknown. |
-| `/api/sessions?since=&harness=&project=&limit=` | The most recent sessions (`limit` 1 to 1000, default 100) with their usage, models and subagent count, without the prompts. `scope` is the project filter applied. `count` and `total` cover every matching session, and add up to the report of the same scope. `title` is the session title, which for an untitled session is the start of its first prompt. |
+| `/api/sessions?since=&harness=&project=&limit=&offset=` | The most recent sessions (`limit` 1 to 1000, default 100) with their usage, models and subagent count, without the prompts. `scope` is the project filter applied. `count` and `total` cover every matching session, and add up to the report of the same scope. `title` is the session title, which for an untitled session is the start of its first prompt. |
 | `/api/sessions/{id}?since=&harness=&project=` | One session from the same scope and filters, with its tools, subagents and prompt signals. Subagents can include `id`, `parentId` within the selected run, `startTs`, `endTs` and `models`. `forkedFrom` identifies the recorded source of a Codex fork when it is visible in the selected project. Encode the session ID as a single path segment. An unknown or out-of-scope session returns `404`. Excerpts are at most 2,000 characters each and are omitted with `--allow-remote`. |
 | `/api/sessions/{id}/prompts/{position}?since=&harness=&project=&revision=` | Full text of the selected prompt on the local server. Use `position` and `revision` from the preview. If the preview revision no longer matches, the route returns `409`. |
-| `/api/related-sessions?kind=&value=&since=&harness=&project=&limit=` | Sessions contributing to a day, harness, model, folder, agent type, tool or MCP server. Totals cover the selection. Tool and MCP relations report calls and errors. An MCP relation is local only and requires the catalog entry's harness, scope and full origin ID. |
-| `/api/prompts?since=&harness=&project=&limit=` | Flagged prompts in review order, recurrent requests and totals by folder. `limit` affects the flagged list only. Excerpts are at most 240 characters each and are omitted with `--allow-remote`. |
+| `/api/related-sessions?kind=&value=&since=&harness=&project=&limit=&offset=` | Sessions contributing to a day, harness, model, folder, agent type, tool or MCP server. Totals cover the selection. Tool and MCP relations report calls and errors. An MCP relation is local only and requires the catalog entry's harness, scope and full origin ID. |
+| `/api/prompts?since=&harness=&project=&limit=&offset=` | Flagged prompts in review order, recurrent requests and totals by folder. `limit` and `offset` affect the flagged list only. Excerpts are at most 240 characters each and are omitted with `--allow-remote`. |
 | `/api/meta` | The harness names, the name of the project the server runs in (`project`, `""` when it found none), and the period, harness and scope (`defaults.scope`: `current` or `all`) the page opens on. |
 | `GET /api/sync` | The background indexing: `state` (`running`, `done`, `failed`, or `disabled` with `--no-sync`), files `indexed`, and what was skipped. |
 | `POST /api/sync` | Starts another indexing run or returns the run already in progress. Requires a same-origin browser request and no body or query parameters. |

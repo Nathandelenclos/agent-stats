@@ -9,12 +9,12 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/infra/sqlite"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	pricing "github.com/Nathandelenclos/agent-stats/internal/pricing/domain"
 	"github.com/Nathandelenclos/agent-stats/internal/pricing/infra/pricetable"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 	usagedb "github.com/Nathandelenclos/agent-stats/internal/reporting/infra/sqlite"
@@ -24,14 +24,10 @@ import (
 
 // runServe is `agent-stats serve`: the usage report in a browser, served from this machine.
 func runServe(args []string) error {
-	defaultDB := ""
-	if cache, err := os.UserCacheDir(); err == nil {
-		defaultDB = filepath.Join(cache, "agent-stats", "index.db")
-	}
 	fs := flag.NewFlagSet("agent-stats serve", flag.ContinueOnError)
 	addr := fs.String("addr", "127.0.0.1:7373", "address to listen on; loopback only unless --allow-remote")
 	allowRemote := fs.Bool("allow-remote", false, "accept a non-loopback --addr and any Host header: every machine that reaches the port can read the report and session metadata")
-	dbPath := fs.String("db", defaultDB, "index database (default: agent-stats/index.db in the user cache directory)")
+	dbPath := fs.String("db", defaultIndexPath(), "index database (default: agent-stats/index.db in the user cache directory)")
 	pricesPath := fs.String("prices", "", "JSON file overriding embedded prices: {\"model\": [input, output, cacheRead, cacheWrite]} in USD per token")
 	since := fs.String("since", "", "period the page opens on: 24h, 7d, 30d or 2006-01-02 (default: all)")
 	harness := fs.String("harness", "", "harness the page opens on (default: all)")
@@ -105,8 +101,24 @@ func runServe(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	opts := reportingOptions(usage, prices, cov)
+	opts.Catalog = interactiveCatalog(*dbPath, *projectDir)
+	opts.Quotas = readQuotas
+	opts.RecordQuotas = index.RecordQuotaWindows
+	opts.QuotaHistory = index.QuotaHistory
+	opts.Sync = sync
+	opts.SyncInterval = 30 * time.Second
+	opts.Assets = webui.Assets()
+	opts.Since, opts.Harness = *since, only
+	opts.Detect = redetection(*all, *projectDir, detect)
+	opts.AllowRemote = *allowRemote
+	opts.Log = log.New(os.Stderr, "agent-stats: ", log.LstdFlags)
+	return web.Serve(ctx, ln, opts)
+}
+
+func reportingOptions(usage *usagedb.SQLiteUsage, prices pricing.PriceList, cov coverage) web.Options {
 	sessions := usage.Sessions()
-	return web.Serve(ctx, ln, web.Options{
+	return web.Options{
 		Reports:        reporting.BuildTimelineReport{Queries: usage},
 		ActivitySeries: reporting.ListActivitySeries{Queries: usage},
 		TokenRates: func(model string) (web.TokenRates, bool) {
@@ -122,20 +134,8 @@ func runServe(args []string) error {
 		Prompts:         reporting.ReviewPrompts{Queries: usage.Prompts()},
 		ModelSignals:    reporting.CompareModelSignals{Queries: usage.Prompts()},
 		ToolModels:      reporting.AttributeTools{Queries: sessions},
-		Catalog:         interactiveCatalog(*dbPath, *projectDir),
-		Quotas:          readQuotas,
-		RecordQuotas:    index.RecordQuotaWindows,
-		QuotaHistory:    index.QuotaHistory,
-		Sync:            sync,
-		SyncInterval:    30 * time.Second,
 		ParseSince:      parseSince,
-		Assets:          webui.Assets(),
-		Since:           *since,
-		Harness:         only,
 		Project:         cov.project,
 		Restricted:      cov.restricted,
-		Detect:          redetection(*all, *projectDir, detect),
-		AllowRemote:     *allowRemote,
-		Log:             log.New(os.Stderr, "agent-stats: ", log.LstdFlags),
-	})
+	}
 }
