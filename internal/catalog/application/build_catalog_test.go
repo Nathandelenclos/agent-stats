@@ -25,12 +25,12 @@ type fakeActivity struct {
 	err    error
 }
 
-// Activity answers like the index: what the logs say, limited to the harness asked for.
+// Activity answers like the index: what the logs say, limited to the harness and the period asked for.
 func (f *fakeActivity) Activity(q domain.Filter) (domain.Activity, error) {
 	f.filter = q
 	var out domain.Activity
 	for _, s := range f.act.Skills {
-		if q.Harness.IsZero() || s.Harness == q.Harness {
+		if (q.Harness.IsZero() || s.Harness == q.Harness) && !s.Last.Before(q.Since) {
 			out.Skills = append(out.Skills, s)
 		}
 	}
@@ -73,19 +73,29 @@ func TestCatalogCoversEveryHarnessWithItsUsage(t *testing.T) {
 	}
 }
 
-func TestCatalogLimitsUsageToThePeriodAsked(t *testing.T) {
-	// Given the same installation, and a period starting on a date
-	inv, act := twoHarnesses(t)
-	since := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+func TestCatalogCountsOnlyTheUsageOfThePeriodAsked(t *testing.T) {
+	// Given a skill last loaded in January and another last loaded in March
+	inv := &fakeInventory{byHarness: map[kernel.Harness]Installed{
+		kernel.Claude: {Items: []domain.Item{skill(t, kernel.Claude, "old"), skill(t, kernel.Claude, "recent")}},
+	}}
+	act := &fakeActivity{act: domain.Activity{Skills: []domain.SkillActivity{
+		{Harness: kernel.Claude, Skill: "old", Calls: 4, Last: time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)},
+		{Harness: kernel.Claude, Skill: "recent", Calls: 2, Last: time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)},
+	}}}
 
-	// When the catalogue is built for that period
-	if _, err := (BuildCatalog{Inventory: inv, Activity: act}).Run(Query{Since: since}); err != nil {
+	// When the catalogue is built for the period starting in February
+	c, err := BuildCatalog{Inventory: inv, Activity: act}.Run(Query{Harness: kernel.Claude, Since: time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)})
+
+	// Then the recent skill shows its loads and the old one counts as unused in that period
+	if err != nil {
 		t.Fatal(err)
 	}
-
-	// Then the activity was asked for that period only
-	if !act.filter.Since.Equal(since) {
-		t.Errorf("filter: %+v", act.filter)
+	uses := map[string]int64{}
+	for _, e := range c.Entries {
+		uses[e.Name.String()] = e.Uses
+	}
+	if uses["recent"] != 2 || uses["old"] != 0 || len(uses) != 2 {
+		t.Errorf("uses: %v", uses)
 	}
 }
 
@@ -132,5 +142,27 @@ func TestCatalogFailsWhenTheLogsCannotBeRead(t *testing.T) {
 	// When the catalogue is built, then the failure is returned rather than a catalogue that looks all unused
 	if _, err := (BuildCatalog{Inventory: &fakeInventory{}, Activity: &fakeActivity{err: boom}}).Run(Query{}); !errors.Is(err, boom) {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestCatalogCanListOnlyWhatIsUnusedWhileCountingEverything(t *testing.T) {
+	// Given a used skill and an idle one in Claude Code
+	inv := &fakeInventory{byHarness: map[kernel.Harness]Installed{
+		kernel.Claude: {Items: []domain.Item{skill(t, kernel.Claude, "used"), skill(t, kernel.Claude, "idle")}},
+	}}
+	act := &fakeActivity{act: domain.Activity{Skills: []domain.SkillActivity{{Harness: kernel.Claude, Skill: "used", Calls: 1}}}}
+
+	// When the catalogue is built for the unused only
+	c, err := BuildCatalog{Inventory: inv, Activity: act}.Run(Query{Harness: kernel.Claude, UnusedOnly: true})
+
+	// Then it lists the idle skill alone, while the tally still counts both as installed
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Entries) != 1 || c.Entries[0].Name.String() != "idle" {
+		t.Errorf("entries: %+v", c.Entries)
+	}
+	if got := c.Tally[kernel.Claude]; got.Installed != 2 || got.Unused != 1 {
+		t.Errorf("tally: %+v", got)
 	}
 }

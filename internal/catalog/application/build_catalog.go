@@ -2,6 +2,7 @@
 package application
 
 import (
+	"slices"
 	"time"
 
 	"github.com/Nathandelenclos/agent-stats/internal/catalog/domain"
@@ -35,11 +36,15 @@ type ActivityReader interface {
 type Query struct {
 	Since   time.Time
 	Harness kernel.Harness
+	// UnusedOnly keeps in Entries only what is installed, enabled and never used; Tally still counts everything.
+	UnusedOnly bool
 }
 
 // Catalog is the installed items linked to their usage.
 type Catalog struct {
 	Entries []Entry
+	// Tally counts, per harness, the installed entries and the unused ones, whatever Entries was limited to.
+	Tally   map[kernel.Harness]domain.Tally
 	Skipped []string
 }
 
@@ -70,5 +75,9 @@ func (uc BuildCatalog) Run(q Query) (Catalog, error) {
 		return Catalog{}, err
 	}
 	c.Entries = domain.Link(items, act)
+	c.Tally = domain.TallyByHarness(c.Entries)
+	if q.UnusedOnly {
+		c.Entries = slices.DeleteFunc(c.Entries, func(e Entry) bool { return !e.Unused() })
+	}
 	return c, nil
 }

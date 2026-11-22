@@ -90,12 +90,9 @@ func runCatalog(args []string, stdout, stderr io.Writer) error {
 	c, err := catalog.BuildCatalog{
 		Inventory: configfiles.Inventory{Roots: configfiles.DefaultRoots(home, *project, os.Getenv)},
 		Activity:  activity,
-	}.Run(catalog.Query{Since: from, Harness: only})
+	}.Run(catalog.Query{Since: from, Harness: only, UnusedOnly: *unused})
 	if err != nil {
 		return err
-	}
-	if *unused {
-		c.Entries = onlyUnused(c.Entries)
 	}
 	if *asJSON {
 		return writeCatalogJSON(stdout, c)

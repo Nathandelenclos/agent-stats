@@ -264,6 +264,25 @@ func Link(items []Item, a Activity) []Entry {
 	return entries
 }
 
+// Tally counts the installed entries of a harness and, among them, those the logs show never used.
+type Tally struct{ Installed, Unused int }
+
+// TallyByHarness counts the installed and the unused entries of each harness.
+func TallyByHarness(entries []Entry) map[kernel.Harness]Tally {
+	out := map[kernel.Harness]Tally{}
+	for _, e := range entries {
+		t := out[e.Harness]
+		if e.Installed() {
+			t.Installed++
+		}
+		if e.Unused() {
+			t.Unused++
+		}
+		out[e.Harness] = t
+	}
+	return out
+}
+
 func (e *Entry) add(calls int64, last time.Time) {
 	e.Uses += calls
 	if last.After(e.Last) {

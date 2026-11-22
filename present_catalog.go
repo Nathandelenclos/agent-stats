@@ -13,16 +13,6 @@ import (
 
 func printable(s string) string { return textfmt.Printable(s) }
 
-func onlyUnused(entries []catalog.Entry) []catalog.Entry {
-	var out []catalog.Entry
-	for _, e := range entries {
-		if e.Unused() {
-			out = append(out, e)
-		}
-	}
-	return out
-}
-
 // jsonEntry is the --json form of a catalogue entry. Uses is counted in Unit and null when the logs of the harness do not tell the item
 // apart; lastTs is in Unix milliseconds, 0 when unknown.
 type jsonEntry struct {
@@ -78,23 +68,15 @@ func printCatalog(w io.Writer, c catalog.Catalog, onlyUnused bool) {
 	}
 	for _, h := range kernel.Harnesses {
 		var rows []catalog.Entry
-		installed, unused := 0, 0
 		for _, e := range c.Entries {
-			if e.Harness != h {
-				continue
-			}
-			rows = append(rows, e)
-			if e.Installed() {
-				installed++
-			}
-			if e.Unused() {
-				unused++
+			if e.Harness == h {
+				rows = append(rows, e)
 			}
 		}
 		if len(rows) == 0 {
 			continue
 		}
-		fmt.Fprintf(w, "\n%s · %d installed, %d never used\n", h, installed, unused)
+		fmt.Fprintf(w, "\n%s · %d installed, %d never used\n", h, c.Tally[h].Installed, c.Tally[h].Unused)
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "KIND\tITEM\tSCOPE\tUSES\tUNIT\tLAST USED")
 		for _, e := range rows {

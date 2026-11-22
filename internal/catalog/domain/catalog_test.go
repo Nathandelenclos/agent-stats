@@ -312,3 +312,22 @@ func TestLoggedNamesAreShownEscapedNeverRaw(t *testing.T) {
 		t.Errorf("entry: %+v", e)
 	}
 }
+
+func TestTallyCountsInstalledAndUnusedPerHarness(t *testing.T) {
+	// Given, in Claude, one used server, one idle server and one disabled idle server, and a built-in tool seen in the logs
+	off := item(t, kernel.Claude, MCPServer, "off", ScopeUser)
+	off.Disabled = true
+	items := []Item{item(t, kernel.Claude, MCPServer, "used", ScopeUser), item(t, kernel.Claude, MCPServer, "idle", ScopeUser), off}
+	act := Activity{Tools: []ToolActivity{
+		{Harness: kernel.Claude, Name: "t", Server: "used", Calls: 1},
+		{Harness: kernel.Claude, Name: "Read", Calls: 4},
+	}}
+
+	// When the entries are tallied
+	got := TallyByHarness(Link(items, act))[kernel.Claude]
+
+	// Then the three installed count, only the enabled idle one is unused, and the tool seen in the logs is not installed
+	if got != (Tally{Installed: 3, Unused: 1}) {
+		t.Errorf("tally: %+v", got)
+	}
+}

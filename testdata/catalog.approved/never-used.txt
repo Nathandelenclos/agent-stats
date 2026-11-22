@@ -1,5 +1,5 @@
 
-claude · 10 installed, 10 never used
+claude · 18 installed, 10 never used
 KIND   ITEM              SCOPE        USES  UNIT      LAST USED
 mcp    inline-server     plugin:demo  0     calls     never
 mcp    local-db          project      0     calls     never
@@ -12,11 +12,11 @@ agent  demo:checker      plugin:demo  0     requests  never
 agent  plain-agent       user         0     requests  never
 agent  project-agent     project      0     requests  never
 
-codex · 1 installed, 1 never used
+codex · 9 installed, 1 never used
 KIND  ITEM         SCOPE  USES  UNIT   LAST USED
 mcp   quoted.name  user   0     calls  never
 
-omp · 1 installed, 1 never used
+omp · 5 installed, 1 never used
 KIND  ITEM            SCOPE    USES  UNIT   LAST USED
 mcp   project-server  project  0     calls  never
 --- stderr ---
