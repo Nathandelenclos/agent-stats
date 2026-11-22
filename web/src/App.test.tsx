@@ -1,7 +1,9 @@
+import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import type { Report } from "./features/report";
-import { emptyReport, group, metaInProject, report, serveReports, tool, usage } from "./test/fixtures";
+import { emptyReport, group, meta, metaInProject, report, serveReports, tool, usage } from "./test/fixtures";
+import type { SyncStatus } from "./features/sync";
 import { choose, click, eventually, render, selectLabelled, testQueryClient, withQueries } from "./test/render";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -151,6 +153,51 @@ describe("the scope of the report", () => {
     expect(headerText(container)).toContain("All projects");
     expect(scopeButton(container, "All projects").getAttribute("aria-pressed")).toBe("true");
     expect(new URLSearchParams(window.location.search).get("project")).toBe("all");
+  });
+
+  it("keeps naming the scope of the figures on screen until the report of the new scope arrives", async () => {
+    // Given a page opened on the app project, and a report of every project that is slow to come
+    let release: () => void = () => {};
+    const slow = new Promise<void>((resolve) => (release = resolve));
+    serveReports(async (_since, _harness, project) => {
+      if (project === "all") await slow;
+      return report({ total: usage({ requests: project === "all" ? 4242 : 7 }) });
+    }, metaInProject("app"));
+    const { container } = render(withQueries(testQueryClient(), <App />));
+    await eventually(() => expect(container.textContent).toContain("Project: app"));
+
+    // When the person chooses every project and its figures have not arrived
+    click(scopeButton(container, "All projects"));
+    await eventually(() => expect(container.querySelector('[aria-busy="true"]')).not.toBeNull());
+
+    // Then the page still names the project, whose figures are the ones on screen, and shows them as outdated
+    expect(headerText(container)).toContain("Project: app");
+    expect(container.textContent).not.toContain("4,242");
+    expect(container.querySelector('[aria-busy="true"]')!.className).toContain("opacity-60");
+
+    // And once they arrive, the name and the figures are those of every project
+    await act(async () => release());
+    await eventually(() => expect(container.textContent).toContain("4,242"));
+    expect(headerText(container)).toContain("All projects");
+    expect(container.querySelector('[aria-busy="true"]')).toBeNull();
+  });
+
+  it("learns the project of the server when its indexing ends, which an empty index could not tell at first", async () => {
+    // Given a server started in a folder whose sessions are not indexed yet, so that it knows no project
+    let indexing: SyncStatus["state"] = "running";
+    const fetch = serveReports(() => report(), () => (indexing === "done" ? metaInProject("app") : meta()), () => indexing);
+    const { container } = render(withQueries(testQueryClient(), <App />));
+    await eventually(() => expect(headerText(container)).toContain("All projects"));
+    expect(scopeButton(container, "All projects")).toBeUndefined();
+
+    // When the indexing ends and the server has found its project
+    indexing = "done";
+
+    // Then the page names it, opens on it and offers to switch
+    await eventually(() => expect(headerText(container)).toContain("Project: app"), 300);
+    expect(scopeButton(container, "This project").getAttribute("aria-pressed")).toBe("true");
+    const asked = fetch.mock.calls.map(([url]) => new URL(String(url), "http://localhost")).filter((u) => u.pathname === "/api/report");
+    expect(asked.at(-1)!.searchParams.get("project")).toBe("current");
   });
 
   it("opens on every project when the address says so, even in a project", async () => {

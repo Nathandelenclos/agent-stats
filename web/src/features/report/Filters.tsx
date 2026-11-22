@@ -10,9 +10,9 @@ const presets = [
 
 const selectClass = "min-h-9 rounded-md border border-border bg-bg px-2 text-ink";
 
-/** What the report covers, in words: the project the server runs in, or every project. */
-export function scopeLabel(meta: Meta, filters: Filters): string {
-  return filters.scope === "current" && meta.project !== "" ? `Project: ${meta.project}` : "All projects";
+/** What a report covers, in words: the project the server runs in, or every project. `scope` is the one the report says it covers. */
+export function scopeLabel(meta: Meta, scope: Scope): string {
+  return scope === "current" && meta.project !== "" ? `Project: ${meta.project}` : "All projects";
 }
 
 const scopes: { value: Scope; label: string }[] = [

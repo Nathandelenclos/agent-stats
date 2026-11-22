@@ -1,4 +1,4 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ErrorBoundary } from "./shared/ErrorBoundary";
 import { useTheme, type ThemeChoice } from "./shared/theme";
@@ -20,11 +20,10 @@ import {
   type Meta,
   type Report as ReportData,
 } from "./features/report";
-import { SyncBanner, useSyncStatus, type SyncStatus } from "./features/sync";
+import { SyncBanner, useSyncStatus } from "./features/sync";
 
 /** Filters live in the address (?since=7d&harness=claude&project=all), so a reload or a bookmark keeps them. */
-function readFilters(meta: Meta): Filters {
-  const params = new URLSearchParams(window.location.search);
+function readFilters(meta: Meta, params: URLSearchParams): Filters {
   const harness = params.get("harness") ?? meta.defaults.harness;
   const scope = params.get("project"); // the address and the API call the scope "project"
   return {
@@ -117,15 +116,7 @@ function CostByChart({ title, tableName, groups, peers }: { title: string; table
   return <CostBy title={title} tableName={tableName} model={model} domainMax={domainMax} />;
 }
 
-function Report({ filters, syncState }: { filters: Filters; syncState: SyncStatus["state"] | undefined }) {
-  const report = useReport(filters);
-  const queryClient = useQueryClient();
-
-  // The figures were read from a partial index while it ran: read them again when it ends.
-  useEffect(() => {
-    if (syncState === "done") void queryClient.invalidateQueries({ queryKey: ["report"] });
-  }, [syncState, queryClient]);
-
+function Report({ report }: { report: UseQueryResult<ReportData, unknown> }) {
   if (report.isPending) return <p role="status">Loading the report…</p>;
   if (report.isError) {
     return <Failure title="The report could not be loaded." message={describe(report.error)} retry={() => void report.refetch()} />;
@@ -136,7 +127,8 @@ function Report({ filters, syncState }: { filters: Filters; syncState: SyncStatu
   // before it, a tool call after). The totals tell when there is no request; a zone with nothing to list is left out.
   const hasCharts = r.daily.length > 0 || r.byHarness.length > 0 || r.byModel.length > 0;
   return (
-    <div aria-busy={report.isFetching} className="flex flex-col gap-8">
+    // The figures of the previous filters stay while the new ones load: dimmed, they are shown as outdated.
+    <div aria-busy={report.isFetching} className={`flex flex-col gap-8 transition-opacity ${report.isPlaceholderData ? "opacity-60" : ""}`}>
       {zone("The totals", <Totals total={r.total} />)}
       {hasCharts && (
         <Section id="charts" title="Cost">
@@ -176,11 +168,11 @@ function Report({ filters, syncState }: { filters: Filters; syncState: SyncStatu
   );
 }
 
-function Filtered({ meta, filters, onChange, syncState }: { meta: Meta; filters: Filters; onChange: (next: Filters) => void; syncState: SyncStatus["state"] | undefined }) {
+function Filtered({ meta, filters, onChange, report }: { meta: Meta; filters: Filters; onChange: (next: Filters) => void; report: UseQueryResult<ReportData, unknown> }) {
   return (
     <>
       <FilterBar meta={meta} value={filters} onChange={onChange} />
-      <Report filters={filters} syncState={syncState} />
+      <Report report={report} />
     </>
   );
 }
@@ -188,13 +180,23 @@ function Filtered({ meta, filters, onChange, syncState }: { meta: Meta; filters:
 export function App() {
   const meta = useMeta();
   const sync = useSyncStatus();
-  // The filters are the person's once they change them, and what the server and the address say until then. The header shows what they cover.
+  const queryClient = useQueryClient();
+  // The filters are the person's once they change them, and what the server and the address say until then. The address is
+  // read once, as it was when the page opened: the filters written to it since are not the person's choice.
   const [chosen, setChosen] = useState<Filters>();
-  const initial = useMemo(() => (meta.data ? readFilters(meta.data) : undefined), [meta.data]);
+  const [address] = useState(() => new URLSearchParams(window.location.search));
+  const initial = useMemo(() => (meta.data ? readFilters(meta.data, address) : undefined), [meta.data, address]);
   const filters = chosen ?? initial;
   useEffect(() => {
     if (filters) writeFilters(filters);
   }, [filters]);
+  const report = useReport(filters);
+
+  // The figures were read from a partial index while it ran, and the server may have learned its project from it: ask again when it ends.
+  const syncState = sync.data?.state;
+  useEffect(() => {
+    if (syncState === "done") void queryClient.invalidateQueries({ queryKey: ["meta"] }).then(() => queryClient.invalidateQueries({ queryKey: ["report"] }));
+  }, [syncState, queryClient]);
   return (
     <>
       <a
@@ -208,7 +210,7 @@ export function App() {
           <div>
             <h1 className="text-2xl font-bold">agent-stats</h1>
             <p className="text-sm text-muted">Usage of your coding agents, read from the session logs on this machine.</p>
-            {meta.data && filters && <p className="mt-1 text-sm font-semibold">{scopeLabel(meta.data, filters)}</p>}
+            {meta.data && report.data && <p className="mt-1 text-sm font-semibold">{scopeLabel(meta.data, report.data.scope)}</p>}
           </div>
           <ThemeSelect />
         </header>
@@ -216,7 +218,7 @@ export function App() {
         <main id="main" tabIndex={-1} className="flex flex-col gap-6">
           {meta.isPending && <p role="status">Loading…</p>}
           {meta.isError && <Failure title="The server did not answer." message={describe(meta.error)} retry={() => void meta.refetch()} />}
-          {meta.data && filters && <Filtered meta={meta.data} filters={filters} onChange={setChosen} syncState={sync.data?.state} />}
+          {meta.data && filters && <Filtered meta={meta.data} filters={filters} onChange={setChosen} report={report} />}
         </main>
       </div>
     </>

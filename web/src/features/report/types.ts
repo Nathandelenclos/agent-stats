@@ -32,6 +32,8 @@ export interface Tool {
 }
 
 export interface Report {
+  /** The scope the figures cover: the report says it, so that what names them is never the filter chosen since. */
+  scope: Scope;
   total: Usage;
   byHarness: UsageGroup[];
   byModel: UsageGroup[];
