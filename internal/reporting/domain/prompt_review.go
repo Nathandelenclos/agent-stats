@@ -57,13 +57,15 @@ func (s PromptSignals) Tags() []string {
 // FlaggedPrompt is a prompt the user typed in a session that shows at least one frustration signal, with
 // the session it belongs to.
 type FlaggedPrompt struct {
-	Session SessionID
-	Harness kernel.Harness
-	Title   string // the session's
-	Folder  string // the session's
-	At      time.Time
-	Text    string // full text, for grouping recurring asks
-	Signals PromptSignals
+	Position int64 // position in the indexed session, scoped to the current index snapshot
+	Chars    int   // full prompt length
+	Session  SessionID
+	Harness  kernel.Harness
+	Title    string // the session's
+	Folder   string // the session's
+	At       time.Time
+	Text     string // full text, for grouping recurring asks
+	Signals  PromptSignals
 }
 
 // RecurringAsk is a prompt the user typed again and again: the same text, give or take case and punctuation,

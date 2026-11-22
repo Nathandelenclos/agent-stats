@@ -26,7 +26,7 @@ func (idx *sessionDetailIndex) Session(_ context.Context, id domain.SessionID, p
 		Tools:          []domain.ToolUsage{{Name: "Read", Calls: 2}},
 		Subagents:      []domain.SubagentUsage{{Title: "Research", AgentType: "explore"}},
 		Prompts: []domain.Prompt{{
-			Text: "private prompt <script>", Chars: 23, Signals: domain.PromptSignals{Negation: 1},
+			Position: 8, Text: "private prompt <script>", Chars: 23, Signals: domain.PromptSignals{Negation: 1},
 		}},
 	}, nil
 }
@@ -50,7 +50,7 @@ func TestSessionDetailCarriesTheSessionActivity(t *testing.T) {
 	if idx.project.Root() != "/work/app" {
 		t.Errorf("queried project = %q", idx.project.Root())
 	}
-	for _, want := range []string{`"scope":"current"`, `"id":"claude:root/sub"`, `"name":"Read"`, `"title":"Research"`, `"negation":1`, `"excerpt":"private prompt`} {
+	for _, want := range []string{`"scope":"current"`, `"id":"claude:root/sub"`, `"name":"Read"`, `"title":"Research"`, `"negation":1`, `"position":8`, `"revision":"`, `"excerpt":"private prompt`} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Errorf("missing %q in %s", want, rec.Body.String())
 		}
@@ -64,7 +64,7 @@ func TestRemoteSessionDetailOmitsPromptText(t *testing.T) {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	if strings.Contains(body, "private prompt") || strings.Contains(body, `"excerpt"`) || !strings.Contains(body, `"promptsVisible":false`) {
+	if strings.Contains(body, "private prompt") || strings.Contains(body, `"excerpt"`) || strings.Contains(body, `"position"`) || strings.Contains(body, `"revision"`) || !strings.Contains(body, `"promptsVisible":false`) {
 		t.Fatalf("remote session data = %s", body)
 	}
 }

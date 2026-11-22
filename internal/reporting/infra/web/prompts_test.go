@@ -21,7 +21,7 @@ func (x *promptIndex) FlaggedPrompts(_ context.Context, f domain.Filter) ([]doma
 	b, _ := domain.NewSessionID("claude:b")
 	p := domain.FlaggedPrompt{
 		Session: a, Harness: kernel.Claude, Folder: "/work/app",
-		Text: "private prompt", Signals: domain.PromptSignals{Negation: 1},
+		Position: 12, Chars: 14, Text: "private prompt", Signals: domain.PromptSignals{Negation: 1},
 	}
 	second := p
 	second.Session = b
@@ -53,7 +53,7 @@ func TestPromptReviewKeepsTheFullCountsWhenLimited(t *testing.T) {
 	r, _ := promptsRig(t, false)
 	rec := r.get("/api/prompts?limit=1")
 	got := decode[promptReviewJSON](t, rec)
-	if got.Count != 2 || len(got.Prompts) != 1 || len(got.Recurring) != 1 || got.Recurring[0].Sessions != 2 || got.Folders[0].Prompts != 2 {
+	if got.Count != 2 || len(got.Prompts) != 1 || got.Prompts[0].Position != 12 || got.Prompts[0].Revision != promptRevision(0, 14, "private prompt") || len(got.Recurring) != 1 || got.Recurring[0].Sessions != 2 || got.Folders[0].Prompts != 2 {
 		t.Fatalf("review = %+v", got)
 	}
 }
@@ -62,7 +62,7 @@ func TestRemotePromptReviewOmitsAllExcerpts(t *testing.T) {
 	r, _ := promptsRig(t, true)
 	rec := r.get("/api/prompts")
 	body := rec.Body.String()
-	if rec.Code != http.StatusOK || strings.Contains(body, "private prompt") || strings.Contains(body, `"excerpt"`) || !strings.Contains(body, `"promptsVisible":false`) {
+	if rec.Code != http.StatusOK || strings.Contains(body, "private prompt") || strings.Contains(body, `"excerpt"`) || strings.Contains(body, `"position"`) || strings.Contains(body, `"revision"`) || !strings.Contains(body, `"promptsVisible":false`) {
 		t.Fatalf("remote report = %s", body)
 	}
 }

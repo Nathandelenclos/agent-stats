@@ -25,11 +25,13 @@ type logf func(format string, args ...any)
 
 // Options configures the server.
 type Options struct {
-	Reports  reporting.BuildTimelineReport
-	Sessions reporting.ListSessions
-	Prompts  reporting.ReviewPrompts
-	Catalog  func(catalog.Query) (catalog.Catalog, error)
-	Quotas   quota.Reader
+	Reports         reporting.BuildTimelineReport
+	Sessions        reporting.ListSessions
+	RelatedSessions reporting.ListRelatedSessions
+	SessionPrompt   reporting.ShowSessionPrompt
+	Prompts         reporting.ReviewPrompts
+	Catalog         func(catalog.Query) (catalog.Catalog, error)
+	Quotas          quota.Reader
 	// Sync, when set, runs at startup and on request. Serve cancels and waits for it when its context ends.
 	Sync Sync
 	// ParseSince reads a period start as the command line states it (7d, 12h, 2006-01-02).
@@ -98,6 +100,8 @@ func New(o Options, addr net.Addr) *Server {
 	s.mux.HandleFunc("/api/report", s.report)
 	s.mux.HandleFunc("/api/sessions", s.sessions)
 	s.mux.HandleFunc("/api/sessions/{id}", s.session)
+	s.mux.HandleFunc("/api/sessions/{id}/prompts/{position}", s.sessionPrompt)
+	s.mux.HandleFunc("/api/related-sessions", s.relatedSessions)
 	s.mux.HandleFunc("/api/prompts", s.prompts)
 	s.mux.HandleFunc("/api/catalog", s.catalog)
 	s.mux.HandleFunc("/api/quotas", s.quotas)

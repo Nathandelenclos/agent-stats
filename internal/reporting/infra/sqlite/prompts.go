@@ -43,7 +43,7 @@ func (s *SQLitePrompts) FlaggedPrompts(ctx context.Context, f report.Filter) ([]
 	if projectCondition != "" {
 		cond, args = cond+" AND "+projectCondition, append(args, projectArgs...)
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT p.session_id, o.harness, COALESCE(o.title, ''), COALESCE(o.folder, ''), p.ts, p.text,
+	rows, err := tx.QueryContext(ctx, `SELECT p.session_id, o.harness, COALESCE(o.title, ''), COALESCE(o.folder, ''), p.ts, p.text, p.position, p.chars,
 			p.yelling, p.profanity, p.anguish, p.negation, p.repetition, p.blame
 		FROM session_prompts p JOIN session_overview o ON o.id = p.session_id AND o.id = o.root_id AND o.agent_type = 'main'
 		WHERE `+cond+` ORDER BY p.ts DESC, p.session_id, p.position`, args...)
@@ -57,7 +57,7 @@ func (s *SQLitePrompts) FlaggedPrompts(ctx context.Context, f report.Filter) ([]
 		var ts int64
 		var repeated int
 		var x report.FlaggedPrompt
-		if err := rows.Scan(&id, &harness, &x.Title, &x.Folder, &ts, &x.Text, &x.Signals.Yelling, &x.Signals.Profanity,
+		if err := rows.Scan(&id, &harness, &x.Title, &x.Folder, &ts, &x.Text, &x.Position, &x.Chars, &x.Signals.Yelling, &x.Signals.Profanity,
 			&x.Signals.Anguish, &x.Signals.Negation, &repeated, &x.Signals.Blame); err != nil {
 			return nil, err
 		}

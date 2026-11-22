@@ -24,10 +24,12 @@ type subagentJSON struct {
 }
 
 type promptJSON struct {
-	TS      int64       `json:"ts"`
-	Excerpt string      `json:"excerpt,omitempty"`
-	Chars   int         `json:"chars"`
-	Signals signalsJSON `json:"signals"`
+	Position int64       `json:"position,omitempty"`
+	Revision string      `json:"revision,omitempty"`
+	TS       int64       `json:"ts"`
+	Excerpt  string      `json:"excerpt,omitempty"`
+	Chars    int         `json:"chars"`
+	Signals  signalsJSON `json:"signals"`
 }
 
 type signalsJSON struct {
@@ -49,6 +51,10 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		bad.write(w)
 		return
 	}
+	if s.opts.Sessions.Queries == nil {
+		sessionMissing(w)
+		return
+	}
 	id, err := reporting.NewSessionID(r.PathValue("id"))
 	if err != nil {
 		sessionMissing(w)
@@ -61,12 +67,15 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		sessionMissing(w)
 	case err != nil:
 		s.fail(w, "reading the session", err)
-	case !p.query.Harness.IsZero() && d.Harness != p.query.Harness,
-		!p.query.Since.IsZero() && d.End.Before(p.query.Since):
+	case !sessionMatches(d.SessionSummary, p.query):
 		sessionMissing(w)
 	default:
 		writeJSON(w, s.log, sessionDetails(d, p.scope, s.localOnly))
 	}
+}
+
+func sessionMatches(s reporting.SessionSummary, q reporting.Query) bool {
+	return (q.Harness.IsZero() || s.Harness == q.Harness) && (q.Since.IsZero() || !s.End.Before(q.Since))
 }
 
 func sessionMissing(w http.ResponseWriter) {
@@ -89,6 +98,10 @@ func sessionDetails(d reporting.SessionDetail, scope string, localPrompts bool) 
 		}
 		if localPrompts {
 			row.Excerpt = p.Text
+			if p.Position > 0 {
+				row.Position = p.Position
+				row.Revision = promptRevision(row.TS, row.Chars, p.Text)
+			}
 		}
 		out.Prompts = append(out.Prompts, row)
 	}

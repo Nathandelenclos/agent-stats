@@ -22,6 +22,7 @@ const (
 	problemForeignOrigin    = "urn:agent-stats:problem:foreign-origin"
 	problemMethodNotAllowed = "urn:agent-stats:problem:method-not-allowed"
 	problemNotFound         = "urn:agent-stats:problem:not-found"
+	problemPromptChanged    = "urn:agent-stats:problem:prompt-changed"
 	problemInternal         = "urn:agent-stats:problem:internal"
 	problemIndexingDisabled = "urn:agent-stats:problem:indexing-disabled"
 	problemStopping         = "urn:agent-stats:problem:stopping"

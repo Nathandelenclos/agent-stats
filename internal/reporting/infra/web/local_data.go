@@ -9,15 +9,16 @@ import (
 )
 
 type catalogRow struct {
-	Harness string `json:"harness"`
-	Kind    string `json:"kind"`
-	Name    string `json:"name"`
-	Scope   string `json:"scope"`
-	Origin  string `json:"origin,omitempty"`
-	Enabled bool   `json:"enabled"`
-	Uses    *int64 `json:"uses"`
-	Unit    string `json:"unit"`
-	LastTS  int64  `json:"lastTs"`
+	Harness  string `json:"harness"`
+	Kind     string `json:"kind"`
+	Name     string `json:"name"`
+	Scope    string `json:"scope"`
+	Origin   string `json:"origin,omitempty"`
+	OriginID string `json:"originId,omitempty"`
+	Enabled  bool   `json:"enabled"`
+	Uses     *int64 `json:"uses"`
+	Unit     string `json:"unit"`
+	LastTS   int64  `json:"lastTs"`
 }
 
 func (s *Server) catalog(w http.ResponseWriter, r *http.Request) {
@@ -48,7 +49,7 @@ func (s *Server) catalog(w http.ResponseWriter, r *http.Request) {
 	for _, entry := range result.Entries {
 		row := catalogRow{
 			Harness: entry.Harness.String(), Kind: entry.Kind.String(), Name: entry.Name.String(),
-			Scope: entry.Scope.String(), Origin: entry.Plugin(), Enabled: !entry.Disabled,
+			Scope: entry.Scope.String(), Origin: entry.Plugin(), OriginID: entry.Origin.String(), Enabled: !entry.Disabled,
 			Unit: entry.Unit().String(), LastTS: kernel.UnixMilli(entry.Last),
 		}
 		if entry.Tracked {

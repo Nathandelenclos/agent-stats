@@ -57,10 +57,14 @@ type toolJSON struct {
 func tools(in []reporting.ToolUsage) []toolJSON {
 	out := make([]toolJSON, 0, len(in))
 	for _, t := range in {
-		out = append(out, toolJSON{t.Name, t.Server, t.Calls, t.Errors, t.ArgsChars, t.ResultChars,
-			float64(t.AvgDuration), kernel.UnixMilli(t.Last)})
+		out = append(out, toolSummary(t))
 	}
 	return out
+}
+
+func toolSummary(t reporting.ToolUsage) toolJSON {
+	return toolJSON{t.Name, t.Server, t.Calls, t.Errors, t.ArgsChars, t.ResultChars,
+		float64(t.AvgDuration), kernel.UnixMilli(t.Last)}
 }
 
 // reportJSON is the usage report of the command line's --json, with the usage per local day added.
@@ -113,13 +117,20 @@ type sessionJSON struct {
 	Subagents      int                `json:"subagents"`
 	Prompts        int64              `json:"prompts"`
 	AvgPromptChars float64            `json:"avgPromptChars"`
+	RelatedTool    *toolJSON          `json:"relatedTool,omitempty"`
 }
 
 type sessionsJSON struct {
-	Scope    string        `json:"scope"`
-	Count    int           `json:"count"` // sessions matching the period, whatever limit cut the list to
-	Total    totalJSON     `json:"total"` // of every matching session
-	Sessions []sessionJSON `json:"sessions"`
+	Scope      string          `json:"scope"`
+	Count      int             `json:"count"` // sessions matching the period, whatever limit cut the list to
+	Total      totalJSON       `json:"total"` // of every matching session
+	Sessions   []sessionJSON   `json:"sessions"`
+	ToolTotals *toolTotalsJSON `json:"toolTotals,omitempty"`
+}
+
+type toolTotalsJSON struct {
+	Calls  int64 `json:"calls"`
+	Errors int64 `json:"errors"`
 }
 
 type totalJSON struct {
@@ -141,6 +152,10 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, "listing the sessions", err)
 		return
 	}
+	writeJSON(w, s.log, sessionListing(list, p))
+}
+
+func sessionListing(list reporting.SessionList, p params) sessionsJSON {
 	shown := list.Sessions
 	if len(shown) > p.limit {
 		shown = shown[:p.limit]
@@ -150,7 +165,7 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 	for _, x := range shown {
 		out.Sessions = append(out.Sessions, sessionSummary(x))
 	}
-	writeJSON(w, s.log, out)
+	return out
 }
 
 func sessionSummary(s reporting.SessionSummary) sessionJSON {
@@ -159,9 +174,16 @@ func sessionSummary(s reporting.SessionSummary) sessionJSON {
 	for _, m := range s.Models {
 		models = append(models, sessionModelJSON{m.Group, m.Requests, float64(m.Cost), s.ModelShare(m)})
 	}
-	return sessionJSON{s.ID.String(), s.Harness.String(), s.Title, s.Folder, s.AgentType,
-		kernel.UnixMilli(s.Start), kernel.UnixMilli(s.End), d.Milliseconds(), usage(s.Usage), models, s.SubagentCount,
-		s.PromptCount, s.AvgPromptChars()}
+	out := sessionJSON{
+		ID: s.ID.String(), Harness: s.Harness.String(), Title: s.Title, Folder: s.Folder, AgentType: s.AgentType,
+		StartTS: kernel.UnixMilli(s.Start), EndTS: kernel.UnixMilli(s.End), DurationMs: d.Milliseconds(),
+		Usage: usage(s.Usage), Models: models, Subagents: s.SubagentCount, Prompts: s.PromptCount, AvgPromptChars: s.AvgPromptChars(),
+	}
+	if s.RelatedTool != nil {
+		t := toolSummary(*s.RelatedTool)
+		out.RelatedTool = &t
+	}
+	return out
 }
 
 type metaJSON struct {

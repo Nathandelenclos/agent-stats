@@ -27,11 +27,12 @@ func ValidateSince(v string, now time.Time, parse func(string, time.Time) (time.
 	if v == "" {
 		return time.Time{}, nil
 	}
-	since, err := parse(v, now)
-	if len(v) > maxSinceChars || err != nil || reporting.CheckSince(since, now) != nil {
-		return time.Time{}, errors.New("use 24h, 7d, 30d, another duration such as 12h, or a date such as 2006-01-02, not in the future")
+	if len(v) <= maxSinceChars && parse != nil {
+		if since, err := parse(v, now); err == nil && reporting.CheckSince(since, now) == nil {
+			return since, nil
+		}
 	}
-	return since, nil
+	return time.Time{}, errors.New("use 24h, 7d, 30d, another duration such as 12h, or a date such as 2006-01-02, not in the future")
 }
 
 // params are the validated query parameters of a request.
@@ -83,8 +84,12 @@ func (s *Server) scopeProject(scope string) (kernel.Project, *problem) {
 // parseParams validates the query string against the parameters the route accepts, none for a route that takes
 // none. Unknown and repeated parameters are refused, so that a typo never silently widens a report.
 func (s *Server) parseParams(r *http.Request, accepts ...string) (params, *problem) {
+	return s.parseParamsBounded(r, maxRawQuery, accepts...)
+}
+
+func (s *Server) parseParamsBounded(r *http.Request, maxQuery int, accepts ...string) (params, *problem) {
 	p := params{limit: defaultLimit}
-	if len(r.URL.RawQuery) > maxRawQuery {
+	if len(r.URL.RawQuery) > maxQuery {
 		pr := problem{Type: problemInvalidParameter, Title: "Query string too long", Status: http.StatusRequestURITooLong}
 		return p, &pr
 	}

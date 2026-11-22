@@ -136,7 +136,7 @@ func TestAFlaggedPromptKeepsItsSessionAndItsSignals(t *testing.T) {
 	if got.Session.String() != "claude:main" || got.Harness != kernel.Claude || got.Title != hostile || got.Folder != hostile {
 		t.Errorf("session = %+v", got)
 	}
-	if !got.At.Equal(time.UnixMilli(t0)) || got.Signals != (report.PromptSignals{Yelling: 3, Profanity: 1, Anguish: 2, Negation: 4, Blame: 5}) {
+	if got.Position != 2 || got.Chars != 20 || !got.At.Equal(time.UnixMilli(t0)) || got.Signals != (report.PromptSignals{Yelling: 3, Profanity: 1, Anguish: 2, Negation: 4, Blame: 5}) {
 		t.Errorf("prompt = %+v", got)
 	}
 }

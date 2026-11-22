@@ -21,13 +21,15 @@ type promptReviewJSON struct {
 }
 
 type flaggedJSON struct {
-	Session string      `json:"session"`
-	Harness string      `json:"harness"`
-	Title   string      `json:"title"`
-	Folder  string      `json:"folder"`
-	TS      int64       `json:"ts"`
-	Excerpt string      `json:"excerpt,omitempty"`
-	Signals signalsJSON `json:"signals"`
+	Position int64       `json:"position,omitempty"`
+	Revision string      `json:"revision,omitempty"`
+	Session  string      `json:"session"`
+	Harness  string      `json:"harness"`
+	Title    string      `json:"title"`
+	Folder   string      `json:"folder"`
+	TS       int64       `json:"ts"`
+	Excerpt  string      `json:"excerpt,omitempty"`
+	Signals  signalsJSON `json:"signals"`
 }
 
 type repeatedJSON struct {
@@ -75,6 +77,10 @@ func promptReview(r reporting.PromptReview, scope string, localPrompts bool, lim
 			TS: kernel.UnixMilli(p.At), Signals: encodeSignals(p.Signals)}
 		if localPrompts {
 			row.Excerpt = textfmt.Excerpt(p.Text, promptExcerptChars)
+			if p.Position > 0 {
+				row.Position = p.Position
+				row.Revision = promptRevision(row.TS, p.Chars, p.Text)
+			}
 		}
 		out.Prompts = append(out.Prompts, row)
 	}
