@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -34,7 +35,7 @@ func (m Model) promptsEnabled() bool { return m.reviewer.Queries != nil }
 func (m Model) loadPrompts() tea.Cmd {
 	reviewer, q, seq, period, harness, restricted := m.reviewer, m.query(), m.seq, m.period, m.harness, m.restricted
 	return func() tea.Msg {
-		r, err := reviewer.Run(q)
+		r, err := reviewer.Run(context.Background(), q)
 		return promptsMsg{seq, period, harness, restricted, r, err}
 	}
 }

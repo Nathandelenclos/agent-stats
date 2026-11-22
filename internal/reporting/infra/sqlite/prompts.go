@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"strings"
 
@@ -21,7 +22,7 @@ func (s *SQLiteUsage) Prompts() *SQLitePrompts { return &SQLitePrompts{s.db} }
 
 // FlaggedPrompts lists the prompts typed in the filter's range that show a signal, most recent first.
 // Only user prompts in main conversations are included. Full text is needed to group recurring asks.
-func (s *SQLitePrompts) FlaggedPrompts(f report.Filter) ([]report.FlaggedPrompt, error) {
+func (s *SQLitePrompts) FlaggedPrompts(ctx context.Context, f report.Filter) ([]report.FlaggedPrompt, error) {
 	var args []any
 	cond := `(p.yelling + p.profanity + p.anguish + p.negation + p.blame > 0 OR p.repetition <> 0)`
 	if !f.Since.IsZero() {
@@ -30,19 +31,19 @@ func (s *SQLitePrompts) FlaggedPrompts(f report.Filter) ([]report.FlaggedPrompt,
 	if !f.Harness.IsZero() {
 		cond, args = cond+" AND o.harness = ?", append(args, f.Harness.String())
 	}
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-	projectCondition, projectArgs, err := projectfolders.Condition(tx, f.Project, "o.folder")
+	projectCondition, projectArgs, err := projectfolders.Condition(scoped{ctx, tx}, f.Project, "o.folder")
 	if err != nil {
 		return nil, err
 	}
 	if projectCondition != "" {
 		cond, args = cond+" AND "+projectCondition, append(args, projectArgs...)
 	}
-	rows, err := tx.Query(`SELECT p.session_id, o.harness, COALESCE(o.title, ''), COALESCE(o.folder, ''), p.ts, p.text,
+	rows, err := tx.QueryContext(ctx, `SELECT p.session_id, o.harness, COALESCE(o.title, ''), COALESCE(o.folder, ''), p.ts, p.text,
 			p.yelling, p.profanity, p.anguish, p.negation, p.repetition, p.blame
 		FROM session_prompts p JOIN session_overview o ON o.id = p.session_id AND o.id = o.root_id AND o.agent_type = 'main'
 		WHERE `+cond+` ORDER BY p.ts DESC, p.session_id, p.position`, args...)

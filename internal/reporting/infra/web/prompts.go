@@ -1,0 +1,92 @@
+package web
+
+import (
+	"net/http"
+
+	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	"github.com/Nathandelenclos/agent-stats/internal/platform/textfmt"
+	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
+)
+
+const promptExcerptChars = 240
+
+type promptReviewJSON struct {
+	Scope          string         `json:"scope"`
+	Count          int            `json:"count"`
+	Sessions       int            `json:"sessions"`
+	PromptsVisible bool           `json:"promptsVisible"`
+	Prompts        []flaggedJSON  `json:"prompts"`
+	Recurring      []repeatedJSON `json:"recurring"`
+	Folders        []folderJSON   `json:"byFolder"`
+}
+
+type flaggedJSON struct {
+	Session string      `json:"session"`
+	Harness string      `json:"harness"`
+	Title   string      `json:"title"`
+	Folder  string      `json:"folder"`
+	TS      int64       `json:"ts"`
+	Excerpt string      `json:"excerpt,omitempty"`
+	Signals signalsJSON `json:"signals"`
+}
+
+type repeatedJSON struct {
+	Excerpt  string `json:"excerpt,omitempty"`
+	Count    int    `json:"count"`
+	Sessions int    `json:"sessions"`
+	FirstTS  int64  `json:"firstTs"`
+	LastTS   int64  `json:"lastTs"`
+}
+
+type folderJSON struct {
+	Folder   string `json:"folder"`
+	Prompts  int    `json:"prompts"`
+	Sessions int    `json:"sessions"`
+	Signals  int    `json:"signals"`
+}
+
+func (s *Server) prompts(w http.ResponseWriter, r *http.Request) {
+	p, bad := s.parseParams(r, paramSince, paramHarness, paramProject, paramLimit)
+	if bad != nil {
+		bad.write(w)
+		return
+	}
+	if s.opts.Prompts.Queries == nil {
+		problem{Type: problemNotFound, Title: "Prompt review unavailable", Status: http.StatusNotFound}.write(w)
+		return
+	}
+	review, err := s.opts.Prompts.Run(r.Context(), p.query)
+	if err != nil {
+		s.fail(w, "reviewing the prompts", err)
+		return
+	}
+	writeJSON(w, s.log, promptReview(review, p.scope, s.localPrompts, p.limit))
+}
+
+func promptReview(r reporting.PromptReview, scope string, localPrompts bool, limit int) promptReviewJSON {
+	shown := r.Prompts[:min(len(r.Prompts), limit)]
+	out := promptReviewJSON{
+		Scope: scope, Count: len(r.Prompts), Sessions: r.Sessions, PromptsVisible: localPrompts,
+		Prompts: make([]flaggedJSON, 0, len(shown)), Recurring: make([]repeatedJSON, 0, len(r.Recurring)),
+		Folders: make([]folderJSON, 0, len(r.Folders)),
+	}
+	for _, p := range shown {
+		row := flaggedJSON{Session: p.Session.String(), Harness: p.Harness.String(), Title: p.Title, Folder: p.Folder,
+			TS: kernel.UnixMilli(p.At), Signals: encodeSignals(p.Signals)}
+		if localPrompts {
+			row.Excerpt = textfmt.Excerpt(p.Text, promptExcerptChars)
+		}
+		out.Prompts = append(out.Prompts, row)
+	}
+	for _, ask := range r.Recurring {
+		row := repeatedJSON{Count: ask.Count, Sessions: ask.Sessions, FirstTS: kernel.UnixMilli(ask.First), LastTS: kernel.UnixMilli(ask.Last)}
+		if localPrompts {
+			row.Excerpt = textfmt.Excerpt(ask.Text, promptExcerptChars)
+		}
+		out.Recurring = append(out.Recurring, row)
+	}
+	for _, f := range r.Folders {
+		out.Folders = append(out.Folders, folderJSON{f.Folder, f.Prompts, f.Sessions, f.Signals})
+	}
+	return out
+}

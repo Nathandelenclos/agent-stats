@@ -367,7 +367,7 @@ func TestFlaggedPromptsReadModelContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer usage.Close()
-	got, err := reporting.ReviewPrompts{Queries: usage.Prompts()}.Run(reporting.Query{Since: at, Harness: kernel.Claude})
+	got, err := reporting.ReviewPrompts{Queries: usage.Prompts()}.Run(t.Context(), reporting.Query{Since: at, Harness: kernel.Claude})
 	if err != nil || len(got.Prompts) != 1 {
 		t.Fatalf("review = %+v %v", got, err)
 	}
@@ -382,7 +382,7 @@ func TestFlaggedPromptsReadModelContract(t *testing.T) {
 
 func TestThePromptsReviewOnlyIncludesSessionsInTheProject(t *testing.T) {
 	usage, app := projectIndexed(t)
-	got, err := (reporting.ReviewPrompts{Queries: usage.Prompts()}).Run(reporting.Query{Project: app})
+	got, err := (reporting.ReviewPrompts{Queries: usage.Prompts()}).Run(t.Context(), reporting.Query{Project: app})
 	if err != nil || len(got.Prompts) != 1 || got.Prompts[0].Session.String() != "claude:in-app" {
 		t.Fatalf("project prompts = %+v, %v", got.Prompts, err)
 	}

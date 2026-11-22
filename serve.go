@@ -109,6 +109,7 @@ func runServe(args []string) error {
 	return web.Serve(ctx, ln, web.Options{
 		Reports:     reporting.BuildTimelineReport{Queries: usage},
 		Sessions:    reporting.ListSessions{Queries: sessions},
+		Prompts:     reporting.ReviewPrompts{Queries: usage.Prompts()},
 		Sync:        sync,
 		ParseSince:  parseSince,
 		Assets:      webui.Assets(),

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -190,7 +191,7 @@ func sinceOf(sub, since string, now time.Time) (time.Time, error) {
 // runPrompts reviews the flagged prompts q asks for and writes the review to out as text or JSON.
 func runPrompts(out io.Writer, queries reporting.PromptQueries, q reporting.Query, cov coverage, asJSON bool) error {
 	q.Project = cov.restriction()
-	r, err := reporting.ReviewPrompts{Queries: queries}.Run(q)
+	r, err := reporting.ReviewPrompts{Queries: queries}.Run(context.Background(), q)
 	if err != nil {
 		return err
 	}

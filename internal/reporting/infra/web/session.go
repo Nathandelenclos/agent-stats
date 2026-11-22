@@ -39,6 +39,10 @@ type signalsJSON struct {
 	Repeated  bool `json:"repeated"`
 }
 
+func encodeSignals(s reporting.PromptSignals) signalsJSON {
+	return signalsJSON{s.Yelling, s.Profanity, s.Anguish, s.Negation, s.Blame, s.Repeated}
+}
+
 func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	p, bad := s.parseParams(r, paramSince, paramHarness, paramProject)
 	if bad != nil {
@@ -79,10 +83,9 @@ func sessionDetails(d reporting.SessionDetail, scope string, localPrompts bool) 
 		out.Subagents = append(out.Subagents, subagentJSON{s.AgentType, s.Title, usage(s.Usage)})
 	}
 	for _, p := range d.Prompts {
-		flags := p.Signals
 		row := promptJSON{
 			TS: kernel.UnixMilli(p.At), Chars: p.Chars,
-			Signals: signalsJSON{flags.Yelling, flags.Profanity, flags.Anguish, flags.Negation, flags.Blame, flags.Repeated},
+			Signals: encodeSignals(p.Signals),
 		}
 		if localPrompts {
 			row.Excerpt = p.Text

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -22,7 +23,7 @@ type fakePrompts struct {
 	filters []domain.Filter
 }
 
-func (f *fakePrompts) FlaggedPrompts(fl domain.Filter) ([]domain.FlaggedPrompt, error) {
+func (f *fakePrompts) FlaggedPrompts(_ context.Context, fl domain.Filter) ([]domain.FlaggedPrompt, error) {
 	f.filters = append(f.filters, fl)
 	return f.flagged, f.err
 }

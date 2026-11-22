@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -18,7 +19,7 @@ type recordedPrompts struct {
 	err     error
 }
 
-func (r *recordedPrompts) FlaggedPrompts(f domain.Filter) ([]domain.FlaggedPrompt, error) {
+func (r *recordedPrompts) FlaggedPrompts(_ context.Context, f domain.Filter) ([]domain.FlaggedPrompt, error) {
 	r.filter = f
 	return r.flagged, r.err
 }
@@ -37,7 +38,7 @@ func flagged(session, folder, text string, minutes int, s domain.PromptSignals) 
 
 func review(t *testing.T, prompts ...domain.FlaggedPrompt) PromptReview {
 	t.Helper()
-	r, err := ReviewPrompts{Queries: &recordedPrompts{flagged: prompts}}.Run(Query{})
+	r, err := ReviewPrompts{Queries: &recordedPrompts{flagged: prompts}}.Run(t.Context(), Query{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +51,7 @@ func TestReviewPromptsAsksForTheRangeOfTheQuery(t *testing.T) {
 	since := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	// When the flagged prompts of a harness since a date are reviewed
-	got, err := ReviewPrompts{Queries: idx}.Run(Query{Since: since, Harness: kernel.Codex})
+	got, err := ReviewPrompts{Queries: idx}.Run(t.Context(), Query{Since: since, Harness: kernel.Codex})
 
 	// Then the index is asked for exactly that range, and its prompt is in the review
 	if err != nil || len(got.Prompts) != 1 {
@@ -66,7 +67,7 @@ func TestReviewPromptsReportsWhenTheIndexCannotBeRead(t *testing.T) {
 	boom := errors.New("boom")
 
 	// When the prompts are reviewed, then the caller gets the failure and no review
-	got, err := ReviewPrompts{Queries: &recordedPrompts{err: boom}}.Run(Query{})
+	got, err := ReviewPrompts{Queries: &recordedPrompts{err: boom}}.Run(t.Context(), Query{})
 	if !errors.Is(err, boom) || len(got.Prompts) != 0 {
 		t.Errorf("review = %+v, %v", got, err)
 	}

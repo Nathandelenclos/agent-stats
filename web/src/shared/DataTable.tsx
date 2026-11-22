@@ -37,7 +37,7 @@ interface Props<Row extends RowData> {
   rows: Row[];
   rowKey: (row: Row) => string;
   /** The column sorted first, highest first. */
-  initialSort: string;
+  initialSort?: string;
   /** Rows shown before the "Show all" button. */
   initialLimit?: number;
 }
@@ -54,7 +54,7 @@ export function DataTable<Row extends RowData>({ caption, columns, rows, rowKey,
     columns: defs,
     data: rows,
     getRowId: rowKey,
-    initialState: { sorting: [{ id: initialSort, desc: true }] },
+    initialState: { sorting: initialSort ? [{ id: initialSort, desc: true }] : [] },
   });
 
   const sorted = table.getRowModel().rows;

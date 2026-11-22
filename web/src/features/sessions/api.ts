@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import type { Filters, Scope, Tool, Usage } from "../report";
+import type { PromptSignals } from "../report/signals";
 import { getJSON, shouldRetry } from "../../shared/api";
 
 interface SessionModel {
@@ -36,14 +37,7 @@ interface SessionPrompt {
   ts: number;
   excerpt?: string;
   chars: number;
-  signals: {
-    yelling: number;
-    profanity: number;
-    anguish: number;
-    negation: number;
-    blame: number;
-    repeated: boolean;
-  };
+  signals: PromptSignals;
 }
 
 export interface SessionDetail {

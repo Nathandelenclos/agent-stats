@@ -1,6 +1,10 @@
 package application
 
-import "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
+import (
+	"context"
+
+	"github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
+)
 
 // The prompt review's read models, as callers of ReviewPrompts see them.
 type (
@@ -15,7 +19,7 @@ type (
 type PromptQueries interface {
 	// FlaggedPrompts lists the prompts typed in the filter's range (since the filter's time, in its harness and project)
 	// that show at least one frustration signal. They are the user's own: the briefs sent to subagents are not.
-	FlaggedPrompts(domain.Filter) ([]domain.FlaggedPrompt, error)
+	FlaggedPrompts(context.Context, domain.Filter) ([]domain.FlaggedPrompt, error)
 }
 
 // ReviewPrompts shows what the user keeps correcting or repeating, so it can be written down once.
@@ -24,8 +28,8 @@ type ReviewPrompts struct {
 }
 
 // Run reviews the flagged prompts q asks for: in the requested period, harness and project.
-func (uc ReviewPrompts) Run(q Query) (PromptReview, error) {
-	prompts, err := uc.Queries.FlaggedPrompts(domain.Filter{Since: q.Since, Harness: q.Harness, Project: q.Project})
+func (uc ReviewPrompts) Run(ctx context.Context, q Query) (PromptReview, error) {
+	prompts, err := uc.Queries.FlaggedPrompts(ctx, domain.Filter{Since: q.Since, Harness: q.Harness, Project: q.Project})
 	if err != nil {
 		return PromptReview{}, err
 	}

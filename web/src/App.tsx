@@ -21,6 +21,8 @@ import {
   type Report as ReportData,
 } from "./features/report";
 import { Sessions, useSessions } from "./features/sessions";
+import { PromptReview } from "./features/prompts/PromptReview";
+import { usePromptReview } from "./features/prompts/api";
 import { SyncBanner, useSyncStatus } from "./features/sync";
 
 /** Filters live in the address (?since=7d&harness=claude&project=all), so a reload or a bookmark keeps them. */
@@ -151,9 +153,9 @@ function Report({ report }: { report: UseQueryResult<ReportData, unknown> }) {
   );
 }
 
-type View = "Usage" | "Sessions";
+type View = "Usage" | "Sessions" | "Prompts";
 
-const views: View[] = ["Usage", "Sessions"];
+const views: View[] = ["Usage", "Sessions", "Prompts"];
 
 export function App() {
   const meta = useMeta();
@@ -172,7 +174,8 @@ export function App() {
   const report = useReport(view === "Usage" ? filters : undefined);
   const project = filters?.scope === "current" ? (meta.data?.project ?? "") : "";
   const sessions = useSessions(view === "Sessions" ? filters : undefined, project);
-  const shownScope = view === "Usage" ? report.data?.scope : sessions.data?.scope;
+  const prompts = usePromptReview(view === "Prompts" ? filters : undefined, project);
+  const shownScope = { Usage: report.data?.scope, Sessions: sessions.data?.scope, Prompts: prompts.data?.scope }[view];
 
   // The figures were read from a partial index while it ran, and the server may have learned its project from it: ask again when it ends.
   const syncState = sync.data?.state;
@@ -182,6 +185,7 @@ export function App() {
       void queryClient.invalidateQueries({ queryKey: ["meta"] }).then(() => Promise.all([
         queryClient.invalidateQueries({ queryKey: ["report"] }),
         queryClient.invalidateQueries({ queryKey: ["sessions"] }),
+        queryClient.invalidateQueries({ queryKey: ["prompts"] }),
       ]));
     }
   }, [syncState, syncFinishedAt, queryClient]);
@@ -222,7 +226,9 @@ export function App() {
                 ))}
               </nav>
               <FilterBar meta={meta.data} value={filters} onChange={setChosen} />
-              {view === "Usage" ? <Report report={report} /> : <Sessions filters={filters} project={project} list={sessions} />}
+              {view === "Usage" && <Report report={report} />}
+              {view === "Sessions" && <Sessions filters={filters} project={project} list={sessions} />}
+              {view === "Prompts" && <PromptReview query={prompts} />}
             </>
           )}
         </main>

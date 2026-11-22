@@ -25,8 +25,8 @@ type logf func(format string, args ...any)
 type Options struct {
 	Reports  reporting.BuildTimelineReport
 	Sessions reporting.ListSessions
-	// Sync, when set, runs once in the background as the server starts and is stopped, then waited for, when Serve's
-	// context ends; the page watches its progress.
+	Prompts  reporting.ReviewPrompts
+	// Sync, when set, runs at startup and on request. Serve cancels and waits for it when its context ends.
 	Sync Sync
 	// ParseSince reads a period start as the command line states it (7d, 12h, 2006-01-02).
 	ParseSince func(s string, now time.Time) (time.Time, error)
@@ -94,6 +94,7 @@ func New(o Options, addr net.Addr) *Server {
 	s.mux.HandleFunc("/api/report", s.report)
 	s.mux.HandleFunc("/api/sessions", s.sessions)
 	s.mux.HandleFunc("/api/sessions/{id}", s.session)
+	s.mux.HandleFunc("/api/prompts", s.prompts)
 	s.mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		problem{Type: problemNotFound, Title: "No such route", Status: http.StatusNotFound}.write(w)
 	})

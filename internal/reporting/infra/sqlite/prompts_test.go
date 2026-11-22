@@ -82,7 +82,7 @@ func TestFlaggedPromptsAreTheUsersOwnPromptsThatShowASignal(t *testing.T) {
 	p := openPrompts(t)
 
 	// When the flagged prompts are listed
-	list, err := p.FlaggedPrompts(report.Filter{})
+	list, err := p.FlaggedPrompts(t.Context(), report.Filter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestFlaggedPromptsComeMostRecentFirst(t *testing.T) {
 	p := openPrompts(t)
 
 	// When the flagged prompts are listed
-	list, err := p.FlaggedPrompts(report.Filter{})
+	list, err := p.FlaggedPrompts(t.Context(), report.Filter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestAFlaggedPromptKeepsItsSessionAndItsSignals(t *testing.T) {
 	p := openPrompts(t)
 
 	// When the flagged prompts are listed
-	list, err := p.FlaggedPrompts(report.Filter{Harness: kernel.Claude, Since: time.UnixMilli(t0)})
+	list, err := p.FlaggedPrompts(t.Context(), report.Filter{Harness: kernel.Claude, Since: time.UnixMilli(t0)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestABriefSentToASubagentWithoutIndexedParentIsNotTheUsersPrompt(t *testing
 	p := openPrompts(t)
 
 	// When the flagged prompts are listed
-	list, err := p.FlaggedPrompts(report.Filter{})
+	list, err := p.FlaggedPrompts(t.Context(), report.Filter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestFlaggedPromptsKeepHostileTextsAsData(t *testing.T) {
 	p := openPrompts(t)
 
 	// When the prompts are listed
-	list, err := p.FlaggedPrompts(report.Filter{Harness: kernel.Claude})
+	list, err := p.FlaggedPrompts(t.Context(), report.Filter{Harness: kernel.Claude})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestFlaggedPromptsKeepTheFullTextForRecurrence(t *testing.T) {
 	p := openPrompts(t)
 
 	// When the prompts are listed
-	list, err := p.FlaggedPrompts(report.Filter{Harness: kernel.Claude})
+	list, err := p.FlaggedPrompts(t.Context(), report.Filter{Harness: kernel.Claude})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestFlaggedPromptsFollowThePeriodAndHarnessFilters(t *testing.T) {
 		{"harness and period", report.Filter{Harness: kernel.Claude, Since: time.UnixMilli(t0 + 1)}, 2},
 	} {
 		// When the flagged prompts are listed with the filter
-		list, err := p.FlaggedPrompts(c.f)
+		list, err := p.FlaggedPrompts(t.Context(), c.f)
 		// Then only the prompts typed in that range and harness come back
 		if err != nil || len(list) != c.want {
 			t.Errorf("%s: %v, %v; want %d", c.name, promptTexts(list), err, c.want)
@@ -227,7 +227,7 @@ func TestFlaggedPromptsFollowThePeriodAndHarnessFilters(t *testing.T) {
 
 func TestFlaggedPromptsExcludeAgentMessagesInAMainSession(t *testing.T) {
 	p := openPrompts(t)
-	list, err := p.FlaggedPrompts(report.Filter{})
+	list, err := p.FlaggedPrompts(t.Context(), report.Filter{})
 	if err != nil {
 		t.Fatal(err)
 	}

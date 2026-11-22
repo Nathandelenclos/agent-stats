@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { DataTable, type Column } from "../../shared/DataTable";
 import { describe, Failure } from "../../shared/Failure";
 import { formatDateTime, formatInteger, formatMs, formatPercent, formatUSD } from "../../shared/format";
+import { describeSignals } from "../report/signals";
 import { ToolsTable, type Filters } from "../report";
 import { useSessionDetail, type Session, type SessionDetail, type useSessions } from "./api";
 
@@ -141,12 +142,6 @@ const subagentColumns: Column<SubagentRow>[] = [
   { id: "cost", header: "Cost", value: (row) => row.usage.cost, render: (row) => formatUSD(row.usage.cost), numeric: true },
 ];
 
-function describeSignals({ yelling, profanity, anguish, negation, blame, repeated }: SessionDetail["prompts"][number]["signals"]) {
-  const counts = { Yelling: yelling, Profanity: profanity, Anguish: anguish, Negation: negation, Blame: blame };
-  const labels = Object.entries(counts).filter(([, count]) => count > 0).map(([name, count]) => `${name} ${formatInteger(count)}`);
-  if (repeated) labels.push("Repeated");
-  return labels.join(", ");
-}
 
 function SessionContents({ detail }: { detail: SessionDetail }) {
   const { session, tools, subagents, prompts, promptsVisible } = detail;
