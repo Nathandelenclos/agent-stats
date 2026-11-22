@@ -144,3 +144,18 @@ func TestInteractiveOnlyOnATerminalWithoutJSON(t *testing.T) {
 		t.Error("--json opened the interface")
 	}
 }
+
+func TestSyncNoteSaysWhatWasSkipped(t *testing.T) {
+	for _, c := range []struct {
+		rep  indexing.IndexReport
+		want string
+	}{
+		{indexing.IndexReport{Indexed: 3}, ""},
+		{indexing.IndexReport{Errors: []string{"a", "b"}}, "skipped files: 2"},
+		{indexing.IndexReport{Errors: []string{"a"}, SkippedLines: 4}, "skipped files: 1 · skipped log lines: 4"},
+	} {
+		if got := syncNote(c.rep); got != c.want {
+			t.Errorf("syncNote(%+v) = %q, want %q", c.rep, got, c.want)
+		}
+	}
+}

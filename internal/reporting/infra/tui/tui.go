@@ -17,9 +17,15 @@ type Reports interface {
 	Run(reporting.Query) (reporting.Report, error)
 }
 
+// Sync brings the index up to date and calls progress with the number of files indexed so far.
+// The note it returns, if any, is shown when it is done (what was skipped, for instance).
+type Sync func(progress func(indexed int)) (note string, err error)
+
 // Options configures the interface.
 type Options struct {
 	Reports Reports
+	// Sync, when set, runs in the background as the interface opens and on demand, then the report refreshes.
+	Sync Sync
 	// Harness is the harness the first report is limited to; the zero Harness means all of them.
 	Harness kernel.Harness
 	// SinceLabel names the period of the first report: "24h", "7d" or "30d" for the presets, "" for all.

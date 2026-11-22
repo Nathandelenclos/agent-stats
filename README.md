@@ -12,10 +12,15 @@ No proxy, no wrapper, no account: one binary that reads local files.
 
 ```sh
 go build .
-./agent-stats                 # index new logs, print the summary
-./agent-stats --since 7d      # last 7 days (also 24h, 2026-11-01)
-./agent-stats --harness codex --json
+./agent-stats                 # open the interactive view (on a terminal); it indexes new logs in the background
+./agent-stats --since 7d      # start on the last 7 days (also 24h, 2026-11-01)
+./agent-stats --no-sync       # do not re-read the logs
+./agent-stats --harness codex --json   # plain JSON; any redirected output prints the plain-text report
 ```
+
+In the interactive view: `tab`/`←→` or `1`–`5` switch between harness, model, folder, agent and tools tables,
+`↑↓` scroll, `s` sorts by the next column and `o` reverses it, `p` cycles the period (24h, 7d, 30d, all),
+`h` cycles the harness, `r` indexes the logs again and `q` quits.
 
 The index lives in the user cache directory (`agent-stats/index.db`). Only changed log files are re-read,
 and rows survive when a harness deletes old logs.
@@ -33,4 +38,5 @@ Vertical slices, each in clean-architecture layers (`domain` ← `application` �
 - `internal/reporting`: summarise indexed usage; its `UsageQueries` port is implemented by the index.
 - `internal/pricing`: rates and price list; `infra/pricetable` loads the embedded LiteLLM table.
 - `internal/kernel`: what every slice shares (harnesses, token counts, request cost).
-- `main.go` wires the slices and prints the report.
+- `internal/reporting/infra/tui`: the interactive view (Bubble Tea), an input adapter over the reporting use case.
+- `main.go` wires the slices, then opens the view on a terminal or prints the report.

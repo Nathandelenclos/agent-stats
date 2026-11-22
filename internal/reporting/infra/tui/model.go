@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -64,9 +65,22 @@ type reportMsg struct {
 	err    error
 }
 
+// syncProgressMsg reports files indexed so far; events is the stream to keep listening to.
+type syncProgressMsg struct {
+	indexed int
+	events  <-chan tea.Msg
+}
+
+// syncDoneMsg ends a sync.
+type syncDoneMsg struct {
+	note string
+	err  error
+}
+
 // Model is the Bubble Tea model of the interface.
 type Model struct {
 	reports Reports
+	sync    Sync // nil when indexing is off
 	now     func() time.Time
 
 	periods []period // the presets, led by a custom period when the command line asked for one
@@ -74,6 +88,12 @@ type Model struct {
 	harness int // index in harnessChoices
 	seq     int // the latest report request; older answers are ignored
 	pending bool
+
+	syncing  bool
+	indexed  int
+	syncNote string
+	syncErr  error
+	spinner  spinner.Model
 
 	tab           tab
 	sorts         [tabCount]sortState // each tab keeps its own order
@@ -87,7 +107,7 @@ type Model struct {
 // New returns the model for o. Its Init asks for the first report.
 func New(o Options) Model {
 	t := table.New(table.WithFocused(true))
-	m := Model{reports: o.Reports, now: time.Now, table: t, width: 80, height: 24, periods: periods}
+	m := Model{reports: o.Reports, sync: o.Sync, syncing: o.Sync != nil, spinner: spinner.New(spinner.WithSpinner(spinner.MiniDot)), now: time.Now, table: t, width: 80, height: 24, periods: periods}
 	m.period = len(periods) - 1 // all
 	if o.SinceLabel != "" {
 		m.period = -1
@@ -113,8 +133,31 @@ func New(o Options) Model {
 	return m
 }
 
-// Init asks for the first report.
-func (m Model) Init() tea.Cmd { return m.load() }
+// Init asks for the first report and, when indexing is on, starts it beside the report.
+func (m Model) Init() tea.Cmd {
+	if m.sync == nil {
+		return m.load()
+	}
+	return tea.Batch(m.load(), m.startSync(), m.spinner.Tick)
+}
+
+// startSync runs the sync off the UI loop and streams its progress back as messages.
+func (m Model) startSync() tea.Cmd {
+	sync := m.sync
+	return func() tea.Msg {
+		events := make(chan tea.Msg, 8)
+		go func() {
+			note, err := sync(func(n int) {
+				select {
+				case events <- syncProgressMsg{n, events}:
+				default: // the screen is behind: the next count will do
+				}
+			})
+			events <- syncDoneMsg{note, err}
+		}()
+		return <-events
+	}
+}
 
 // query is what the filters currently ask for.
 func (m Model) query() reporting.Query {
@@ -155,6 +198,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.layout()
 		return m, nil
+	case syncProgressMsg:
+		m.indexed = msg.indexed
+		return m, func() tea.Msg { return <-msg.events }
+	case syncDoneMsg:
+		m.syncing, m.syncNote, m.syncErr = false, msg.note, msg.err
+		return m.reload() // the index changed: show it
+	case spinner.TickMsg:
+		if !m.syncing {
+			return m, nil // stops the animation
+		}
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
 	case tea.KeyMsg:
 		return m.key(msg)
 	}
@@ -171,6 +227,12 @@ func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.selectTab((m.tab + tabCount - 1) % tabCount)
 	case "1", "2", "3", "4", "5":
 		m.selectTab(tab(k[0] - '1'))
+	case "r":
+		if m.sync == nil || m.syncing {
+			return m, nil
+		}
+		m.syncing, m.indexed, m.syncNote, m.syncErr = true, 0, "", nil
+		return m, tea.Batch(m.startSync(), m.spinner.Tick)
 	case "p":
 		m.period = (m.period + 1) % len(m.periods)
 		return m.reload()
@@ -291,7 +353,7 @@ func (m Model) View() string {
 		b.WriteString(m.emptyBody() + "\n")
 	}
 	b.WriteString(m.status() + "\n")
-	b.WriteString(faintStyle.Render("tab/←→ tabs · ↑↓ scroll · s sort · o reverse · p period · h harness · q quit"))
+	b.WriteString(faintStyle.Render(m.help()))
 	return lipgloss.NewStyle().MaxWidth(m.width).Render(b.String()) // cut what a narrow terminal cannot show
 }
 
@@ -301,7 +363,22 @@ func (m Model) titleBar() string {
 	if h := harnessChoices[m.harness]; !h.IsZero() {
 		harness = h.String()
 	}
-	return titleStyle.Render("agent-stats") + faintStyle.Render(fmt.Sprintf("  period: %s · harness: %s", m.periods[m.period].label, harness))
+	bar := titleStyle.Render("agent-stats") + faintStyle.Render(fmt.Sprintf("  period: %s · harness: %s", m.periods[m.period].label, harness))
+	if m.syncing {
+		bar += "  " + m.spinner.View() + " indexing…"
+		if m.indexed > 0 {
+			bar += fmt.Sprintf(" %s files", textfmt.Number(int64(m.indexed)))
+		}
+	}
+	return bar
+}
+
+func (m Model) help() string {
+	keys := "tab/←→ tabs · ↑↓ scroll · s sort · o reverse · p period · h harness"
+	if m.sync != nil {
+		keys += " · r re-index"
+	}
+	return keys + " · q quit"
 }
 
 func (m Model) tabBar() string {
@@ -343,15 +420,23 @@ func (m Model) emptyBody() string {
 	return strings.Repeat("\n", max(0, m.height-chromeLines-1))
 }
 
+// status lists what the user should know besides the table: failures, work in flight, notes.
 func (m Model) status() string {
+	var parts []string
 	if m.err != nil {
-		return errorStyle.Render("error: " + m.err.Error())
+		parts = append(parts, errorStyle.Render("error: "+textfmt.Printable(m.err.Error())))
+	}
+	if m.syncErr != nil {
+		parts = append(parts, errorStyle.Render("indexing failed: "+textfmt.Printable(m.syncErr.Error())))
 	}
 	if m.pending {
-		return faintStyle.Render("updating…")
+		parts = append(parts, faintStyle.Render("updating…"))
+	}
+	if m.syncNote != "" {
+		parts = append(parts, faintStyle.Render(textfmt.Printable(m.syncNote)))
 	}
 	if t := m.report.Total; m.loaded && t.Unpriced > 0 {
-		return faintStyle.Render(fmt.Sprintf("%s requests have no known price", textfmt.Number(t.Unpriced)))
+		parts = append(parts, faintStyle.Render(fmt.Sprintf("%s requests have no known price", textfmt.Number(t.Unpriced))))
 	}
-	return ""
+	return strings.Join(parts, " · ")
 }

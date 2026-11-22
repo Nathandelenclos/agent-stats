@@ -23,6 +23,38 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/reporting/infra/tui"
 )
 
+// indexRun brings the index up to date with the session logs, calling progress as files are indexed.
+type indexRun func(progress func(indexing.IndexReport)) (indexing.IndexReport, error)
+
+func newIndexRun(index *sqlite.SQLiteIndex, prices indexing.PriceList) (indexRun, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	uc := indexing.IndexSessions{Logs: logfiles.NewFileSessionLogs(logfiles.DefaultSources(home)), Store: index, Prices: prices}
+	return uc.Run, nil
+}
+
+// indexBeforeReport indexes while the plain-text report waits, narrating on stderr so stdout stays the report.
+func indexBeforeReport(run indexRun) error {
+	rep, err := run(func(r indexing.IndexReport) {
+		fmt.Fprintf(os.Stderr, "\rindexing… %d files", r.Indexed)
+	})
+	if rep.Indexed >= 50 {
+		fmt.Fprintln(os.Stderr)
+	}
+	if err != nil {
+		return err
+	}
+	for _, e := range rep.Errors {
+		fmt.Fprintln(os.Stderr, "skipped", e)
+	}
+	if rep.SkippedLines > 0 {
+		fmt.Fprintf(os.Stderr, "skipped %d unreadable log lines (malformed or over 64 MiB)\n", rep.SkippedLines)
+	}
+	return nil
+}
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "agent-stats:", err)
@@ -66,26 +98,16 @@ func run() error {
 	}
 	defer index.Close()
 
+	var indexLogs indexRun
 	if !*noSync {
-		home, err := os.UserHomeDir()
-		if err != nil {
+		if indexLogs, err = newIndexRun(index, prices); err != nil {
 			return err
 		}
-		logs := logfiles.NewFileSessionLogs(logfiles.DefaultSources(home))
-		rep, err := indexing.IndexSessions{Logs: logs, Store: index, Prices: prices}.Run(func(r indexing.IndexReport) {
-			fmt.Fprintf(os.Stderr, "\rindexing… %d files", r.Indexed)
-		})
-		if rep.Indexed >= 50 {
-			fmt.Fprintln(os.Stderr)
-		}
-		if err != nil {
+	}
+	ui := interactive(*asJSON, os.Stdin, os.Stdout)
+	if indexLogs != nil && !ui { // the interface indexes in the background instead
+		if err := indexBeforeReport(indexLogs); err != nil {
 			return err
-		}
-		for _, e := range rep.Errors {
-			fmt.Fprintln(os.Stderr, "skipped", e)
-		}
-		if rep.SkippedLines > 0 {
-			fmt.Fprintf(os.Stderr, "skipped %d unreadable log lines (malformed or over 64 MiB)\n", rep.SkippedLines)
 		}
 	}
 
@@ -94,8 +116,12 @@ func run() error {
 		return err
 	}
 	defer usage.Close()
-	if interactive(*asJSON, os.Stdin, os.Stdout) {
-		return tui.Run(tui.Options{Reports: reporting.BuildReport{Queries: usage}, Harness: only, SinceLabel: *since, Since: from})
+	if ui {
+		o := tui.Options{Reports: reporting.BuildReport{Queries: usage}, Harness: only, SinceLabel: *since, Since: from}
+		if indexLogs != nil {
+			o.Sync = tuiSync(indexLogs)
+		}
+		return tui.Run(o)
 	}
 	rep, err := reporting.BuildReport{Queries: usage}.Run(reporting.Query{Since: from, Harness: only})
 	if err != nil {

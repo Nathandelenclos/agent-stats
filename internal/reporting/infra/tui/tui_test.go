@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
@@ -450,5 +451,165 @@ func TestViewSaysItIsUpdatingUntilTheAnswerArrives(t *testing.T) {
 	}
 	if m = answer(t, m, cmd); strings.Contains(m.View(), "updating…") {
 		t.Error("still updating after the answer")
+	}
+}
+
+// settle runs cmd and every command its messages lead to, feeding each message to the model,
+// until nothing is left to do. The spinner's own ticks are skipped: they would never end.
+func settle(t *testing.T, m Model, cmd tea.Cmd) Model {
+	t.Helper()
+	if cmd == nil {
+		return m
+	}
+	switch msg := cmd().(type) {
+	case nil:
+		return m
+	case tea.BatchMsg:
+		for _, c := range msg {
+			m = settle(t, m, c)
+		}
+		return m
+	case spinner.TickMsg:
+		return m
+	default:
+		next, cmd := m.Update(msg)
+		return settle(t, next.(Model), cmd)
+	}
+}
+
+// fakeSync reports each count as progress, then ends with note and err; calls counts its runs.
+type fakeSync struct {
+	counts []int
+	note   string
+	err    error
+	calls  int
+}
+
+func (f *fakeSync) run(progress func(int)) (string, error) {
+	f.calls++
+	for _, c := range f.counts {
+		progress(c)
+	}
+	return f.note, f.err
+}
+
+func openWithSync(t *testing.T, reports *fakeReports, s *fakeSync) Model {
+	t.Helper()
+	m := New(Options{Reports: reports, Sync: s.run})
+	return settle(t, m, m.Init())
+}
+
+func TestIndexingRunsInTheBackgroundThenTheReportRefreshes(t *testing.T) {
+	// Given a sync that indexes files and skips some
+	reports := &fakeReports{report: sampleReport()}
+	s := &fakeSync{counts: []int{50, 100}, note: "2 files skipped"}
+	m := New(Options{Reports: reports, Sync: s.run})
+
+	// When the interface opens, then it says it is indexing before anything finishes
+	if view := m.View(); !strings.Contains(view, "indexing…") {
+		t.Errorf("no indexing indicator on opening:\n%s", view)
+	}
+	m = settle(t, m, m.Init())
+
+	// Then, once it is done, the indicator is gone, the note is shown and the report was asked for again
+	view := m.View()
+	if strings.Contains(view, "indexing…") || !strings.Contains(view, "2 files skipped") {
+		t.Errorf("view after indexing:\n%s", view)
+	}
+	if s.calls != 1 || len(reports.queries) != 2 {
+		t.Errorf("sync ran %d times, report asked %d times; want 1 and 2 (before and after indexing)", s.calls, len(reports.queries))
+	}
+}
+
+func TestProgressShowsFilesIndexedSoFar(t *testing.T) {
+	m := New(Options{Reports: &fakeReports{}, Sync: (&fakeSync{}).run})
+	m = send(t, m, syncProgressMsg{indexed: 1250, events: make(chan tea.Msg)})
+	if view := m.View(); !strings.Contains(view, "indexing… 1 250 files") {
+		t.Errorf("progress:\n%s", view)
+	}
+}
+
+func TestProgressReachesTheScreenWhileIndexingIsStillRunning(t *testing.T) {
+	// Given a sync that is still working after its first progress report
+	release := make(chan struct{})
+	m := New(Options{Reports: &fakeReports{}, Sync: func(progress func(int)) (string, error) {
+		progress(50)
+		<-release
+		return "", nil
+	}})
+
+	// When the sync starts, then its progress comes back without waiting for its end
+	got := make(chan tea.Msg)
+	go func() { got <- m.startSync()() }()
+	select {
+	case msg := <-got:
+		if p, ok := msg.(syncProgressMsg); !ok || p.indexed != 50 {
+			t.Fatalf("first message = %#v", msg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("progress is blocked until the sync ends")
+	}
+
+	// And its end arrives as a message once released
+	close(release)
+}
+
+func TestFailedIndexingIsShownAndTheViewStillRefreshes(t *testing.T) {
+	reports := &fakeReports{report: sampleReport()}
+	m := openWithSync(t, reports, &fakeSync{err: errors.New("disk full")})
+	view := m.View()
+	if !strings.Contains(view, "indexing failed: disk full") || !strings.Contains(view, "claude") {
+		t.Errorf("view:\n%s", view)
+	}
+	if len(reports.queries) != 2 {
+		t.Errorf("report asked %d times, want 2", len(reports.queries))
+	}
+}
+
+func TestReindexKeyRunsTheSyncAgain(t *testing.T) {
+	reports := &fakeReports{report: sampleReport()}
+	s := &fakeSync{counts: []int{50}}
+	m := openWithSync(t, reports, s)
+
+	m, cmd := pressCmd(t, m, "r")
+	if !strings.Contains(m.View(), "indexing…") {
+		t.Errorf("no indicator after r:\n%s", m.View())
+	}
+	// r while it is running starts nothing more
+	if _, again := pressCmd(t, m, "r"); again != nil {
+		t.Error("r started a second sync while one was running")
+	}
+	m = settle(t, m, cmd)
+	if s.calls != 2 || strings.Contains(m.View(), "indexing…") {
+		t.Errorf("sync ran %d times; view:\n%s", s.calls, m.View())
+	}
+}
+
+func TestWithoutSyncNothingIsIndexed(t *testing.T) {
+	reports := &fakeReports{report: sampleReport()}
+	m := New(Options{Reports: reports})
+	if view := m.View(); strings.Contains(view, "indexing") || strings.Contains(view, "re-index") {
+		t.Errorf("sync-less view mentions indexing:\n%s", view)
+	}
+	m = settle(t, m, m.Init())
+	if _, cmd := pressCmd(t, m, "r"); cmd != nil {
+		t.Error("r did something without a sync")
+	}
+	if len(reports.queries) != 1 {
+		t.Errorf("report asked %d times, want 1", len(reports.queries))
+	}
+}
+
+func TestSpinnerStopsWhenIndexingEnds(t *testing.T) {
+	m := openWithSync(t, &fakeReports{report: sampleReport()}, &fakeSync{})
+	if _, cmd := m.Update(spinner.TickMsg{}); cmd != nil {
+		t.Error("the spinner keeps ticking after indexing ended")
+	}
+}
+
+func TestIndexingMessagesCannotDriveTheTerminal(t *testing.T) {
+	m := openWithSync(t, &fakeReports{report: sampleReport()}, &fakeSync{err: errors.New("bad\x1b[2Jpath"), note: "n\x07"})
+	if view := m.View(); strings.ContainsAny(view, "\x07") || strings.Contains(view, "\x1b[2J") {
+		t.Errorf("control characters reached the view: %q", view)
 	}
 }
