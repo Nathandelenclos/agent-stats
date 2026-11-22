@@ -15,7 +15,28 @@ import (
 // the user did not ask for JSON. Only stdout counts: the interface reads the keyboard from the controlling
 // terminal when stdin is redirected, while a piped or redirected stdout keeps the plain report.
 func interactive(asJSON bool, out *os.File) bool {
-	return !asJSON && isatty.IsTerminal(out.Fd())
+	return showInterface(asJSON, isatty.IsTerminal(out.Fd()), keyboardReachable)
+}
+
+// showInterface decides between the interface and the plain report. Without a keyboard to read (stdin
+// redirected and no controlling terminal, as under a daemon or a detached session), the interface could
+// not start, so the plain report is kept.
+func showInterface(asJSON, onTerminal bool, keyboard func() bool) bool {
+	return !asJSON && onTerminal && keyboard()
+}
+
+// keyboardReachable reports whether keys can be read: from stdin when it is a terminal, else from the
+// controlling terminal, which Bubble Tea opens itself.
+func keyboardReachable() bool {
+	if isatty.IsTerminal(os.Stdin.Fd()) {
+		return true
+	}
+	tty, err := os.Open("/dev/tty")
+	if err != nil {
+		return false
+	}
+	tty.Close()
+	return true
 }
 
 // tuiSync adapts the indexing run to the interface's Sync port: the counts become progress and what

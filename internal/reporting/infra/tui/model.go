@@ -322,7 +322,7 @@ func (m *Model) layout() {
 		m.table.SetRows(nil)
 	}
 	m.table.SetColumns(cols)
-	m.table.SetRows(rows) // keeps the cursor and the scroll, clamped to a shorter report
+	m.table.SetRows(rows)     // keeps the cursor and the scroll, clamped to a shorter report
 	if m.table.Cursor() < 0 { // emptied above, or the report had no row
 		m.table.SetCursor(0)
 	}

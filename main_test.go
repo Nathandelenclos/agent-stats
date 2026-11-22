@@ -145,6 +145,28 @@ func TestInteractiveOnlyOnATerminalWithoutJSON(t *testing.T) {
 	}
 }
 
+func TestPlainReportWhenNoKeyboardCanBeRead(t *testing.T) {
+	// Given stdout on a terminal but no keyboard to read (no controlling terminal)
+	noKeyboard := func() bool { return false }
+
+	// When agent-stats starts without --json
+	// Then the plain report is shown instead of an interface that could not start
+	if showInterface(false, true, noKeyboard) {
+		t.Error("the interface was chosen without a keyboard")
+	}
+}
+
+func TestInterfaceWhenAKeyboardCanBeRead(t *testing.T) {
+	// Given stdout on a terminal and a keyboard to read
+	keyboard := func() bool { return true }
+
+	// When agent-stats starts without --json
+	// Then the interface opens
+	if !showInterface(false, true, keyboard) {
+		t.Error("the plain report was chosen on a terminal with a keyboard")
+	}
+}
+
 func TestSyncNoteSaysWhatWasSkipped(t *testing.T) {
 	for _, c := range []struct {
 		rep  indexing.IndexReport
