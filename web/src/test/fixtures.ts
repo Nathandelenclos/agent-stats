@@ -29,21 +29,25 @@ export const report = (over: Partial<Report> = {}): Report => ({
 /** A report of a period with no model request at all. */
 export const emptyReport = (over: Partial<Report> = {}): Report => ({ ...nothing, ...over });
 
-export const meta: Meta = { harnesses: ["claude", "codex"], defaults: { since: "7d", harness: "" } };
+/** A server started outside any project; `over` replaces any part of it. */
+export const meta = (over: Partial<Meta> = {}): Meta => ({ harnesses: ["claude", "codex"], project: "", defaults: { since: "7d", harness: "", project: "all" }, ...over });
+
+/** A server started in the project `name`, whose page opens on it. */
+export const metaInProject = (name: string): Meta => meta({ project: name, defaults: { since: "7d", harness: "", project: "current" } });
 
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
 
-/** Stands in for the server: the report is whatever `reportFor` makes of the requested period and harness. */
-export function serveReports(reportFor: (since: string, harness: string) => Report | Promise<Report>) {
+/** Stands in for the server, which describes itself as `about`: the report is whatever `reportFor` makes of the requested period, harness and scope. */
+export function serveReports(reportFor: (since: string, harness: string, project: string) => Report | Promise<Report>, about: Meta = meta()) {
   const fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input), "http://localhost");
     switch (url.pathname) {
       case "/api/meta":
-        return json(meta);
+        return json(about);
       case "/api/sync":
         return json({ state: "disabled", indexed: 0, startedAt: 0, finishedAt: 0 });
       case "/api/report":
-        return json(await reportFor(url.searchParams.get("since") ?? "", url.searchParams.get("harness") ?? ""));
+        return json(await reportFor(url.searchParams.get("since") ?? "", url.searchParams.get("harness") ?? "", url.searchParams.get("project") ?? ""));
     }
     return new Response("{}", { status: 404 });
   });

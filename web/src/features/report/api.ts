@@ -15,8 +15,8 @@ export function useMeta() {
 /** The report for the filters; the previous one stays on screen while a new one loads. */
 export function useReport(filters: Filters) {
   return useQuery({
-    queryKey: ["report", filters.since, filters.harness],
-    queryFn: ({ signal }) => getJSON<Report>("/api/report", { since: filters.since, harness: filters.harness }, signal),
+    queryKey: ["report", filters.since, filters.harness, filters.project],
+    queryFn: ({ signal }) => getJSON<Report>("/api/report", { since: filters.since, harness: filters.harness, project: filters.project }, signal),
     placeholderData: keepPreviousData,
     retry: shouldRetry,
   });

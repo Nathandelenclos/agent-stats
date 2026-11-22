@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ErrorBoundary } from "./shared/ErrorBoundary";
 import { useTheme, type ThemeChoice } from "./shared/theme";
 import { ApiError } from "./shared/api";
@@ -10,6 +10,7 @@ import {
   CostBy,
   CostOverTime,
   FilterBar,
+  scopeLabel,
   ToolsTable,
   Totals,
   UsageTable,
@@ -21,13 +22,16 @@ import {
 } from "./features/report";
 import { SyncBanner, useSyncStatus, type SyncStatus } from "./features/sync";
 
-/** Filters live in the address (?since=7d&harness=claude), so a reload or a bookmark keeps them. */
+/** Filters live in the address (?since=7d&harness=claude&project=all), so a reload or a bookmark keeps them. */
 function readFilters(meta: Meta): Filters {
   const params = new URLSearchParams(window.location.search);
   const harness = params.get("harness") ?? meta.defaults.harness;
+  const project = params.get("project");
   return {
     since: params.get("since") ?? meta.defaults.since,
     harness: harness === "" || meta.harnesses.includes(harness) ? harness : meta.defaults.harness,
+    // "current" names a project only a server that found one can answer for: with none, the server refuses it.
+    project: project === "all" || (project === "current" && meta.project !== "") ? project : meta.defaults.project,
   };
 }
 
@@ -35,6 +39,7 @@ function writeFilters(f: Filters) {
   const params = new URLSearchParams();
   params.set("since", f.since);
   params.set("harness", f.harness);
+  params.set("project", f.project);
   window.history.replaceState(null, "", `?${params}`);
 }
 
@@ -171,12 +176,10 @@ function Report({ filters, syncState }: { filters: Filters; syncState: SyncStatu
   );
 }
 
-function Filtered({ meta, syncState }: { meta: Meta; syncState: SyncStatus["state"] | undefined }) {
-  const [filters, setFilters] = useState<Filters>(() => readFilters(meta));
-  useEffect(() => writeFilters(filters), [filters]);
+function Filtered({ meta, filters, onChange, syncState }: { meta: Meta; filters: Filters; onChange: (next: Filters) => void; syncState: SyncStatus["state"] | undefined }) {
   return (
     <>
-      <FilterBar meta={meta} value={filters} onChange={setFilters} />
+      <FilterBar meta={meta} value={filters} onChange={onChange} />
       <Report filters={filters} syncState={syncState} />
     </>
   );
@@ -185,6 +188,13 @@ function Filtered({ meta, syncState }: { meta: Meta; syncState: SyncStatus["stat
 export function App() {
   const meta = useMeta();
   const sync = useSyncStatus();
+  // The filters are the person's once they change them, and what the server and the address say until then. The header shows what they cover.
+  const [chosen, setChosen] = useState<Filters>();
+  const initial = useMemo(() => (meta.data ? readFilters(meta.data) : undefined), [meta.data]);
+  const filters = chosen ?? initial;
+  useEffect(() => {
+    if (filters) writeFilters(filters);
+  }, [filters]);
   return (
     <>
       <a
@@ -198,6 +208,7 @@ export function App() {
           <div>
             <h1 className="text-2xl font-bold">agent-stats</h1>
             <p className="text-sm text-muted">Usage of your coding agents, read from the session logs on this machine.</p>
+            {meta.data && filters && <p className="mt-1 text-sm font-semibold">{scopeLabel(meta.data, filters)}</p>}
           </div>
           <ThemeSelect />
         </header>
@@ -205,7 +216,7 @@ export function App() {
         <main id="main" tabIndex={-1} className="flex flex-col gap-6">
           {meta.isPending && <p role="status">Loading…</p>}
           {meta.isError && <Failure title="The server did not answer." message={describe(meta.error)} retry={() => void meta.refetch()} />}
-          {meta.data && <Filtered meta={meta.data} syncState={sync.data?.state} />}
+          {meta.data && filters && <Filtered meta={meta.data} filters={filters} onChange={setChosen} syncState={sync.data?.state} />}
         </main>
       </div>
     </>

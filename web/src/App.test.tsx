@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import type { Report } from "./features/report";
-import { emptyReport, group, report, serveReports, tool, usage } from "./test/fixtures";
+import { emptyReport, group, metaInProject, report, serveReports, tool, usage } from "./test/fixtures";
 import { choose, click, eventually, render, selectLabelled, testQueryClient, withQueries } from "./test/render";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -101,5 +101,83 @@ describe("changing the filters", () => {
     expect(header(container, "Usage by model", "Requests")!.getAttribute("aria-sort")).toBe("descending");
     expect(header(container, "Usage by model", "Cost")!.getAttribute("aria-sort")).toBe("none");
     expect([...container.querySelectorAll("button")].some((b) => b.textContent === "Show the first 15")).toBe(true);
+  });
+});
+
+const scopeButton = (container: HTMLElement, name: string) =>
+  [...container.querySelectorAll('[role="group"][aria-label="Projects"] button')].find((b) => b.textContent === name) as HTMLElement;
+const headerText = (container: HTMLElement) => container.querySelector("header")?.textContent ?? "";
+
+describe("the scope of the report", () => {
+  afterEach(() => window.history.replaceState(null, "", "/"));
+
+  it("says in the header that the report covers every project when the server found none", async () => {
+    // Given a server started outside any project
+    serveReports(() => report());
+
+    // When the page loads
+    const { container } = render(withQueries(testQueryClient(), <App />));
+
+    // Then the header says all projects are covered, and there is no toggle
+    await eventually(() => expect(headerText(container)).toContain("All projects"));
+    expect(container.querySelector('[role="group"][aria-label="Projects"]')).toBeNull();
+  });
+
+  it("opens on the project the server runs in, named in the header, and asks for it", async () => {
+    // Given a server started in the app project
+    const fetch = serveReports(() => report(), metaInProject("app"));
+
+    // When the page loads
+    const { container } = render(withQueries(testQueryClient(), <App />));
+
+    // Then the header names the project and the report asked for it
+    await eventually(() => expect(headerText(container)).toContain("Project: app"));
+    const asked = fetch.mock.calls.map(([url]) => new URL(String(url), "http://localhost")).filter((u) => u.pathname === "/api/report");
+    expect(asked.map((u) => u.searchParams.get("project"))).toContain("current");
+    expect(asked.map((u) => u.searchParams.get("project"))).not.toContain("all");
+  });
+
+  it("switches to every project with the toggle, which the header and the report follow", async () => {
+    // Given a page opened on the app project, whose figures differ from the other projects'
+    serveReports((_since, _harness, project) => report({ total: usage({ requests: project === "all" ? 4242 : 7 }) }), metaInProject("app"));
+    const { container } = render(withQueries(testQueryClient(), <App />));
+    await eventually(() => expect(container.textContent).toContain("Project: app"));
+
+    // When the person chooses every project
+    click(scopeButton(container, "All projects"));
+
+    // Then the header and the figures are those of every project, and the address keeps the choice
+    await eventually(() => expect(container.textContent).toContain("4,242"));
+    expect(headerText(container)).toContain("All projects");
+    expect(scopeButton(container, "All projects").getAttribute("aria-pressed")).toBe("true");
+    expect(new URLSearchParams(window.location.search).get("project")).toBe("all");
+  });
+
+  it("opens on every project when the address says so, even in a project", async () => {
+    // Given an address that keeps the choice of every project
+    window.history.replaceState(null, "", "?since=7d&harness=&project=all");
+    const fetch = serveReports(() => report(), metaInProject("app"));
+
+    // When the page loads
+    const { container } = render(withQueries(testQueryClient(), <App />));
+
+    // Then it covers every project, and never asked for the project
+    await eventually(() => expect(headerText(container)).toContain("All projects"));
+    const asked = fetch.mock.calls.map(([url]) => new URL(String(url), "http://localhost")).filter((u) => u.pathname === "/api/report");
+    expect(asked.map((u) => u.searchParams.get("project"))).toEqual(["all"]);
+  });
+
+  it("ignores the project in the address when the server found none", async () => {
+    // Given an address kept from a server that was in a project
+    window.history.replaceState(null, "", "?since=7d&harness=&project=current");
+    const fetch = serveReports(() => report());
+
+    // When the page loads, on a server with no project
+    const { container } = render(withQueries(testQueryClient(), <App />));
+
+    // Then it asks for every project: the server would refuse the other
+    await eventually(() => expect(headerText(container)).toContain("All projects"));
+    const asked = fetch.mock.calls.map(([url]) => new URL(String(url), "http://localhost")).filter((u) => u.pathname === "/api/report");
+    expect(asked.map((u) => u.searchParams.get("project"))).toEqual(["all"]);
   });
 });

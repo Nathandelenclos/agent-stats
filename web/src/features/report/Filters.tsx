@@ -1,5 +1,5 @@
 import { useId } from "react";
-import type { Filters, Meta } from "./types";
+import type { Filters, Meta, Scope } from "./types";
 
 const presets = [
   { value: "24h", label: "Last 24 hours" },
@@ -10,7 +10,36 @@ const presets = [
 
 const selectClass = "min-h-9 rounded-md border border-border bg-bg px-2 text-ink";
 
-/** The period and harness the report is limited to. */
+/** What the report covers, in words: the project the server runs in, or every project. */
+export function scopeLabel(meta: Meta, filters: Filters): string {
+  return filters.project === "current" && meta.project !== "" ? `Project: ${meta.project}` : "All projects";
+}
+
+const scopes: { value: Scope; label: string }[] = [
+  { value: "current", label: "This project" },
+  { value: "all", label: "All projects" },
+];
+
+/** Switches between the project the server runs in and every project. */
+function ScopeToggle({ value, onChange }: { value: Scope; onChange: (next: Scope) => void }) {
+  return (
+    <div role="group" aria-label="Projects" className="flex overflow-hidden rounded-md border border-border">
+      {scopes.map((s) => (
+        <button
+          key={s.value}
+          type="button"
+          aria-pressed={value === s.value}
+          onClick={() => onChange(s.value)}
+          className={`min-h-9 px-3 text-sm ${value === s.value ? "bg-accent text-accent-ink" : "bg-bg text-ink hover:bg-surface"}`}
+        >
+          {s.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** The period, harness and, when the server runs in a project, scope the report is limited to. */
 export function FilterBar({ meta, value, onChange }: { meta: Meta; value: Filters; onChange: (next: Filters) => void }) {
   const periodId = useId();
   const harnessId = useId();
@@ -36,6 +65,7 @@ export function FilterBar({ meta, value, onChange }: { meta: Meta; value: Filter
           ))}
         </select>
       </div>
+      {meta.project !== "" && <ScopeToggle value={value.project} onChange={(project) => onChange({ ...value, project })} />}
     </form>
   );
 }

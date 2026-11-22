@@ -143,6 +143,7 @@ absent or `null` list as empty.
 ```sh
 agent-stats serve                     # http://127.0.0.1:7373, indexing the logs in the background
 agent-stats serve --since 7d --harness claude
+agent-stats serve --all               # open on every project, even from inside one
 agent-stats serve --no-sync --addr 127.0.0.1:8080
 ```
 
@@ -153,11 +154,17 @@ in its address. Each chart has its values behind it (a table, or the table of th
 Like the terminal view, it indexes the logs in the background and shows the progress; the figures refresh when it ends.
 Press Ctrl-C to stop it.
 
+Started from a project (see [Per-project view](#per-project-view)), `serve` opens on that project: the header says
+`Project: app` or `All projects`, and a toggle switches between the two. The page offers no other folder: the server
+decides which folder the project is, and a request cannot name one. Started elsewhere, it covers every project and has
+no toggle.
+
 | Flag | Meaning |
 |------|---------|
 | `--addr` | Address to listen on (default `127.0.0.1:7373`). Only loopback addresses are accepted, see below. |
 | `--allow-remote` | Accept a non-loopback `--addr` and any `Host` header. Read the security notes first. |
 | `--since`, `--harness` | The period and harness the page opens on, as for the report. |
+| `--all`, `--project DIR` | The project the page offers, as for the report: `--all` opens it on every project, `--project DIR` offers the project at `DIR`. |
 | `--no-sync` | Skip re-reading the logs. |
 | `--db`, `--prices` | As for the report. |
 
@@ -166,13 +173,15 @@ Press Ctrl-C to stop it.
 The page reads a small JSON API, which is also usable with `curl`. Every route is a `GET`; errors are
 [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem documents (`application/problem+json`) with a stable `type`.
 `since` and `harness` take what the command line takes (`7d`, `24h`, `2006-01-02`; `claude`, `codex`, `omp`, `pi`) and
-may be omitted. Unknown or repeated parameters are refused with `400`.
+may be omitted. `project` is `current` (the project the server runs in) or `all`, and when omitted is what the page opens
+on; `current` is refused with `400` when the server found no project, as is any other value, a folder included.
+Unknown or repeated parameters are refused with `400`.
 
 | Route | Answer |
 |-------|--------|
-| `/api/report?since=&harness=` | The `--json` report (same fields), plus `daily`: one entry per local day with activity, oldest first, `key` being `2006-01-02`. Lists are `[]` when empty, never `null`. |
-| `/api/sessions?since=&harness=&limit=` | The most recent sessions (`limit` 1 to 1000, default 100) with their usage, models and subagent count, without the prompts. `count` and `total` cover every matching session. `title` is the session title, which for an untitled session is the start of its first prompt. |
-| `/api/meta` | The harness names, and the period and harness the page opens on. |
+| `/api/report?since=&harness=&project=` | The `--json` report (same fields), plus `daily`: one entry per local day with activity, oldest first, `key` being `2006-01-02`. Lists are `[]` when empty, never `null`. |
+| `/api/sessions?since=&harness=&project=&limit=` | The most recent sessions (`limit` 1 to 1000, default 100) with their usage, models and subagent count, without the prompts. `count` and `total` cover every matching session. `title` is the session title, which for an untitled session is the start of its first prompt. |
+| `/api/meta` | The harness names, the name of the project the server runs in (`project`, `""` when it found none), and the period, harness and scope (`defaults.project`: `current` or `all`) the page opens on. |
 | `/api/sync` | The background indexing: `state` (`running`, `done`, `failed`, or `disabled` with `--no-sync`), files `indexed`, and what was skipped. |
 
 ### Security
