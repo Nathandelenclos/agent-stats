@@ -130,9 +130,10 @@ func TestSessionReadModelContract(t *testing.T) {
 	}
 }
 
-// TestSessionRunsFollowTheirNestedSubagents lists a run of three generations of agents through the indexing and
-// reporting adapters: the top session carries what every generation used, and is active until the last one stops.
-func TestSessionRunsFollowTheirNestedSubagents(t *testing.T) {
+// nestedRunsIndexed writes, through the indexing adapter, a session a whose subagent b started a subagent c: three
+// generations of agents, each on its own model and last active 10, 15 and 20 minutes after at. It returns the index and at.
+func nestedRunsIndexed(t *testing.T) (string, time.Time) {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "index.db")
 	w, err := sqlite.Open(sqlite.Options{Path: path, User: "me@host"})
 	if err != nil {
@@ -160,20 +161,42 @@ func TestSessionRunsFollowTheirNestedSubagents(t *testing.T) {
 	}
 	w.Close()
 
+	return path, at
+}
+
+// TestNestedSubagentsCountForTheTopSession reads the run of three generations of agents through the reporting adapter.
+func TestNestedSubagentsCountForTheTopSession(t *testing.T) {
+	path, _ := nestedRunsIndexed(t)
 	usage, err := usagedb.OpenReadOnly(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer usage.Close()
-	// Since falls after the top session's own last entry and before its last subagent's.
+
+	list, err := usage.Sessions().Sessions(report.Filter{})
+	if err != nil || len(list) != 1 {
+		t.Fatalf("sessions = %+v %v", list, err)
+	}
+	if s := list[0]; s.ID.String() != "claude:a" || s.Requests != 3 || s.Cost != 3 || s.SubagentCount != 2 || len(s.Models) != 3 {
+		t.Errorf("summary = %+v", s)
+	}
+}
+
+// TestASessionIsActiveUntilItsLastSubagentStops asks for the sessions active since a time that falls after the top
+// session's own last entry and before its last subagent's.
+func TestASessionIsActiveUntilItsLastSubagentStops(t *testing.T) {
+	path, at := nestedRunsIndexed(t)
+	usage, err := usagedb.OpenReadOnly(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer usage.Close()
+
 	list, err := usage.Sessions().Sessions(report.Filter{Since: at.Add(15 * time.Minute)})
 	if err != nil || len(list) != 1 {
 		t.Fatalf("sessions = %+v %v", list, err)
 	}
 	s := list[0]
-	if s.ID.String() != "claude:a" || s.Requests != 3 || s.Cost != 3 || s.SubagentCount != 2 || len(s.Models) != 3 {
-		t.Errorf("summary = %+v", s)
-	}
 	if d, ok := s.Duration(); !ok || d != 20*time.Minute || !s.End.Equal(at.Add(20*time.Minute)) {
 		t.Errorf("run = %v → %v (%v %v)", s.Start, s.End, d, ok)
 	}

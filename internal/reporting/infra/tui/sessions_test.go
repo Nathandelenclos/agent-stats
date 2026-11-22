@@ -211,7 +211,7 @@ func TestASortOnAColumnTheNarrowedTerminalCannotHoldIsDropped(t *testing.T) {
 	// When the terminal shrinks to 80 columns, which cannot hold that column
 	m = send(t, m, tea.WindowSizeMsg{Width: 80, Height: 30})
 
-	// Then the sessions are back in the order of the index, and the sort keys still work
+	// Then the sessions are back in the order of the index
 	view := m.View()
 	if !strings.Contains(view, "most recent first") || strings.ContainsAny(view, "▲▼") {
 		t.Errorf("sort left behind:\n%s", view)
@@ -219,7 +219,17 @@ func TestASortOnAColumnTheNarrowedTerminalCannotHoldIsDropped(t *testing.T) {
 	if got := order(view, "refactor", "quick fix", "(untitled)"); got != "refactor quick fix (untitled)" {
 		t.Errorf("order = %q", got)
 	}
-	if view := press(t, m, "s", "s").View(); !strings.Contains(view, "COST▼") {
+}
+
+func TestTheSortKeyOnANarrowTerminalSortsTheColumnsItShows(t *testing.T) {
+	// Given the sessions on an 80-column terminal
+	m := send(t, inSessions(t, sampleSessions()), tea.WindowSizeMsg{Width: 80, Height: 30})
+
+	// When the user presses s twice
+	view := press(t, m, "s", "s").View()
+
+	// Then the sessions are sorted by the second column, the cost
+	if !strings.Contains(view, "COST▼") {
 		t.Errorf("s does not sort by the second column:\n%s", view)
 	}
 }
