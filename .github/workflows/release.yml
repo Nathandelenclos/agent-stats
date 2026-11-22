@@ -19,7 +19,8 @@
 # hand: run this workflow ON the tag (Actions, release, Run workflow, "Use workflow from": Tag, or
 # `gh workflow run release.yml --ref vX.Y.Z`). The run then starts from the tag's own commit, so the build and the
 # attestation name that commit, and it follows the same path as a re-run. The workflow file must exist at that tag,
-# and the tag's commit must be on the default branch: nothing else is built or signed.
+# and the tag's commit must be on the default branch: nothing else is built or signed. The attestation then names the
+# tag (refs/tags/vX.Y.Z) as its source ref, where a push run names refs/heads/main: the README gives both checks.
 name: release
 
 on:
@@ -94,7 +95,8 @@ jobs:
           # Strict vX.Y.Z only: the glob of git tag would also accept v1.2.3-rc1. grep exits 1 when no tag
           # matches (not an error) and 2 or more on a real error, which stops the run.
           semver_tags() { git tag "$@" --list 'v[0-9]*' | { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || [ $? -eq 1 ]; }; }
-          # HEAD is the pushed commit, the one CI validated and the provenance will name. Every release is looked up
+          # HEAD is the commit this run is for (the pushed commit CI validated, or the tag's commit on a manual run)
+          # and the one the provenance will name. Every release is looked up
           # in one call. Every lookup below fails closed: a failed command stops the run (set -e), and none is
           # followed by "|| true", so an error is never read as "nothing published" or "no tag".
           if ! published=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \

@@ -74,8 +74,10 @@ The workflows assume these settings, which live on GitHub and not in the reposit
 - A tag ruleset on `v*` blocks updating and deleting tags, with an empty bypass list: a release tag is never moved or
   deleted. **Do not restrict tag creation.** The release workflow pushes its own tag with the built-in `GITHUB_TOKEN`,
   which cannot be added to a bypass list: a creation rule makes that push fail with `GH013`, even with GitHub Actions
-  in the bypass list (see [oras-go#1361](https://github.com/oras-project/oras-go/issues/1361)). A tag pushed by hand is
-  harmless: it publishes nothing, and the workflow releases it like any other (see "Releases").
+  in the bypass list (see [oras-go#1361](https://github.com/oras-project/oras-go/issues/1361)). Anyone with write access
+  can therefore push a `v*` tag. It publishes nothing by itself, but until it is published (see "Releases") the release
+  job of every later commit fails, and the manual run publishes any strict `vX.Y.Z` tag on `main` without checking its
+  version number: keep write access to maintainers.
 - **Immutable releases** are enabled, so a published release and its assets cannot be modified.
 - The default `GITHUB_TOKEN` permission is read-only; each workflow asks for what it needs.
 
