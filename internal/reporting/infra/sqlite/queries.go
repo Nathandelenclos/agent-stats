@@ -58,6 +58,7 @@ func (s scoped) QueryRow(query string, args ...any) *sql.Row {
 type reader struct {
 	q       querier
 	folders *projectFolders
+	premium bool
 }
 
 // projectFolders is the folders of one project as projectfolders.List gives them.
@@ -96,7 +97,10 @@ func OpenReadOnly(path string) (*SQLiteUsage, error) {
 		db.Close()
 		return nil, err
 	}
-	return &SQLiteUsage{db: db, reader: reader{q: scoped{context.Background(), db}}}, nil
+	var premium bool
+	// The report remains readable during a rolled-back upgrade of an older index.
+	_ = db.QueryRow(`SELECT EXISTS (SELECT 1 FROM pragma_table_info('usage_requests') WHERE name = 'premium_units')`).Scan(&premium)
+	return &SQLiteUsage{db: db, reader: reader{q: scoped{context.Background(), db}, premium: premium}}, nil
 }
 
 // Snapshot runs fn inside one read transaction. The index is in WAL mode, so the transaction keeps the state
@@ -108,7 +112,7 @@ func (s *SQLiteUsage) Snapshot(ctx context.Context, fn func(reporting.UsageReade
 		return err
 	}
 	defer tx.Rollback() // nothing was written: ending the transaction is all it takes
-	return fn(reader{q: scoped{ctx, tx}, folders: &projectFolders{}})
+	return fn(reader{q: scoped{ctx, tx}, folders: &projectFolders{}, premium: s.premium})
 }
 
 // Close closes the database.
@@ -162,7 +166,14 @@ const usageCols = `COUNT(*), COUNT(r.error), COALESCE(SUM(r.input), 0), COALESCE
 	COALESCE(AVG(r.duration_ms), 0), COALESCE(AVG(r.ttft_ms), 0), COALESCE(MIN(r.ts), 0), COALESCE(MAX(r.ts), 0),
 	COUNT(r.duration_ms), COUNT(r.ttft_ms),
 	COALESCE(AVG(CASE WHEN r.duration_ms > 0 AND r.output > 0 THEN 1000.0 * r.output / r.duration_ms END), 0),
-	COUNT(CASE WHEN r.duration_ms > 0 AND r.output > 0 THEN 1 END), COALESCE(SUM(r.premium_units), 0)`
+	COUNT(CASE WHEN r.duration_ms > 0 AND r.output > 0 THEN 1 END)`
+
+func (r reader) usageColumns() string {
+	if r.premium {
+		return usageCols + ", COALESCE(SUM(r.premium_units), 0)"
+	}
+	return usageCols + ", 0"
+}
 
 // usageRow scans one usageCols row; timestamps are stored in Unix milliseconds, 0 when unknown.
 type usageRow struct {
@@ -207,7 +218,7 @@ func (r reader) UsageBy(f report.Filter, d report.Dimension) ([]report.UsageGrou
 			cond += " AND r.ts > 0"
 		}
 	}
-	rows, err := r.q.Query(`SELECT `+col+`, `+usageCols+`
+	rows, err := r.q.Query(`SELECT `+col+`, `+r.usageColumns()+`
 		FROM usage_requests r`+cond+`
 		GROUP BY 1 ORDER BY `+order, args...)
 	if err != nil {
@@ -233,7 +244,7 @@ func (r reader) Total(f report.Filter) (report.Usage, error) {
 		return report.Usage{}, err
 	}
 	var row usageRow
-	err = r.q.QueryRow(`SELECT `+usageCols+` FROM usage_requests r`+cond, args...).Scan(row.args()...)
+	err = r.q.QueryRow(`SELECT `+r.usageColumns()+` FROM usage_requests r`+cond, args...).Scan(row.args()...)
 	return row.usage(), err
 }
 

@@ -207,7 +207,7 @@ func addUsage(q querier, sessions []report.SessionSummary, r runs, cond string, 
 // keys names, most expensive first; fn gets each group's key values and usage. with, when it is not empty, is a WITH clause
 // from and cond may use.
 func usageGroups(q querier, with, keys, from, cond string, args []any, fn func(keys []string, u report.Usage)) error {
-	rows, err := q.Query(with+` SELECT `+keys+`, `+usageCols+`
+	rows, err := q.Query(with+` SELECT `+keys+`, `+usageCols+`, 0
 		FROM `+from+` WHERE `+cond+`
 		GROUP BY `+keys+` ORDER BY SUM(r.cost) DESC, COUNT(*) DESC, `+keys, args...)
 	if err != nil {
