@@ -94,11 +94,10 @@ func run() error {
 		return err
 	}
 	defer usage.Close()
-	query := reporting.Query{Since: from, Harness: only}
 	if interactive(*asJSON, os.Stdin, os.Stdout) {
-		return tui.Run(tui.Options{Reports: reporting.BuildReport{Queries: usage}, Query: query})
+		return tui.Run(tui.Options{Reports: reporting.BuildReport{Queries: usage}, Harness: only, SinceLabel: *since, Since: from})
 	}
-	rep, err := reporting.BuildReport{Queries: usage}.Run(query)
+	rep, err := reporting.BuildReport{Queries: usage}.Run(reporting.Query{Since: from, Harness: only})
 	if err != nil {
 		return err
 	}

@@ -4,8 +4,11 @@
 package tui
 
 import (
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 )
 
@@ -17,7 +20,12 @@ type Reports interface {
 // Options configures the interface.
 type Options struct {
 	Reports Reports
-	Query   reporting.Query // what the first report asks for
+	// Harness is the harness the first report is limited to; the zero Harness means all of them.
+	Harness kernel.Harness
+	// SinceLabel names the period of the first report: "24h", "7d" or "30d" for the presets, "" for all.
+	// Any other label stands for a custom period starting at Since.
+	SinceLabel string
+	Since      time.Time
 }
 
 // Run shows the interface until the user quits.

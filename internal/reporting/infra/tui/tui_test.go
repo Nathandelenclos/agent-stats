@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 )
 
@@ -298,5 +299,156 @@ func TestToolsSortByCalls(t *testing.T) {
 	m = press(t, m, "o")
 	if got := order(m.View(), "Bash", "search"); got != "search Bash" {
 		t.Errorf("calls ascending: %q", got)
+	}
+}
+
+var noon = time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+
+// startWith opens the interface with o at a fixed time and delivers the first report.
+func startWith(t *testing.T, reports *fakeReports, o Options) Model {
+	t.Helper()
+	o.Reports = reports
+	m := New(o)
+	m.now = func() time.Time { return noon }
+	return send(t, m, m.Init()())
+}
+
+// answer runs the report request the last key press started and delivers its answer.
+func answer(t *testing.T, m Model, cmd tea.Cmd) Model {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("no report was requested")
+	}
+	return send(t, m, cmd())
+}
+
+func pressCmd(t *testing.T, m Model, key string) (Model, tea.Cmd) {
+	t.Helper()
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+	return next.(Model), cmd
+}
+
+func TestFirstReportIsForEverythingByDefault(t *testing.T) {
+	reports := &fakeReports{report: sampleReport()}
+	m := startWith(t, reports, Options{})
+	if got := reports.queries; len(got) != 1 || got[0] != (reporting.Query{}) {
+		t.Errorf("first query = %+v", got)
+	}
+	if view := m.View(); !strings.Contains(view, "period: all · harness: all") {
+		t.Errorf("title lacks the filters:\n%s", view)
+	}
+}
+
+func TestPeriodKeyAsksForAnotherReport(t *testing.T) {
+	reports := &fakeReports{report: sampleReport()}
+	m := startWith(t, reports, Options{})
+	// When the user presses p, the period wraps from all to 24h, 7d, 30d and back to all
+	for _, c := range []struct {
+		label string
+		since time.Time
+	}{
+		{"24h", noon.Add(-24 * time.Hour)},
+		{"7d", noon.AddDate(0, 0, -7)},
+		{"30d", noon.AddDate(0, 0, -30)},
+		{"all", time.Time{}},
+	} {
+		var cmd tea.Cmd
+		m, cmd = pressCmd(t, m, "p")
+		m = answer(t, m, cmd)
+		got := reports.queries[len(reports.queries)-1]
+		if !got.Since.Equal(c.since) || !got.Harness.IsZero() {
+			t.Errorf("period %s: query = %+v, want since %v", c.label, got, c.since)
+		}
+		if view := m.View(); !strings.Contains(view, "period: "+c.label+" ·") {
+			t.Errorf("title lacks period %s:\n%s", c.label, view)
+		}
+	}
+}
+
+func TestHarnessKeyCyclesThroughEveryHarness(t *testing.T) {
+	reports := &fakeReports{report: sampleReport()}
+	m := startWith(t, reports, Options{})
+	for _, want := range []kernel.Harness{kernel.Claude, kernel.Codex, kernel.OMP, kernel.Pi, {}} {
+		var cmd tea.Cmd
+		m, cmd = pressCmd(t, m, "h")
+		m = answer(t, m, cmd)
+		if got := reports.queries[len(reports.queries)-1]; got.Harness != want {
+			t.Errorf("harness query = %+v, want %q", got, want)
+		}
+	}
+	if view := m.View(); !strings.Contains(view, "harness: all") {
+		t.Errorf("title after a full cycle:\n%s", view)
+	}
+}
+
+func TestFiltersCombine(t *testing.T) {
+	reports := &fakeReports{report: sampleReport()}
+	m := startWith(t, reports, Options{})
+	m, _ = pressCmd(t, m, "p")
+	m, cmd := pressCmd(t, m, "h")
+	answer(t, m, cmd)
+	got := reports.queries[len(reports.queries)-1]
+	if !got.Since.Equal(noon.Add(-24*time.Hour)) || got.Harness != kernel.Claude {
+		t.Errorf("query = %+v", got)
+	}
+}
+
+func TestStartsOnTheFiltersOfTheCommandLine(t *testing.T) {
+	reports := &fakeReports{report: sampleReport()}
+	m := startWith(t, reports, Options{SinceLabel: "7d", Harness: kernel.Codex})
+	if got := reports.queries[0]; !got.Since.Equal(noon.AddDate(0, 0, -7)) || got.Harness != kernel.Codex {
+		t.Errorf("first query = %+v", got)
+	}
+	// p moves on to the preset after 7d
+	m, cmd := pressCmd(t, m, "p")
+	answer(t, m, cmd)
+	if got := reports.queries[1]; !got.Since.Equal(noon.AddDate(0, 0, -30)) || got.Harness != kernel.Codex {
+		t.Errorf("after p: %+v", got)
+	}
+}
+
+func TestACustomSinceIsKeptAndLeadsThePresets(t *testing.T) {
+	since := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	reports := &fakeReports{report: sampleReport()}
+	m := startWith(t, reports, Options{SinceLabel: "2026-01-02", Since: since})
+	if got := reports.queries[0]; !got.Since.Equal(since) {
+		t.Errorf("first query = %+v", got)
+	}
+	if view := m.View(); !strings.Contains(view, "period: 2026-01-02") {
+		t.Errorf("title:\n%s", view)
+	}
+	m, cmd := pressCmd(t, m, "p")
+	answer(t, m, cmd)
+	if got := reports.queries[1]; !got.Since.Equal(noon.Add(-24 * time.Hour)) {
+		t.Errorf("after p: %+v", got)
+	}
+}
+
+func TestAnswerToASupersededRequestIsIgnored(t *testing.T) {
+	reports := &fakeReports{report: sampleReport()}
+	m := startWith(t, reports, Options{})
+	m, slow := pressCmd(t, m, "p") // 24h, answered late
+	m, fast := pressCmd(t, m, "p") // 7d
+	stale := reporting.Report{Total: usage(1, 0, 1, 1, 0, 0), ByHarness: []reporting.UsageGroup{group("stale-harness", usage(1, 0, 1, 1, 0, 0))}}
+	reports.report = stale
+	m = send(t, m, slow()) // the 24h answer arrives after the 7d request was made
+	if strings.Contains(m.View(), "stale-harness") {
+		t.Error("a superseded answer replaced the view")
+	}
+	reports.report = sampleReport()
+	m = send(t, m, fast())
+	if view := m.View(); !strings.Contains(view, "claude") || strings.Contains(view, "updating") {
+		t.Errorf("view after the current answer:\n%s", view)
+	}
+}
+
+func TestViewSaysItIsUpdatingUntilTheAnswerArrives(t *testing.T) {
+	m := startWith(t, &fakeReports{report: sampleReport()}, Options{})
+	m, cmd := pressCmd(t, m, "p")
+	if !strings.Contains(m.View(), "updating…") {
+		t.Errorf("no progress shown:\n%s", m.View())
+	}
+	if m = answer(t, m, cmd); strings.Contains(m.View(), "updating…") {
+		t.Error("still updating after the answer")
 	}
 }

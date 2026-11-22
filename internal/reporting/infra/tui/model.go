@@ -3,11 +3,13 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	"github.com/Nathandelenclos/agent-stats/internal/platform/textfmt"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 )
@@ -39,8 +41,25 @@ var (
 // chromeLines is what the view draws besides the table: title, tabs, two summary lines, status and help.
 const chromeLines = 7
 
-// reportMsg carries the result of a report request.
+// period is a span of activity to report, ending now.
+type period struct {
+	label string
+	since func(now time.Time) time.Time // the zero time stands for everything
+}
+
+var periods = []period{
+	{"24h", func(now time.Time) time.Time { return now.Add(-24 * time.Hour) }},
+	{"7d", func(now time.Time) time.Time { return now.AddDate(0, 0, -7) }},
+	{"30d", func(now time.Time) time.Time { return now.AddDate(0, 0, -30) }},
+	{"all", func(time.Time) time.Time { return time.Time{} }},
+}
+
+// harnessChoices are the harness filters in the order h cycles through them: all, then each harness.
+var harnessChoices = append([]kernel.Harness{{}}, kernel.Harnesses...)
+
+// reportMsg carries the result of a report request; seq tells which request it answers.
 type reportMsg struct {
+	seq    int
 	report reporting.Report
 	err    error
 }
@@ -48,7 +67,13 @@ type reportMsg struct {
 // Model is the Bubble Tea model of the interface.
 type Model struct {
 	reports Reports
-	query   reporting.Query
+	now     func() time.Time
+
+	periods []period // the presets, led by a custom period when the command line asked for one
+	period  int
+	harness int // index in harnessChoices
+	seq     int // the latest report request; older answers are ignored
+	pending bool
 
 	tab           tab
 	sorts         [tabCount]sortState // each tab keeps its own order
@@ -62,7 +87,26 @@ type Model struct {
 // New returns the model for o. Its Init asks for the first report.
 func New(o Options) Model {
 	t := table.New(table.WithFocused(true))
-	m := Model{reports: o.Reports, query: o.Query, table: t, width: 80, height: 24}
+	m := Model{reports: o.Reports, now: time.Now, table: t, width: 80, height: 24, periods: periods}
+	m.period = len(periods) - 1 // all
+	if o.SinceLabel != "" {
+		m.period = -1
+		for i, p := range periods {
+			if p.label == o.SinceLabel {
+				m.period = i
+			}
+		}
+		if m.period < 0 { // a custom period leads the presets
+			since := o.Since
+			m.periods = append([]period{{o.SinceLabel, func(time.Time) time.Time { return since }}}, periods...)
+			m.period = 0
+		}
+	}
+	for i, h := range harnessChoices {
+		if h == o.Harness {
+			m.harness = i
+		}
+	}
 	for i := range m.sorts {
 		m.sorts[i] = reportOrder
 	}
@@ -72,13 +116,25 @@ func New(o Options) Model {
 // Init asks for the first report.
 func (m Model) Init() tea.Cmd { return m.load() }
 
-// load asks the use case for the report of the current query, off the UI loop.
+// query is what the filters currently ask for.
+func (m Model) query() reporting.Query {
+	return reporting.Query{Since: m.periods[m.period].since(m.now()), Harness: harnessChoices[m.harness]}
+}
+
+// load asks the use case for the report of the current filters, off the UI loop.
 func (m Model) load() tea.Cmd {
-	reports, q := m.reports, m.query
+	reports, q, seq := m.reports, m.query(), m.seq
 	return func() tea.Msg {
 		r, err := reports.Run(q)
-		return reportMsg{r, err}
+		return reportMsg{seq, r, err}
 	}
+}
+
+// reload asks for a new report after a filter changed; answers to earlier requests no longer count.
+func (m Model) reload() (Model, tea.Cmd) {
+	m.seq++
+	m.pending = true
+	return m, m.load()
 }
 
 // Update handles messages and key presses.
@@ -89,6 +145,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.layout()
 		return m, nil
 	case reportMsg:
+		if msg.seq != m.seq {
+			return m, nil
+		}
+		m.pending = false
 		m.err = msg.err
 		if msg.err == nil {
 			m.report, m.loaded = msg.report, true
@@ -111,6 +171,12 @@ func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.selectTab((m.tab + tabCount - 1) % tabCount)
 	case "1", "2", "3", "4", "5":
 		m.selectTab(tab(k[0] - '1'))
+	case "p":
+		m.period = (m.period + 1) % len(m.periods)
+		return m.reload()
+	case "h":
+		m.harness = (m.harness + 1) % len(harnessChoices)
+		return m.reload()
 	case "s":
 		m.sorts[m.tab] = m.sorts[m.tab].next(m.grid())
 		m.layout()
@@ -216,7 +282,7 @@ func pad(s string, w int, right bool) string {
 // View draws the interface.
 func (m Model) View() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("agent-stats") + "\n")
+	b.WriteString(m.titleBar() + "\n")
 	b.WriteString(m.tabBar() + "\n")
 	b.WriteString(m.summary() + "\n")
 	if m.loaded && m.report.Total.Requests > 0 {
@@ -225,8 +291,17 @@ func (m Model) View() string {
 		b.WriteString(m.emptyBody() + "\n")
 	}
 	b.WriteString(m.status() + "\n")
-	b.WriteString(faintStyle.Render("tab/←→ tabs · ↑↓ scroll · s sort column · o reverse · q quit"))
+	b.WriteString(faintStyle.Render("tab/←→ tabs · ↑↓ scroll · s sort · o reverse · p period · h harness · q quit"))
 	return lipgloss.NewStyle().MaxWidth(m.width).Render(b.String()) // cut what a narrow terminal cannot show
+}
+
+// titleBar names the program and the filters that apply to the report.
+func (m Model) titleBar() string {
+	harness := "all"
+	if h := harnessChoices[m.harness]; !h.IsZero() {
+		harness = h.String()
+	}
+	return titleStyle.Render("agent-stats") + faintStyle.Render(fmt.Sprintf("  period: %s · harness: %s", m.periods[m.period].label, harness))
 }
 
 func (m Model) tabBar() string {
@@ -271,6 +346,9 @@ func (m Model) emptyBody() string {
 func (m Model) status() string {
 	if m.err != nil {
 		return errorStyle.Render("error: " + m.err.Error())
+	}
+	if m.pending {
+		return faintStyle.Render("updating…")
 	}
 	if t := m.report.Total; m.loaded && t.Unpriced > 0 {
 		return faintStyle.Render(fmt.Sprintf("%s requests have no known price", textfmt.Number(t.Unpriced)))
