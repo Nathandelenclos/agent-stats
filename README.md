@@ -120,8 +120,9 @@ The four values are input, output, cache read and cache write.
   anything you typed. It also holds token counts, costs and durations per request; tool names, MCP server names and
   sizes per call; per-prompt counts (characters, words and a few frustration signals); and, per session, its title
   (an untitled session is named after the first 80 characters of its first prompt), its working folder and
-  `user@hostname` of the machine that read it. The file is created with mode `0600` in a `0700` directory (the user
-  cache directory by default). Treat it as personal data: do not share it or put it in a backup you do not control.
+  `user@hostname` of the machine that read it. The file is created with mode `0600`, and the program creates its
+  directory with mode `0700` when it is missing (`agent-stats` in the user cache directory by default). Treat it as
+  personal data: do not share it or put it in a backup you do not control.
 - Reports (text and `--json`) and the `usage_requests` and `usage_tool_calls` views that other parts of the program
   read do not contain prompt texts or session titles. Nothing is sent anywhere.
 - Text read from logs is stripped of control characters before it reaches your terminal.
