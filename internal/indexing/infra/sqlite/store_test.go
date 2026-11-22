@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,6 +21,21 @@ func open(t *testing.T) *SQLiteIndex {
 	}
 	t.Cleanup(func() { s.Close() })
 	return s
+}
+
+// save saves one log on its own.
+func save(s *SQLiteIndex, f application.LogFile, t application.IndexedTranscript) error {
+	return s.Save([]application.IndexedLog{{File: f, Transcript: t}})[0]
+}
+
+// pathOf is the file the index lives in.
+func pathOf(t *testing.T, s *SQLiteIndex) string {
+	t.Helper()
+	var path string
+	if err := s.db.QueryRow(`SELECT file FROM pragma_database_list WHERE name = 'main'`).Scan(&path); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 // hostile carries SQL metacharacters in every text value that reaches the database.
@@ -50,7 +66,7 @@ func TestSaveKeepsValuesAsData(t *testing.T) {
 	s := open(t)
 	at := time.UnixMilli(1767261600000)
 	f := application.LogFile{Path: "/logs/" + hostile + ".jsonl", Harness: kernel.Claude, Size: 10, ModTime: time.Unix(0, 1767261600123456789)}
-	if err := s.Save(f, transcript(t, "s1", at)); err != nil {
+	if err := save(s, f, transcript(t, "s1", at)); err != nil {
 		t.Fatal(err)
 	}
 	var model, file string
@@ -76,7 +92,7 @@ func TestMovedLogIsNotCountedTwice(t *testing.T) {
 	s := open(t)
 	at := time.UnixMilli(1767261600000)
 	for _, path := range []string{"/logs/sessions/s1.jsonl", "/logs/archived/s1.jsonl"} {
-		if err := s.Save(application.LogFile{Path: path, Harness: kernel.Claude}, transcript(t, "s1", at)); err != nil {
+		if err := save(s, application.LogFile{Path: path, Harness: kernel.Claude}, transcript(t, "s1", at)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -94,7 +110,7 @@ func TestIndexIsPrivate(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if err := s.Save(application.LogFile{Path: "/l.jsonl", Harness: kernel.Claude}, transcript(t, "s1", time.UnixMilli(1))); err != nil {
+	if err := save(s, application.LogFile{Path: "/l.jsonl", Harness: kernel.Claude}, transcript(t, "s1", time.UnixMilli(1))); err != nil {
 		t.Fatal(err)
 	}
 	for _, p := range []string{dir, path, path + "-wal", path + "-shm"} {
@@ -122,7 +138,480 @@ func TestIndexIsPrivate(t *testing.T) {
 	}
 }
 
-// oldSchema is the index as it was before tool calls recorded the skill they load.
+// subagentOf returns the transcript of a subagent of parent (an indexed session or not).
+func subagentOf(t *testing.T, parent, name string, at time.Time) application.IndexedTranscript {
+	t.Helper()
+	p, err := domain.NewSessionID(kernel.Claude, parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := p.Subagent(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := transcript(t, "unused", at)
+	tr.Session.ID, tr.Session.ParentID, tr.Session.AgentType = id, p, domain.Subagent
+	return tr
+}
+
+// listedUnder reads how the index groups sessions for a listing: each session, with the session it is listed under.
+func listedUnder(t *testing.T, s *SQLiteIndex) map[string]string {
+	t.Helper()
+	listed := map[string]string{}
+	rows, err := s.db.Query(`SELECT id, root_id FROM session_overview`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, root string
+		if err := rows.Scan(&id, &root); err != nil {
+			t.Fatal(err)
+		}
+		listed[id] = root
+	}
+	return listed
+}
+
+// requestsListedUnder counts the requests a listing adds up for a session: its own and its subagents'.
+func requestsListedUnder(t *testing.T, s *SQLiteIndex, session string) int {
+	t.Helper()
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM session_requests WHERE root_id = ?`, session).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func TestASubagentIsListedUnderItsSession(t *testing.T) {
+	// Given a session with a subagent
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	for _, f := range []struct {
+		path string
+		tr   application.IndexedTranscript
+	}{
+		{"/logs/main.jsonl", transcript(t, "main", at)},
+		{"/logs/child.jsonl", subagentOf(t, "main", "child", at)},
+	} {
+		if err := save(s, application.LogFile{Path: f.path, Harness: kernel.Claude}, f.tr); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// When the sessions are listed
+	listed := listedUnder(t, s)
+
+	// Then the subagent belongs to its session, and its requests count for it
+	if listed["claude:main/child"] != "claude:main" || listed["claude:main"] != "claude:main" {
+		t.Errorf("listed under = %v", listed)
+	}
+	if n := requestsListedUnder(t, s, "claude:main"); n != 2 {
+		t.Errorf("requests of the session = %d, want its own and its subagent's", n)
+	}
+}
+
+func TestASubagentWhoseSessionWasNeverIndexedIsListedOnItsOwn(t *testing.T) {
+	// Given a subagent whose session log was never indexed
+	s := open(t)
+	if err := save(s, application.LogFile{Path: "/logs/orphan.jsonl", Harness: kernel.Claude}, subagentOf(t, "gone", "orphan", time.UnixMilli(1767261600000))); err != nil {
+		t.Fatal(err)
+	}
+
+	// When the sessions are listed, then it stands for itself
+	if listed := listedUnder(t, s); listed["claude:gone/orphan"] != "claude:gone/orphan" {
+		t.Errorf("listed under = %v", listed)
+	}
+}
+
+func saveAll(t *testing.T, s *SQLiteIndex, logs map[string]application.IndexedTranscript) {
+	t.Helper()
+	for path, tr := range logs {
+		if err := save(s, application.LogFile{Path: path, Harness: kernel.Claude}, tr); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestNestedSubagentsAreListedUnderTheTopSession(t *testing.T) {
+	// Given a session whose subagent started a subagent of its own
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	saveAll(t, s, map[string]application.IndexedTranscript{
+		"/logs/a.jsonl": transcript(t, "a", at),
+		"/logs/b.jsonl": subagentOf(t, "a", "b", at),
+		"/logs/c.jsonl": subagentOf(t, "a/b", "c", at),
+	})
+
+	// When the sessions are listed
+	listed := listedUnder(t, s)
+
+	// Then both subagents belong to the top session, and the requests of the three count for it
+	if listed["claude:a"] != "claude:a" || listed["claude:a/b"] != "claude:a" || listed["claude:a/b/c"] != "claude:a" {
+		t.Errorf("listed under = %v", listed)
+	}
+	if n := requestsListedUnder(t, s, "claude:a"); n != 3 {
+		t.Errorf("requests of the session = %d, want its own and both subagents'", n)
+	}
+}
+
+func TestAForkedConversationIsListedOnItsOwn(t *testing.T) {
+	// Given a main conversation forked from another one (not a subagent of it)
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	fork := transcript(t, "fork", at)
+	fork.Session.ParentID, _ = domain.NewSessionID(kernel.Claude, "origin")
+	saveAll(t, s, map[string]application.IndexedTranscript{"/logs/origin.jsonl": transcript(t, "origin", at), "/logs/fork.jsonl": fork})
+
+	// When the sessions are listed, then each stands for itself
+	listed := listedUnder(t, s)
+	if listed["claude:fork"] != "claude:fork" || listed["claude:origin"] != "claude:origin" {
+		t.Errorf("listed under = %v", listed)
+	}
+}
+
+func TestARunLastsUntilItsLastSubagentActivity(t *testing.T) {
+	// Given a session that ended at 10 minutes and a subagent that ended at 20
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	parent := transcript(t, "a", at)
+	parent.Session.End = at.Add(10 * time.Minute)
+	child := subagentOf(t, "a", "b", at.Add(time.Minute))
+	child.Session.End = at.Add(20 * time.Minute)
+	saveAll(t, s, map[string]application.IndexedTranscript{"/logs/a.jsonl": parent, "/logs/b.jsonl": child})
+
+	// When the run of the session is read
+	var start, end int64
+	if err := s.db.QueryRow(`SELECT run_started_at, run_ended_at FROM session_overview WHERE id = 'claude:a'`).Scan(&start, &end); err != nil {
+		t.Fatal(err)
+	}
+
+	// Then it spans from the session's start to the subagent's last activity
+	if start != at.UnixMilli() || end != at.Add(20*time.Minute).UnixMilli() {
+		t.Errorf("run = %d → %d", start, end)
+	}
+}
+
+func TestPromptsKeepTheOrderTheyWereTypedInAndTheirSignals(t *testing.T) {
+	// Given a session whose prompts were typed in a different order than their keys sort
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	tr := transcript(t, "s1", at)
+	tr.Prompts = []domain.Prompt{{Key: "z", At: at, Text: "first"}, {Key: "a", At: at, Text: hostile}}
+	tr.Signals = []domain.Signals{{Chars: 5, Words: 1}, {Chars: 9, Words: 2, Yelling: 3, Profanity: 1, Anguish: 2, Negation: 4, Blame: 5, Repeated: true}}
+	if err := save(s, application.LogFile{Path: "/logs/s1.jsonl", Harness: kernel.Claude}, tr); err != nil {
+		t.Fatal(err)
+	}
+
+	// When the prompts of the session are read
+	rows, err := s.db.Query(`SELECT text, chars, yelling, profanity, anguish, negation, repetition, blame
+		FROM session_prompts WHERE session_id = 'claude:s1' ORDER BY position`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var texts []string
+	var last [7]int
+	for rows.Next() {
+		var text string
+		if err := rows.Scan(&text, &last[0], &last[1], &last[2], &last[3], &last[4], &last[5], &last[6]); err != nil {
+			t.Fatal(err)
+		}
+		texts = append(texts, text)
+	}
+
+	// Then they come back in the order they were typed in, each with its signals
+	if len(texts) != 2 || texts[0] != "first" || texts[1] != hostile {
+		t.Errorf("prompts = %q", texts)
+	}
+	if last != [7]int{9, 3, 1, 2, 4, 1, 5} {
+		t.Errorf("signals of the second prompt = %v", last)
+	}
+}
+
+func TestAReaderStillListsTheSessionsWhenTheirListingFailsToUpdate(t *testing.T) {
+	// Given a session listed for a reader on another connection, by an index that is due an update of its listing
+	s := open(t)
+	if err := save(s, application.LogFile{Path: "/logs/main.jsonl", Harness: kernel.Claude}, transcript(t, "main", time.UnixMilli(1767261600000))); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := sql.Open("sqlite", pathOf(t, s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { reader.Close() })
+	if _, err := s.db.Exec(`PRAGMA user_version = 0`); err != nil {
+		t.Fatal(err)
+	}
+
+	// When updating the listing fails half way
+	if err := migrate(s.db, []migration{sqlSteps(sessionViews, `NOT SQL`)}); err == nil {
+		t.Fatal("the failing step was not reported")
+	}
+
+	// Then the reader still lists the session
+	var listed int
+	if err := reader.QueryRow(`SELECT COUNT(*) FROM session_overview`).Scan(&listed); err != nil || listed != 1 {
+		t.Errorf("the reader lists %d sessions, %v", listed, err)
+	}
+}
+
+func TestASessionListingFromANewerBuildIsLeftAsItIs(t *testing.T) {
+	// Given an index whose listing of sessions a newer build changed
+	s := open(t)
+	if _, err := s.db.Exec(`PRAGMA user_version = 99; DROP VIEW session_requests; DROP VIEW session_tool_calls; DROP VIEW session_overview;
+		CREATE VIEW session_overview AS SELECT 'listed by a newer build' AS root_id`); err != nil {
+		t.Fatal(err)
+	}
+	path := pathOf(t, s)
+	s.Close()
+
+	// When this build opens it
+	again := reopen(t, path)
+
+	// Then the sessions are still listed the way the newer build lists them
+	var root string
+	if err := again.db.QueryRow(`SELECT root_id FROM session_overview`).Scan(&root); err != nil || root != "listed by a newer build" {
+		t.Errorf("listing = %q, %v", root, err)
+	}
+}
+
+// indexBuiltBeforeTheCodexEndTimeFix saves a Codex log and a Claude log, then closes an index that is
+// left as one built before the Codex end times were fixed.
+func indexBuiltBeforeTheCodexEndTimeFix(t *testing.T) (path string, codex, claude application.LogFile) {
+	t.Helper()
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	codex = application.LogFile{Path: "/logs/codex.jsonl", Harness: kernel.Codex, Size: 5, ModTime: time.Unix(0, 1)}
+	claude = application.LogFile{Path: "/logs/claude.jsonl", Harness: kernel.Claude, Size: 7, ModTime: time.Unix(0, 2)}
+	for _, f := range []application.LogFile{codex, claude} {
+		if err := save(s, f, transcript(t, filepath.Base(f.Path), at)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.db.Exec(`PRAGMA user_version = 0`); err != nil {
+		t.Fatal(err)
+	}
+	path = pathOf(t, s)
+	s.Close()
+	return path, codex, claude
+}
+
+func TestCodexLogsIndexedBeforeTheEndTimeFixAreReadAgain(t *testing.T) {
+	// Given an index built before the Codex end times were fixed, holding a Codex log and a Claude log
+	path, _, claude := indexBuiltBeforeTheCodexEndTimeFix(t)
+
+	// When the index is opened by a build with the fix
+	s := reopen(t, path)
+
+	// Then the next sync reads the Codex log again and leaves the Claude log alone, and the sessions indexed so far stay listed
+	known, err := s.IndexedFiles()
+	if err != nil || len(known) != 1 || known[claude.Path].Size != 7 {
+		t.Fatalf("indexed files = %+v, %v", known, err)
+	}
+	if listed := len(listedUnder(t, s)); listed != 2 {
+		t.Errorf("%d sessions listed, want the two indexed so far", listed)
+	}
+}
+
+func TestCodexLogsReadAgainAreNotForgottenASecondTime(t *testing.T) {
+	// Given a Codex log read again after the index was opened by a build with the fix
+	path, codex, _ := indexBuiltBeforeTheCodexEndTimeFix(t)
+	s := reopen(t, path)
+	if err := save(s, codex, transcript(t, "codex.jsonl", time.UnixMilli(1767261600000))); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	// When the index is opened again
+	again := reopen(t, path)
+
+	// Then the Codex log is still known, so it is not read a second time
+	if known, err := again.IndexedFiles(); err != nil || len(known) != 2 {
+		t.Errorf("indexed files = %+v, %v", known, err)
+	}
+}
+
+func reopen(t *testing.T, path string) *SQLiteIndex {
+	t.Helper()
+	s, err := Open(Options{Path: path, User: "me@host"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return s
+}
+
+// subagentNamed returns the transcript of a subagent with the given session id, whatever its id says about its parent.
+func subagentNamed(t *testing.T, id, parent string, at time.Time) application.IndexedTranscript {
+	t.Helper()
+	tr := transcript(t, id, at)
+	tr.Session.ParentID, _ = domain.NewSessionID(kernel.Claude, parent)
+	tr.Session.AgentType = domain.Subagent
+	return tr
+}
+
+// assertEverySessionAndRequestIsListedOnce checks that the sessions views drop and double nothing.
+func assertEverySessionAndRequestIsListedOnce(t *testing.T, s *SQLiteIndex, sessions int) map[string]string {
+	t.Helper()
+	listed := listedUnder(t, s)
+	var rows, requests int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM session_overview`).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM session_requests`).Scan(&requests); err != nil {
+		t.Fatal(err)
+	}
+	if rows != sessions || len(listed) != sessions || requests != sessions { // every transcript holds one request
+		t.Errorf("%d sessions listed as %d rows with %d requests, want %d of each", len(listed), rows, requests, sessions)
+	}
+	return listed
+}
+
+func TestAVeryDeepChainOfSubagentsIsListedUnderItsTopSession(t *testing.T) {
+	// Given a session and a chain of 40 subagents, each started by the previous one
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	logs := map[string]application.IndexedTranscript{"/logs/top.jsonl": transcript(t, "top", at)}
+	parent := "top"
+	for i := 1; i <= 40; i++ {
+		name := fmt.Sprintf("s%d", i)
+		logs["/logs/"+name+".jsonl"] = subagentOf(t, parent, name, at)
+		parent += "/" + name
+	}
+	saveAll(t, s, logs)
+
+	// When the sessions are listed
+	listed := assertEverySessionAndRequestIsListedOnce(t, s, 41)
+
+	// Then the whole chain belongs to the top session, however deep
+	for id, root := range listed {
+		if root != "claude:top" {
+			t.Errorf("%s is listed under %s", id, root)
+		}
+	}
+}
+
+func TestSubagentsThatNameEachOtherAsParentAreEachListedOnce(t *testing.T) {
+	// Given two subagents that name each other as parent, a third one started by the first, and a subagent that names itself
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	saveAll(t, s, map[string]application.IndexedTranscript{
+		"/logs/a.jsonl":    subagentNamed(t, "a", "b", at),
+		"/logs/b.jsonl":    subagentNamed(t, "b", "a", at),
+		"/logs/c.jsonl":    subagentNamed(t, "c", "a", at),
+		"/logs/self.jsonl": subagentNamed(t, "self", "self", at),
+		"/logs/main.jsonl": transcript(t, "main", at),
+	})
+
+	// When the sessions are listed
+	first := assertEverySessionAndRequestIsListedOnce(t, s, 5)
+
+	// Then each session is listed under a session of the list, and the same way every time
+	for id, root := range first {
+		if _, ok := first[root]; !ok {
+			t.Errorf("%s is listed under %s, which is not listed", id, root)
+		}
+	}
+	if again := listedUnder(t, s); fmt.Sprint(again) != fmt.Sprint(first) {
+		t.Errorf("listed %v, then %v", first, again)
+	}
+}
+
+func TestASubagentIndexedAsAMainConversationIsStillListedUnderItsSession(t *testing.T) {
+	// Given a subagent an earlier build indexed as a main conversation (its meta file said "main")
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	child := subagentOf(t, "main", "child", at)
+	child.Session.AgentType = domain.MainAgent
+	saveAll(t, s, map[string]application.IndexedTranscript{"/logs/main.jsonl": transcript(t, "main", at), "/logs/child.jsonl": child})
+
+	// When the sessions are listed
+	listed := listedUnder(t, s)
+
+	// Then it belongs to its session like any subagent, and its requests count for it
+	if listed["claude:main/child"] != "claude:main" || requestsListedUnder(t, s, "claude:main") != 2 {
+		t.Errorf("listed under = %v", listed)
+	}
+}
+
+func TestSaveAppliesABatchInOrderAndUndoesOnlyTheLogThatFails(t *testing.T) {
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	// Given a database that refuses the session "claude:bad"
+	if _, err := s.db.Exec(`CREATE TRIGGER refuse BEFORE INSERT ON sessions WHEN NEW.id = 'claude:bad' BEGIN SELECT RAISE(ABORT, 'refused'); END`); err != nil {
+		t.Fatal(err)
+	}
+	log := func(native string) application.IndexedLog {
+		return application.IndexedLog{File: application.LogFile{Path: "/logs/" + native + ".jsonl", Harness: kernel.Claude, Size: 1}, Transcript: transcript(t, native, at)}
+	}
+
+	// When one batch holds a good log, the bad one, and a good one again
+	errs := s.Save([]application.IndexedLog{log("a"), log("bad"), log("c")})
+
+	// Then only the bad one fails and leaves nothing behind, the others are saved
+	if errs[0] != nil || errs[1] == nil || errs[2] != nil {
+		t.Fatalf("errors = %v", errs)
+	}
+	var sessions, requests, files int
+	if err := s.db.QueryRow(`SELECT (SELECT COUNT(*) FROM sessions), (SELECT COUNT(*) FROM requests), (SELECT COUNT(*) FROM files)`).Scan(&sessions, &requests, &files); err != nil ||
+		sessions != 2 || requests != 2 || files != 2 {
+		t.Errorf("sessions %d, requests %d, files %d, %v; want 2 each", sessions, requests, files, err)
+	}
+}
+
+func TestSaveOfNothingIsHarmless(t *testing.T) {
+	if errs := open(t).Save(nil); len(errs) != 0 {
+		t.Errorf("errors = %v", errs)
+	}
+}
+
+func pageSize(t *testing.T, s *SQLiteIndex) int {
+	t.Helper()
+	var n int
+	if err := s.db.QueryRow(`PRAGMA page_size`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func TestNewIndexUsesLargePagesAndAnOlderOneKeepsItsOwn(t *testing.T) {
+	// Given an index made by an older version, with 4 KiB pages
+	path := filepath.Join(t.TempDir(), "old.db")
+	old, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := old.Exec(`PRAGMA page_size = 4096; PRAGMA journal_mode = WAL; CREATE TABLE files (path TEXT PRIMARY KEY, harness TEXT NOT NULL, size INTEGER NOT NULL, mtime INTEGER NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	old.Close()
+
+	// When both it and a new index are opened and written to
+	older, err := Open(Options{Path: path, User: "me@host"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer older.Close()
+	fresh := open(t)
+	for _, s := range []*SQLiteIndex{older, fresh} {
+		if err := save(s, application.LogFile{Path: "/l.jsonl", Harness: kernel.Claude}, transcript(t, "s1", time.UnixMilli(1))); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Then the new one has 16 KiB pages and the old one is untouched
+	if got := pageSize(t, fresh); got != 16384 {
+		t.Errorf("new index page size = %d, want 16384", got)
+	}
+	if got := pageSize(t, older); got != 4096 {
+		t.Errorf("older index page size = %d, want 4096", got)
+	}
+}
+
+// oldSchema is the index as 80bf4b1 made it, before tool calls recorded the skill they load and before migrations
+// (user_version 0): one log with a Skill call, one without, and a Codex log whose function call kept the full name
+// of an MCP tool under no server.
 const oldSchema = `
 CREATE TABLE files (path TEXT PRIMARY KEY, harness TEXT NOT NULL, size INTEGER NOT NULL, mtime INTEGER NOT NULL);
 CREATE TABLE sessions (id TEXT PRIMARY KEY, file TEXT NOT NULL, harness TEXT NOT NULL, parent_id TEXT, agent_type TEXT NOT NULL,
@@ -132,15 +621,16 @@ CREATE TABLE tool_calls (file TEXT NOT NULL, key TEXT NOT NULL, session_id TEXT 
 	is_error INTEGER NOT NULL, duration_ms REAL, PRIMARY KEY (session_id, key));
 CREATE VIEW usage_tool_calls AS SELECT t.ts, t.name, t.server, t.args_chars, t.result_chars, t.is_error, t.duration_ms, s.harness
 	FROM tool_calls t JOIN sessions s ON s.id = t.session_id;
-INSERT INTO files VALUES ('/logs/with-skill.jsonl', 'claude', 1, 1), ('/logs/without.jsonl', 'claude', 1, 1);
+INSERT INTO files VALUES ('/logs/with-skill.jsonl', 'claude', 1, 1), ('/logs/without.jsonl', 'claude', 1, 1), ('/logs/codex-mcp.jsonl', 'codex', 1, 1);
 INSERT INTO sessions VALUES ('claude:a', '/logs/with-skill.jsonl', 'claude', NULL, 'main', '', '', 'me@host', 1, 1),
-	('claude:b', '/logs/without.jsonl', 'claude', NULL, 'main', '', '', 'me@host', 1, 1);
+	('claude:b', '/logs/without.jsonl', 'claude', NULL, 'main', '', '', 'me@host', 1, 1),
+	('codex:c', '/logs/codex-mcp.jsonl', 'codex', NULL, 'main', '', '', 'me@host', 1, 1);
 INSERT INTO tool_calls VALUES ('/logs/with-skill.jsonl', 't1', 'claude:a', 1, 'Skill', '', 0, 0, 0, NULL),
-	('/logs/without.jsonl', 't2', 'claude:b', 1, 'Read', '', 0, 0, 0, NULL);
+	('/logs/without.jsonl', 't2', 'claude:b', 1, 'Read', '', 0, 0, 0, NULL),
+	('/logs/codex-mcp.jsonl', 't3', 'codex:c', 1, 'mcp__demo__read', '', 0, 0, 0, NULL);
 `
 
-// openOldIndex opens, with the current code, an index written before tool calls recorded their skill: it holds one log
-// with a Skill call and one without.
+// openOldIndex opens, with the current code, the index of 80bf4b1 described by oldSchema.
 func openOldIndex(t *testing.T) (*SQLiteIndex, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "index.db")
@@ -152,48 +642,155 @@ func openOldIndex(t *testing.T) (*SQLiteIndex, string) {
 		t.Fatal(err)
 	}
 	old.Close()
-	s, err := Open(Options{Path: path, User: "me@host"})
-	if err != nil {
+	return reopen(t, path), path
+}
+
+// indexBuiltBeforeTheSkillColumn is an index as main made it before tool calls recorded their skill, at the
+// version of its sessions views (1): it holds a Claude log with a Skill call, a Claude log without, a Codex log
+// whose function call kept the full name of an MCP tool, and a Codex log already read the way it is now.
+func indexBuiltBeforeTheSkillColumn(t *testing.T) (path string) {
+	t.Helper()
+	s := open(t)
+	path = pathOf(t, s)
+	at := time.UnixMilli(1767261600000)
+	logs := map[string]application.IndexedTranscript{}
+	for _, f := range []struct{ file, native, name, server string }{
+		{"/logs/with-skill.jsonl", "a", "Skill", ""}, {"/logs/without.jsonl", "b", "Read", ""},
+		{"/logs/codex-mcp.jsonl", "c", "mcp__demo__read", ""}, {"/logs/codex-split.jsonl", "d", "read", "demo"},
+	} {
+		tr := transcript(t, f.native, at)
+		tr.Tools[0].Name, tr.Tools[0].Server = f.name, f.server
+		logs[f.file] = tr
+	}
+	for file, tr := range logs {
+		harness := kernel.Claude
+		if file[:11] == "/logs/codex" {
+			harness = kernel.Codex
+		}
+		if err := save(s, application.LogFile{Path: file, Harness: harness, Size: 1}, tr); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, q := range []string{`DROP VIEW usage_tool_calls`, `ALTER TABLE tool_calls DROP COLUMN skill`, `PRAGMA user_version = 1`} {
+		if _, err := s.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.Close()
+	return path
+}
+
+func version(t *testing.T, s *SQLiteIndex) (v int) {
+	t.Helper()
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { s.Close() })
-	return s, path
+	return v
 }
 
 func TestOldIndexPublishesTheSkillOfItsToolCalls(t *testing.T) {
-	// Given an index written before tool calls recorded their skill, when it is opened
+	// Given the index of 80bf4b1, when it is opened
 	s, _ := openOldIndex(t)
 
-	// Then the published view offers the skill column, empty for the old calls
+	// Then the published view offers the skill column, empty for the old calls, and the index is up to date
 	var n int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM usage_tool_calls WHERE skill = ''`).Scan(&n); err != nil || n != 2 {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM usage_tool_calls WHERE skill = ''`).Scan(&n); err != nil || n != 3 {
 		t.Errorf("view rows without a skill = %d, %v", n, err)
+	}
+	if v := version(t, s); v != len(migrations) {
+		t.Errorf("user_version = %d, want %d", v, len(migrations))
 	}
 }
 
-func TestOldIndexReadsOnlyItsSkillFilesAgain(t *testing.T) {
-	// Given an index written before tool calls recorded their skill, when it is opened
+func TestOldIndexReadsOnlyTheLogsItsNewColumnsComeFromAgain(t *testing.T) {
+	// Given the index of 80bf4b1, when it is opened
 	s, _ := openOldIndex(t)
 
-	// Then only the log holding a Skill call is forgotten, to be indexed again
+	// Then the logs the sessions fix and the new columns concern are forgotten, to be indexed again, and the other is kept
 	known, err := s.IndexedFiles()
 	if err != nil || len(known) != 1 || known["/logs/without.jsonl"].Path == "" {
 		t.Errorf("indexed files after migration = %+v %v", known, err)
+	}
+	if listed := len(listedUnder(t, s)); listed != 3 {
+		t.Errorf("%d sessions listed, want the three indexed so far", listed)
+	}
+}
+
+func TestIndexOfMainReadsOnlyTheLogsTheSkillColumnComesFromAgain(t *testing.T) {
+	// Given an index built before tool calls recorded their skill, already at the version of the sessions views
+	path := indexBuiltBeforeTheSkillColumn(t)
+
+	// When it is opened
+	s := reopen(t, path)
+
+	// Then it publishes the skill, and forgets the Claude log with a Skill call and the Codex log with an unsplit MCP name only:
+	// the sessions migration is not run a second time, so the other Codex log stays known
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM usage_tool_calls WHERE skill = ''`).Scan(&n); err != nil || n != 4 {
+		t.Errorf("view rows without a skill = %d, %v", n, err)
+	}
+	known, err := s.IndexedFiles()
+	if err != nil || len(known) != 2 || known["/logs/without.jsonl"].Path == "" || known["/logs/codex-split.jsonl"].Path == "" {
+		t.Errorf("indexed files after migration = %+v %v", known, err)
+	}
+	if v := version(t, s); v != len(migrations) {
+		t.Errorf("user_version = %d, want %d", v, len(migrations))
 	}
 }
 
 func TestMigratedIndexOpensAgainUnchanged(t *testing.T) {
 	// Given an index that was migrated
-	s, path := openOldIndex(t)
-	s.Close()
+	_, path := openOldIndex(t)
 
-	// When it is opened a second time, then nothing fails and the forgotten file is not forgotten twice
-	s2, err := Open(Options{Path: path, User: "me@host"})
-	if err != nil {
+	// When it is opened a second time, then nothing fails and the forgotten files are not forgotten twice
+	s2 := reopen(t, path)
+	if err := save(s2, application.LogFile{Path: "/logs/with-skill.jsonl", Harness: kernel.Claude}, transcript(t, "a", time.UnixMilli(1))); err != nil {
 		t.Fatal(err)
 	}
-	defer s2.Close()
-	if known, err := s2.IndexedFiles(); err != nil || len(known) != 1 {
+	s2.Close()
+	s3 := reopen(t, path)
+	if known, err := s3.IndexedFiles(); err != nil || len(known) != 2 {
+		t.Errorf("indexed files = %+v %v", known, err)
+	}
+}
+
+func TestAFreshIndexIsAtTheLatestVersion(t *testing.T) {
+	// Given an index created now
+	s := open(t)
+
+	// Then it is at the latest version, and publishes the skill of tool calls
+	if v := version(t, s); v != len(migrations) {
+		t.Errorf("user_version = %d, want %d", v, len(migrations))
+	}
+	if _, err := s.db.Exec(`SELECT skill FROM usage_tool_calls`); err != nil {
+		t.Errorf("view: %v", err)
+	}
+}
+
+func TestAnIndexWhoseSkillColumnWasAddedBeforeKeepsItsRows(t *testing.T) {
+	// Given an index at version 0 that has the skill column already (written by a build of the catalogue before migrations)
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	tr := transcript(t, "s1", at)
+	tr.Tools[0].Name, tr.Tools[0].Server, tr.Tools[0].Skill = "Skill", "", "review"
+	if err := save(s, application.LogFile{Path: "/logs/s1.jsonl", Harness: kernel.Claude, Size: 1}, tr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`PRAGMA user_version = 0`); err != nil {
+		t.Fatal(err)
+	}
+	path := pathOf(t, s)
+	s.Close()
+
+	// When it is opened
+	again := reopen(t, path)
+
+	// Then the skill is kept, and the log that holds it is not read again for nothing
+	var skill string
+	if err := again.db.QueryRow(`SELECT skill FROM usage_tool_calls WHERE name = 'Skill'`).Scan(&skill); err != nil || skill != "review" {
+		t.Errorf("skill = %q, %v", skill, err)
+	}
+	if known, err := again.IndexedFiles(); err != nil || len(known) != 1 {
 		t.Errorf("indexed files = %+v %v", known, err)
 	}
 }
@@ -206,7 +803,7 @@ func TestSaveRecordsTheSkillOfASkillCall(t *testing.T) {
 	tr.Tools[0].Name, tr.Tools[0].Server, tr.Tools[0].Skill = "Skill", "", "review"
 
 	// When it is saved, then the published view shows the skill
-	if err := s.Save(application.LogFile{Path: "/logs/s1.jsonl", Harness: kernel.Claude}, tr); err != nil {
+	if err := save(s, application.LogFile{Path: "/logs/s1.jsonl", Harness: kernel.Claude}, tr); err != nil {
 		t.Fatal(err)
 	}
 	var skill string

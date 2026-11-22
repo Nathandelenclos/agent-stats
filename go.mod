@@ -1,6 +1,6 @@
 module github.com/Nathandelenclos/agent-stats
 
-go 1.26.0
+go 1.26.11
 
 require (
 	github.com/klauspost/compress v1.20.5

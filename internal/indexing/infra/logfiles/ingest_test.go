@@ -12,6 +12,7 @@ import (
 
 	"github.com/klauspost/compress/zstd"
 
+	"github.com/Nathandelenclos/agent-stats/internal/indexing/application"
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 )
@@ -122,6 +123,22 @@ func TestCodex(t *testing.T) {
 	}
 }
 
+func TestCodexSessionLastsUntilItsLastToolCallOrPrompt(t *testing.T) {
+	// Given a rollout whose last entries are a tool call and a prompt, logged after every response item
+	log := `{"timestamp":"2026-01-01T10:00:00Z","type":"session_meta","payload":{"id":"s"}}
+{"timestamp":"2026-01-01T10:00:01Z","type":"response_item","payload":{"type":"message"}}
+{"timestamp":"2026-01-01T10:05:00Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","id":"x1","command":["ls"],"aggregated_output":"ok"}}}
+{"timestamp":"2026-01-01T10:09:00Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","id":"i1","content":[{"type":"text","text":"and then?"}]}}}
+`
+	// When it is read
+	p := parse(t, ParseCodex, "/x/rollout-3.jsonl", log)
+
+	// Then the session spans its tool calls and prompts, not only its response items
+	if want := time.Date(2026, 1, 1, 10, 9, 0, 0, time.UTC); !p.Session.End.Equal(want) {
+		t.Errorf("session end = %v, want %v", p.Session.End, want)
+	}
+}
+
 func TestCodexTokenCountFallback(t *testing.T) {
 	log := `{"timestamp":"2026-01-01T10:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10},"last_token_usage":{"input_tokens":10}}}}
 {"timestamp":"2026-01-01T10:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10},"last_token_usage":{"input_tokens":10}}}}
@@ -192,6 +209,51 @@ func TestDecompressedSizeIsBounded(t *testing.T) {
 	}
 	if _, err := ParseFile(path, ParseCodex); !errors.Is(err, ErrLogTooLarge) {
 		t.Errorf("err = %v, want ErrLogTooLarge", err)
+	}
+}
+
+func TestListWeighsACompressedLogByItsDecompressedSize(t *testing.T) {
+	root := t.TempDir()
+	text := bytes.Repeat([]byte("{}\n"), 1<<20) // 3 MiB of log
+	write := func(name string, content []byte) {
+		if err := os.WriteFile(filepath.Join(root, name), content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	enc, err := zstd.NewWriter(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write("declared.jsonl.zst", enc.EncodeAll(text, nil)) // the frame states its content size
+	var streamed bytes.Buffer
+	enc.Reset(&streamed) // a stream does not
+	if _, err := enc.Write(text); err != nil || enc.Close() != nil {
+		t.Fatal(err)
+	}
+	write("streamed.jsonl.zst", streamed.Bytes())
+	write("garbage.jsonl.zst", []byte("not zstd at all"))
+	write("plain.jsonl", text)
+	logs := NewFileSessionLogs([]Source{{Harness: kernel.Codex, Root: root, Match: func(string) bool { return true }, Parse: ParseCodex}})
+
+	files, _, err := logs.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	weights := map[string]application.LogFile{}
+	for _, f := range files {
+		weights[filepath.Base(f.Path)] = f
+	}
+	if f := weights["declared.jsonl.zst"]; f.Weight < int64(len(text)) || f.Weight > int64(len(text))+maxZstdMemory {
+		t.Errorf("declared: weight %d for a log of %d bytes and a file of %d", f.Weight, len(text), f.Size)
+	}
+	for _, name := range []string{"streamed.jsonl.zst", "garbage.jsonl.zst"} {
+		if f := weights[name]; f.Weight != f.Size*unknownZstdRatio {
+			t.Errorf("%s: weight %d, want %d times its size of %d", name, f.Weight, unknownZstdRatio, f.Size)
+		}
+	}
+	if f := weights["plain.jsonl"]; f.Weight != 0 {
+		t.Errorf("plain: weight %d, want 0 (its size counts)", f.Weight)
 	}
 }
 
@@ -298,5 +360,24 @@ func TestCodexMCPFunctionCallNamesItsServer(t *testing.T) {
 	}
 	if want := "demo/read /wait"; strings.Join(got, " ") != want {
 		t.Errorf("tools %q, want %q", got, want)
+	}
+}
+
+func TestAClaudeLogUnderSubagentsStaysASubagentWhateverItsMetaDeclares(t *testing.T) {
+	// Given a subagent log whose meta file declares the type "main"
+	dir := filepath.Join(t.TempDir(), "sess1", "subagents")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "agent-a1.meta.json"), []byte(`{"agentType":"main"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// When it is read
+	p := parse(t, ParseClaude, filepath.Join(dir, "agent-a1.jsonl"), "")
+
+	// Then it is still a subagent of its session, not a main conversation
+	if p.Session.AgentType != domain.Subagent || p.Session.ParentID.String() != "claude:sess1" {
+		t.Errorf("session = %+v", p.Session)
 	}
 }
