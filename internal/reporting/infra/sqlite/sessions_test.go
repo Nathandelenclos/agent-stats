@@ -274,17 +274,26 @@ func TestSessionsReaderCannotWrite(t *testing.T) {
 	}
 }
 
-func TestSessionsAreNotReadUnderAnEndedContext(t *testing.T) {
+func TestNoSessionIsListedForACallerThatGaveUp(t *testing.T) {
 	// Given a caller that already gave up
 	s := openSessions(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	// When it lists the sessions or asks for one, then the index answers with the context's error
+	// When it lists the sessions, then the index answers with the context's error
 	if _, err := s.Sessions(ctx, report.Filter{}); !errors.Is(err, context.Canceled) {
 		t.Errorf("Sessions error = %v, want context.Canceled", err)
 	}
+}
+
+func TestNoSessionIsShownToACallerThatGaveUp(t *testing.T) {
+	// Given a caller that already gave up
+	s := openSessions(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 	id, _ := report.NewSessionID("claude:s1")
+
+	// When it asks for a session, then the index answers with the context's error
 	if _, err := s.Session(ctx, id); !errors.Is(err, context.Canceled) {
 		t.Errorf("Session error = %v, want context.Canceled", err)
 	}

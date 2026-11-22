@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
@@ -13,11 +14,13 @@ type shiftingIndex struct {
 	requests int64
 	frozen   bool
 	asked    []domain.Dimension
-	ctx      context.Context // the one the last snapshot was asked under
 }
 
+// Snapshot gives up when the caller has, as an index that honours its context does.
 func (x *shiftingIndex) Snapshot(ctx context.Context, fn func(UsageReader) error) error {
-	x.ctx = ctx
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	x.frozen = true
 	defer func() { x.frozen = false }()
 	return fn(x)
@@ -84,25 +87,25 @@ func TestCacheRate(t *testing.T) {
 	}
 }
 
-type ctxKey struct{}
-
-func TestTheReportsAreBuiltUnderTheCallersContext(t *testing.T) {
-	// Given a caller whose context carries a mark, as the context of a request carries its cancellation
-	ctx := context.WithValue(context.Background(), ctxKey{}, "request")
+func TestNoReportIsBuiltForACallerThatGaveUp(t *testing.T) {
+	// Given a caller that has already given up, as a client that closed its connection has
+	ctx, giveUp := context.WithCancel(context.Background())
+	giveUp()
 	for name, run := range map[string]func(*shiftingIndex) error{
 		"report":   func(x *shiftingIndex) error { _, err := BuildReport{Queries: x}.Run(ctx, Query{}); return err },
 		"timeline": func(x *shiftingIndex) error { _, err := BuildTimelineReport{Queries: x}.Run(ctx, Query{}); return err },
 	} {
 		t.Run(name, func(t *testing.T) {
-			// When the report is built
+			// When a report is asked for
 			idx := &shiftingIndex{}
-			if err := run(idx); err != nil {
-				t.Fatal(err)
-			}
+			err := run(idx)
 
-			// Then the index was asked under that very context, so that it can stop when the caller gives up
-			if idx.ctx != ctx {
-				t.Errorf("snapshot context = %v, want the caller's", idx.ctx)
+			// Then the caller is told it gave up, and no question was put to the index
+			if !errors.Is(err, context.Canceled) {
+				t.Errorf("error = %v, want context.Canceled", err)
+			}
+			if len(idx.asked) != 0 {
+				t.Errorf("the index was asked %v for a caller that had given up", idx.asked)
 			}
 		})
 	}

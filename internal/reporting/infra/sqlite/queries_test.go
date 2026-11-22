@@ -261,9 +261,23 @@ func TestAReportStopsWhenItsContextEnds(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("error = %v, want context.Canceled", err)
 	}
-	// And a snapshot asked under an ended context does not start
+}
+
+func TestNoReportStartsForACallerThatAlreadyGaveUp(t *testing.T) {
+	// Given an index and a caller that gave up before asking
+	r, err := OpenReadOnly(indexed(t, time.UnixMilli(1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// When it asks for a snapshot
 	called := false
 	err = r.Snapshot(ctx, func(reporting.UsageReader) error { called = true; return nil })
+
+	// Then the snapshot does not start
 	if !errors.Is(err, context.Canceled) || called {
 		t.Errorf("snapshot under an ended context: err = %v, ran = %v", err, called)
 	}

@@ -13,7 +13,6 @@ import (
 // recordedSessions is a session index that remembers what it was asked.
 type recordedSessions struct {
 	filter domain.Filter
-	ctx    context.Context
 	asked  domain.SessionID
 	list   []domain.SessionSummary
 	detail domain.SessionDetail
@@ -21,13 +20,17 @@ type recordedSessions struct {
 }
 
 func (r *recordedSessions) Sessions(ctx context.Context, f domain.Filter) ([]domain.SessionSummary, error) {
-	r.ctx = ctx
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	r.filter = f
 	return r.list, r.err
 }
 
 func (r *recordedSessions) Session(ctx context.Context, id domain.SessionID) (domain.SessionDetail, error) {
-	r.ctx = ctx
+	if err := ctx.Err(); err != nil {
+		return domain.SessionDetail{}, err
+	}
 	r.asked = id
 	return r.detail, r.err
 }
@@ -148,18 +151,34 @@ func TestASessionLastsFromItsFirstToItsLastEntry(t *testing.T) {
 	}
 }
 
-func TestSessionsAreReadUnderTheCallersContext(t *testing.T) {
-	// Given a caller whose context carries a mark
-	ctx := context.WithValue(context.Background(), ctxKey{}, "request")
+func TestNoSessionIsListedForACallerThatGaveUp(t *testing.T) {
+	// Given a caller that has already given up, and an index holding a session
+	ctx, giveUp := context.WithCancel(context.Background())
+	giveUp()
 	id, _ := domain.NewSessionID("claude:s1")
-	idx := &recordedSessions{}
+	idx := &recordedSessions{list: []domain.SessionSummary{{ID: id}}}
 
-	// When it lists the sessions, then shows one
-	if _, err := (ListSessions{Queries: idx}).Run(ctx, Query{}); err != nil || idx.ctx != ctx {
-		t.Errorf("list: context = %v, err = %v, want the caller's context", idx.ctx, err)
+	// When the sessions are listed
+	got, err := ListSessions{Queries: idx}.Run(ctx, Query{})
+
+	// Then the caller is told it gave up and gets no session
+	if !errors.Is(err, context.Canceled) || len(got.Sessions) != 0 {
+		t.Errorf("sessions = %+v, error = %v, want none and context.Canceled", got, err)
 	}
-	idx.ctx = nil
-	if _, err := (ShowSession{Queries: idx}).Run(ctx, id); err != nil || idx.ctx != ctx {
-		t.Errorf("show: context = %v, err = %v, want the caller's context", idx.ctx, err)
+}
+
+func TestNoSessionIsShownToACallerThatGaveUp(t *testing.T) {
+	// Given a caller that has already given up, and an index that knows the session
+	ctx, giveUp := context.WithCancel(context.Background())
+	giveUp()
+	id, _ := domain.NewSessionID("claude:s1")
+	idx := &recordedSessions{detail: domain.SessionDetail{SessionSummary: domain.SessionSummary{ID: id}}}
+
+	// When the session is shown
+	_, err := ShowSession{Queries: idx}.Run(ctx, id)
+
+	// Then the caller is told it gave up
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want context.Canceled", err)
 	}
 }
