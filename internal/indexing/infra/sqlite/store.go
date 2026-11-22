@@ -139,6 +139,7 @@ var migrations = []migration{
 	sqlSteps(recordSkills),
 	sqlSteps(recordRevisions),
 	sqlSteps(publishFolders),
+	sqlSteps(`CREATE VIEW session_lineage AS SELECT id, parent_id FROM sessions WHERE parent_id IS NOT NULL AND parent_id <> id`),
 }
 
 // recordSkills makes the index record the skill each Skill call loads. It is a table of its own, not a column of

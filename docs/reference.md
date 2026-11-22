@@ -74,7 +74,7 @@ In Usage, `tab` or `1`–`5` switches the breakdown and `g` opens the charts and
 row or day and press Enter to see the sessions that contributed activity within the current filters. Session
 details show the full session. Related tool and MCP rows count calls and errors without attributing model cost.
 
-Open a session to browse its summary, models, tools, subagents and prompts. Open a prompt to read it with its
+Open a session to browse its summary, models, tools, subagents, prompts and recorded parent links in Graph (`6`). Open a prompt to read it with its
 line breaks and use `/` to find text. In lists, `/` filters the results. A flagged prompt can open its source
 session with `s`. In Catalog, `s` on an MCP detail opens the sessions with observed calls. Quota windows
 belong to the account and have their own reset times.
@@ -196,7 +196,7 @@ Unknown or repeated parameters are refused with `400`.
 |-------|--------|
 | `/api/report?since=&harness=&project=` | The `--json` report (same fields), plus `daily`: one entry per local day with activity, oldest first, `key` being `2006-01-02`. Lists are `[]` when empty, never `null`. |
 | `/api/sessions?since=&harness=&project=&limit=` | The most recent sessions (`limit` 1 to 1000, default 100) with their usage, models and subagent count, without the prompts. `scope` is the project filter applied. `count` and `total` cover every matching session, and add up to the report of the same scope. `title` is the session title, which for an untitled session is the start of its first prompt. |
-| `/api/sessions/{id}?since=&harness=&project=` | One session from the same scope and filters, with its tools, subagents and prompt signals. Encode the session ID as a single path segment. An unknown or out-of-scope session returns `404`. Excerpts are at most 2,000 characters each and are omitted with `--allow-remote`. |
+| `/api/sessions/{id}?since=&harness=&project=` | One session from the same scope and filters, with its tools, subagents and prompt signals. Subagents can include `id`, `parentId` within the selected run, `startTs`, `endTs` and `models`. `forkedFrom` identifies the recorded source of a Codex fork when it is visible in the selected project. Encode the session ID as a single path segment. An unknown or out-of-scope session returns `404`. Excerpts are at most 2,000 characters each and are omitted with `--allow-remote`. |
 | `/api/prompts?since=&harness=&project=&limit=` | Flagged prompts in review order, recurrent requests and totals by folder. `limit` affects the flagged list only. Excerpts are at most 240 characters each and are omitted with `--allow-remote`. |
 | `/api/meta` | The harness names, the name of the project the server runs in (`project`, `""` when it found none), and the period, harness and scope (`defaults.scope`: `current` or `all`) the page opens on. |
 | `GET /api/sync` | The background indexing: `state` (`running`, `done`, `failed`, or `disabled` with `--no-sync`), files `indexed`, and what was skipped. |

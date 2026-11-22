@@ -13,11 +13,17 @@ type sessionDetailJSON struct {
 	Session        sessionJSON    `json:"session"`
 	Tools          []toolJSON     `json:"tools"`
 	Subagents      []subagentJSON `json:"subagents"`
+	ForkedFrom     string         `json:"forkedFrom,omitempty"`
 	PromptsVisible bool           `json:"promptsVisible"`
 	Prompts        []promptJSON   `json:"prompts"`
 }
 
 type subagentJSON struct {
+	ID        string    `json:"id,omitempty"`
+	ParentID  string    `json:"parentId,omitempty"`
+	StartTS   int64     `json:"startTs,omitempty"`
+	EndTS     int64     `json:"endTs,omitempty"`
+	Models    []string  `json:"models,omitempty"`
 	AgentType string    `json:"agentType"`
 	Title     string    `json:"title"`
 	Usage     usageJSON `json:"usage"`
@@ -75,12 +81,15 @@ func sessionMissing(w http.ResponseWriter) {
 
 func sessionDetails(d reporting.SessionDetail, scope string, localPrompts bool) sessionDetailJSON {
 	out := sessionDetailJSON{
-		Scope: scope, Session: sessionSummary(d.SessionSummary), Tools: tools(d.Tools),
+		Scope: scope, Session: sessionSummary(d.SessionSummary), Tools: tools(d.Tools), ForkedFrom: d.ForkedFrom,
 		Subagents: make([]subagentJSON, 0, len(d.Subagents)), PromptsVisible: localPrompts,
 		Prompts: make([]promptJSON, 0, len(d.Prompts)),
 	}
 	for _, s := range d.Subagents {
-		out.Subagents = append(out.Subagents, subagentJSON{s.AgentType, s.Title, usage(s.Usage)})
+		out.Subagents = append(out.Subagents, subagentJSON{
+			ID: s.ID.String(), ParentID: s.ParentID.String(), AgentType: s.AgentType, Title: s.Title,
+			StartTS: kernel.UnixMilli(s.Start), EndTS: kernel.UnixMilli(s.End), Models: s.Models, Usage: usage(s.Usage),
+		})
 	}
 	for _, p := range d.Prompts {
 		row := promptJSON{

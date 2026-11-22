@@ -135,6 +135,14 @@ func (s *SQLiteSessions) Session(ctx context.Context, id report.SessionID, p ker
 		if d.Subagents, err = subagents(q, r, id); err != nil {
 			return err
 		}
+		if d.Harness == kernel.Codex && d.AgentType == "main" {
+			err = q.QueryRow(r.with+` SELECT COALESCE((
+				SELECT parent.id FROM session_lineage l JOIN unit parent ON parent.id = l.parent_id
+				WHERE l.id = ?), '')`, append(slices.Clone(r.args), head...)...).Scan(&d.ForkedFrom)
+			if err != nil {
+				return err
+			}
+		}
 		d.Prompts, err = prompts(q, id)
 		return err
 	})
@@ -220,43 +228,71 @@ func usageGroups(q querier, with, keys, from, cond string, args []any, fn func(k
 
 // subagents lists the subagents of the run the session heads, most expensive first.
 func subagents(q querier, r runs, root report.SessionID) ([]report.SubagentUsage, error) {
-	ids, out, err := subagentRows(q, r, root)
+	out, err := subagentRows(q, r, root)
+	if err != nil || len(out) == 0 {
+		return out, err
+	}
+	at := make(map[string]int, len(out))
+	for i, agent := range out {
+		at[agent.ID.String()] = i
+	}
+	args := append(slices.Clone(r.args), root.String())
+	const children = "u.run_id = ? AND r.session_id <> u.run_id"
+	if err := usageGroups(q, r.with, "r.session_id", runRequests, children, args, func(keys []string, u report.Usage) {
+		out[at[keys[0]]].Usage = u
+	}); err != nil {
+		return nil, err
+	}
+	models, err := q.Query(r.with+` SELECT DISTINCT r.session_id, r.model FROM `+runRequests+` WHERE `+children+` ORDER BY r.model`, args...)
 	if err != nil {
 		return nil, err
 	}
-	at := make(map[string]int, len(ids))
-	for i, id := range ids {
-		at[id] = i
-	}
-	args := append(slices.Clone(r.args), root.String())
-	err = usageGroups(q, r.with, "r.session_id", "session_requests r JOIN unit u ON u.id = r.session_id", "u.run_id = ? AND r.session_id <> u.run_id", args, func(keys []string, u report.Usage) {
-		if i, ok := at[keys[0]]; ok {
-			out[i].Usage = u
+	defer models.Close()
+	for models.Next() {
+		var id, model string
+		if err := models.Scan(&id, &model); err != nil {
+			return nil, err
 		}
-	})
+		if model != "" {
+			agent := &out[at[id]]
+			agent.Models = append(agent.Models, model)
+		}
+	}
 	slices.SortStableFunc(out, func(a, b report.SubagentUsage) int {
 		return cmp.Or(cmp.Compare(b.Cost, a.Cost), cmp.Compare(b.Requests, a.Requests), strings.Compare(a.Title, b.Title))
 	})
-	return out, err
+	return out, models.Err()
 }
 
-// subagentRows reads the subagents of a run, with the identity the index gives each (needed to add up its requests).
-func subagentRows(q querier, r runs, root report.SessionID) (ids []string, out []report.SubagentUsage, err error) {
-	rows, err := q.Query(r.with+` SELECT o.id, o.agent_type, COALESCE(o.title, '') FROM session_overview o JOIN unit u ON u.id = o.id
+// subagentRows publishes a parent only when both endpoints belong to the selected run.
+func subagentRows(q querier, r runs, root report.SessionID) ([]report.SubagentUsage, error) {
+	rows, err := q.Query(r.with+` SELECT o.id, COALESCE(parent.id, ''), o.agent_type, COALESCE(o.title, ''), COALESCE(o.started_at, 0), COALESCE(o.ended_at, 0)
+		FROM session_overview o JOIN unit u ON u.id = o.id
+		LEFT JOIN session_lineage l ON l.id = o.id
+		LEFT JOIN unit parent ON parent.id = l.parent_id AND parent.run_id = u.run_id
 		WHERE u.run_id = ? AND o.id <> u.run_id ORDER BY o.id`, append(slices.Clone(r.args), root.String())...)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	defer rows.Close()
+	var out []report.SubagentUsage
 	for rows.Next() {
-		var id string
+		var id, parent string
+		var start, end int64
 		var x report.SubagentUsage
-		if err := rows.Scan(&id, &x.AgentType, &x.Title); err != nil {
-			return nil, nil, err
+		if err := rows.Scan(&id, &parent, &x.AgentType, &x.Title, &start, &end); err != nil {
+			return nil, err
 		}
-		ids, out = append(ids, id), append(out, x)
+		if x.ID, err = report.NewSessionID(id); err != nil {
+			return nil, err
+		}
+		if parent != "" {
+			x.ParentID, _ = report.NewSessionID(parent)
+		}
+		x.Start, x.End = fromMillis(start), fromMillis(end)
+		out = append(out, x)
 	}
-	return ids, out, rows.Err()
+	return out, rows.Err()
 }
 
 // SessionPrompt opens a single prompt from a session in the project's listing.

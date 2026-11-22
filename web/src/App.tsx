@@ -25,6 +25,7 @@ import { PromptReview } from "./features/prompts/PromptReview";
 import { usePromptReview } from "./features/prompts/api";
 import { SyncBanner, useSyncStatus } from "./features/sync";
 import { Catalog, useCatalog } from "./features/catalog/Catalog";
+import { Improvements } from "./features/improvements/Improvements";
 import { Quotas } from "./features/quotas/Quotas";
 
 /** Filters live in the address (?since=7d&harness=claude&project=all), so a reload or a bookmark keeps them. */
@@ -155,7 +156,7 @@ function Report({ report }: { report: UseQueryResult<ReportData, unknown> }) {
   );
 }
 
-type View = "Usage" | "Sessions" | "Prompts" | "Catalog" | "Quotas";
+type View = "Usage" | "Sessions" | "Prompts" | "Catalog" | "Quotas" | "Improvements";
 
 export function App() {
   const meta = useMeta();
@@ -165,7 +166,7 @@ export function App() {
   // read once, as it was when the page opened: the filters written to it since are not the person's choice.
   const [selectedView, setView] = useState<View>("Usage");
   const [unused, setUnused] = useState(false);
-  const views: View[] = ["Usage", "Sessions", "Prompts"];
+  const views: View[] = ["Usage", "Sessions", "Prompts", "Improvements"];
   if (meta.data?.catalogAvailable) views.push("Catalog");
   if (meta.data?.quotasAvailable) views.push("Quotas");
   const view = views.includes(selectedView) ? selectedView : "Usage";
@@ -179,12 +180,15 @@ export function App() {
   const report = useReport(view === "Usage" ? filters : undefined);
   const project = filters?.scope === "current" ? (meta.data?.project ?? "") : "";
   const sessions = useSessions(view === "Sessions" ? filters : undefined, project);
-  const prompts = usePromptReview(view === "Prompts" ? filters : undefined, project);
-  const catalog = useCatalog(view === "Catalog" ? filters : undefined, project, unused);
+  const isImprovements = view === "Improvements";
+  const prompts = usePromptReview(view === "Prompts" || isImprovements ? filters : undefined, project);
+  const hasCatalog = !!meta.data?.catalogAvailable;
+  const catalog = useCatalog(view === "Catalog" || (isImprovements && hasCatalog) ? filters : undefined, project, unused || isImprovements);
   const shownScope = {
     Usage: report.data?.scope,
     Sessions: sessions.data?.scope,
     Prompts: prompts.data?.scope,
+    Improvements: prompts.data?.scope ?? catalog.data?.scope,
     Catalog: catalog.data?.scope,
     Quotas: undefined,
   }[view];
@@ -248,6 +252,12 @@ export function App() {
                 {view === "Prompts" && <PromptReview query={prompts} />}
                 {view === "Catalog" && <Catalog query={catalog} unused={unused} onUnusedChange={setUnused} />}
                 {view === "Quotas" && <Quotas />}
+                {isImprovements && <Improvements prompts={prompts} catalog={hasCatalog ? catalog : undefined}
+                  openPrompts={() => setView("Prompts")}
+                  openCatalog={() => {
+                    setUnused(true);
+                    setView("Catalog");
+                  }} />}
               </>
             )}
           </main>

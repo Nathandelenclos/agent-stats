@@ -296,8 +296,8 @@ it("keeps view navigation before the main content and opens Prompts with the act
   expect(container.querySelector('a[href="#main"]')?.textContent?.trim()).toBe("Skip to main content");
   expect(main.contains(nav)).toBe(false);
   expect(nav.compareDocumentPosition(main) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(buttons.map((button) => button.textContent)).toEqual(["Usage", "Sessions", "Prompts"]);
-  expect(buttons.map((button) => button.getAttribute("aria-pressed"))).toEqual(["true", "false", "false"]);
+  expect(buttons.map((button) => button.textContent)).toEqual(["Usage", "Sessions", "Prompts", "Improvements"]);
+  expect(buttons.map((button) => button.getAttribute("aria-pressed"))).toEqual(["true", "false", "false", "false"]);
 
   const prompts = buttons[2]!;
   prompts.focus();
@@ -305,7 +305,7 @@ it("keeps view navigation before the main content and opens Prompts with the act
 
   await eventually(() => expect(main.textContent).toContain("No flagged prompts match these filters."));
   expect(document.activeElement).toBe(prompts);
-  expect(buttons.map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "false", "true"]);
+  expect(buttons.map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "false", "true", "false"]);
   expect(fetch).toHaveBeenCalledWith("/api/prompts?since=30d&project=current&limit=1000", expect.any(Object));
   expect(periodSelect(container).value).toBe("30d");
   window.history.replaceState(null, "", "/");
@@ -399,4 +399,30 @@ it("reads account quotas without usage filters and refreshes them on demand", as
 
   focusManager.setFocused(undefined);
   window.history.replaceState(null, "", "/");
+});
+
+it("shows workflow signals with evidence for the selected filters", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+    const url = new URL(input, "http://localhost");
+    const response = (data: unknown) => new Response(JSON.stringify(data));
+    switch (url.pathname) {
+      case "/api/meta": return response(meta({ catalogAvailable: true }));
+      case "/api/sync": return response({ state: "disabled" });
+      case "/api/report": return response(report());
+      case "/api/prompts": return response({
+        scope: "all", recurring: [{ excerpt: "Run the small test first", sessions: 3, count: 4, lastTs: 1_700_000_000_000 }],
+      });
+      case "/api/catalog": return response({
+        scope: "all", skipped: 0, entries: [{ name: "reviewer", harness: "claude", kind: "agent", scope: "user", enabled: true, uses: 0 }],
+      });
+      default: return new Response(null, { status: 404 });
+    }
+  }));
+  const { container } = render(withQueries(testQueryClient(), <App />));
+  await eventually(() => expect(container.querySelector('[aria-label="Views"]')).not.toBeNull());
+  click([...container.querySelectorAll("nav button")].find((element) => element.textContent === "Improvements")!);
+  await eventually(() => expect(container.textContent).toContain("Run the small test first"));
+  expect(container.textContent).toContain("4 occurrences across 3 sessions");
+  expect(container.textContent).toContain("reviewer");
+  expect(fetch).toHaveBeenCalledWith(expect.stringMatching(/^\/api\/catalog\?.*unused=true/), expect.anything());
 });

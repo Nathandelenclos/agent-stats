@@ -5,6 +5,7 @@ import { describe, Failure } from "../../shared/Failure";
 import { formatDateTime, formatInteger, formatMs, formatPercent, formatUSD } from "../../shared/format";
 import { describeSignals } from "../report/signals";
 import { ToolsTable, type Filters } from "../report";
+import { SessionGraph } from "./SessionGraph";
 import { useSessionDetail, type Session, type SessionDetail, type useSessions } from "./api";
 
 function sessionTitle(session: Session) {
@@ -150,7 +151,8 @@ const promptMarkdownComponents: Components = {
 };
 
 function SessionContents({ detail }: { detail: SessionDetail }) {
-  const { session, tools, subagents, prompts, promptsVisible } = detail;
+  const { session } = detail;
+  const [showGraph, setShowGraph] = useState(false);
   return (
     <>
       <div className="space-y-2 border-b border-rule pb-4">
@@ -166,6 +168,24 @@ function SessionContents({ detail }: { detail: SessionDetail }) {
           {formatInteger(session.prompts)} prompts · {formatInteger(session.subagents)} subagents
         </p>
       </div>
+      <div role="group" aria-label="Session views" className="flex flex-wrap gap-2">
+        {["Overview", "Activity graph"].map((view, index) => (
+          <button key={view} type="button" aria-pressed={showGraph === Boolean(index)}
+            onClick={() => setShowGraph(Boolean(index))}
+            className="min-h-11 rounded-md border border-border px-3 text-sm aria-pressed:border-accent aria-pressed:bg-surface aria-pressed:font-semibold">
+            {view}
+          </button>
+        ))}
+      </div>
+      {showGraph ? <SessionGraph detail={detail} /> : <SessionOverview detail={detail} />}
+    </>
+  );
+}
+
+function SessionOverview({ detail }: { detail: SessionDetail }) {
+  const { session, tools, subagents, prompts, promptsVisible } = detail;
+  return (
+    <>
       <DetailSection heading="Models">
         <DataTable caption="Session models" columns={modelColumns} rows={session.models} rowKey={(row) => row.model} initialSort="share" />
       </DetailSection>

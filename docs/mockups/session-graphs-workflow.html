@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agent-stats session graph and improvements</title>
+<style>
+  :root { font-family: var(--font-sans, system-ui, sans-serif); }
+  body { margin: 0; color: var(--foreground, #12151c); }
+  main { display: grid; gap: 22px; }
+  h1, h2, h3, p, dl { margin: 0; }
+  h1 { font-size: 1.35rem; }
+  h2 { font-size: 1.15rem; }
+  h3 { font-size: 1rem; }
+  p, li, summary, dl { line-height: 1.45; }
+  .panel { background: var(--card, #f4f6f9); border: 1px solid var(--border, #d5dae2); border-radius: var(--radius, 10px); padding: 16px; min-width: 0; }
+  .subtle, dt { color: var(--muted-foreground, #4a5363); font-size: .82rem; }
+  .example { margin: .2rem 0 .7rem; }
+  .tabs { display: flex; gap: 16px; margin: .9rem 0; padding-bottom: .45rem; border-bottom: 1px solid var(--border, #d5dae2); font-size: .85rem; }
+  .tabs strong { color: var(--foreground, #12151c); }
+  .node { background: var(--background, #fff); border: 1px solid var(--border, #d5dae2); border-radius: 6px; padding: .5rem .75rem; }
+  .trace { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+  .lanes { display: grid; gap: .28rem; }
+  .lane { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: center; gap: 8px; padding: .42rem .5rem; font-size: .82rem; border: 1px solid transparent; border-radius: 6px; }
+  .lane.current { border-color: var(--chart-1, #2563eb); background: var(--background, #fff); }
+  .lane .subtle { display: block; font-size: .72rem; }
+  .nested { padding-inline-start: .7rem; }
+  .track { position: relative; display: block; height: 17px; background: var(--background, #fff); border-radius: 3px; }
+  .track i { position: absolute; inset-block: 3px; left: var(--offset); width: var(--span); border-radius: 2px; background: var(--chart-1, #2563eb); }
+  .scale { display: flex; justify-content: space-between; color: var(--muted-foreground, #4a5363); font-variant-numeric: tabular-nums; }
+  dl { display: grid; grid-template-columns: auto 1fr; column-gap: .75rem; padding-top: .5rem; font-size: .82rem; }
+  dd { margin: 0; }
+  .signals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; margin-top: .7rem; }
+  .signals article { display: grid; gap: .4rem; }
+  .signal { padding-block: .5rem; border-block: 1px solid var(--border, #d5dae2); font-size: .9rem; }
+  .action { font-size: .83rem; font-weight: 600; }
+  pre { margin: .65rem 0 0; font: .79rem/1.5 var(--font-mono, ui-monospace, monospace); overflow: auto; }
+  @media (max-width: 520px) { .signals, .trace { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <section class="panel" aria-labelledby="session">
+    <h1 id="session">Sessions / Fix the import flow</h1>
+    <p class="subtle example">Web mockup · Example session</p>
+    <div class="tabs"><span class="subtle">Overview</span><strong>Activity graph</strong></div>
+    <div class="trace">
+      <div class="lanes">
+        <div class="lane"><strong>Activity timeline</strong><span class="scale"><span>0:00</span><span>12:00</span></span></div>
+        <div class="lane"><span><strong>Fix the import flow</strong><span class="subtle">Session range</span></span><span class="track" aria-label="0:00 to 12:00"><i style="--offset:0%;--span:100%"></i></span></div>
+        <div class="lane"><span>Find the import callers<span class="subtle">Explorer · 1:00–3:00</span></span><span class="track" aria-label="1:00 to 3:00"><i style="--offset:8.33%;--span:16.67%"></i></span></div>
+        <div class="lane current"><span><strong>Review the patch</strong><span class="subtle">Reviewer · 7:00–11:00</span></span><span class="track" aria-label="7:00 to 11:00"><i style="--offset:58.33%;--span:33.33%"></i></span></div>
+        <div class="lane"><span class="nested">Check path fixtures<span class="subtle">Child of reviewer · 8:00–9:00</span></span><span class="track" aria-label="8:00 to 9:00"><i style="--offset:66.67%;--span:8.33%"></i></span></div>
+      </div>
+      <aside class="node" aria-label="Selected activity">
+        <h3>Review the patch</h3>
+        <p class="subtle">Parent: Fix the import flow</p>
+        <dl><dt>Agent</dt><dd>reviewer</dd><dt>Requests</dt><dd>9</dd><dt>Cost</dt><dd>$0.41</dd><dt>Models</dt><dd>Example model</dd><dt>Activity</dt><dd>10:10–10:14</dd></dl>
+      </aside>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="improvements">
+    <h2 id="improvements">Improvements</h2>
+    <p class="subtle example">Web mockup · Last 7 days · Current project · All harnesses</p>
+    <div class="signals">
+      <article class="node">
+        <h3>Recurring requests</h3>
+        <p class="signal">Run the focused test first.<br><span class="subtle">4 occurrences across 3 sessions</span></p>
+        <p class="subtle">Consider adding this to the project instructions.</p>
+        <p class="action">Review prompts</p>
+      </article>
+      <article class="node">
+        <h3>Setup with no observed use</h3>
+        <p class="signal">Migration reviewer<br><span class="subtle">Agent · Codex · User scope</span></p>
+        <p class="subtle">Check whether this agent is still useful here.</p>
+        <p class="action">Review unused entries in Catalog</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="terminal">
+    <h2 id="terminal">Terminal / Graph</h2>
+    <pre>Fix the import flow
+  Fix the import flow → Find the import callers
+  Fix the import flow → Review the patch
+  Review the patch    → Check path fixtures
+
+← → sections     ↑ ↓ scroll     Esc back</pre>
+  </section>
+</main>
+</body>
+</html>

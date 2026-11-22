@@ -613,3 +613,23 @@ func TestTheFolderASessionWorkedInIsPublishedWithItsToolCallsAndInTheListOfFolde
 		t.Errorf("listed folders = %s", got)
 	}
 }
+
+func TestOpeningAnOlderIndexPublishesRecordedParentsWithoutReindexing(t *testing.T) {
+	index := open(t)
+	at := time.Unix(1000, 0)
+	file := application.LogFile{Path: "/logs/child", Harness: kernel.Claude}
+	if err := save(index, file, subagentNamed(t, "child", "parent", at)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := index.db.Exec("DROP VIEW session_lineage; PRAGMA user_version = 4"); err != nil {
+		t.Fatal(err)
+	}
+	path := pathOf(t, index)
+	index.Close()
+
+	upgraded := reopen(t, path)
+	var parent string
+	if err := upgraded.db.QueryRow("SELECT parent_id FROM session_lineage WHERE id = 'claude:child'").Scan(&parent); err != nil || parent != "claude:parent" {
+		t.Fatalf("recorded parent = %q (%v)", parent, err)
+	}
+}
