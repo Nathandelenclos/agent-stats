@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { getJSON, shouldRetry } from "../../shared/api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { getJSON, postJSON, shouldRetry } from "../../shared/api";
 
 export interface SyncStatus {
   state: "disabled" | "running" | "done" | "failed";
@@ -17,5 +17,17 @@ export function useSyncStatus() {
     queryFn: ({ signal }) => getJSON<SyncStatus>("/api/sync", {}, signal),
     refetchInterval: (query) => (query.state.data?.state === "running" ? 1000 : false),
     retry: shouldRetry,
+  });
+}
+
+export function useStartSync() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => postJSON<SyncStatus>("/api/sync"),
+    onSuccess: async (status) => {
+      await client.cancelQueries({ queryKey: ["sync"] });
+      client.setQueryData(["sync"], status);
+      void client.invalidateQueries({ queryKey: ["sync"] });
+    },
   });
 }

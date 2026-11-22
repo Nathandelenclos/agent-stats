@@ -1,4 +1,4 @@
-// The HTTP client of the agent-stats API. Every route is a GET that answers JSON or an RFC 9457 problem.
+// The HTTP client of the agent-stats API. Routes answer JSON or an RFC 9457 problem.
 
 export class ApiError extends Error {
   readonly status: number;
@@ -13,7 +13,16 @@ export class ApiError extends Error {
 export async function getJSON<T>(path: string, params: Record<string, string> = {}, signal?: AbortSignal): Promise<T> {
   const query = new URLSearchParams(Object.entries(params).filter(([, value]) => value !== ""));
   const url = query.size > 0 ? `${path}?${query}` : path;
-  const res = await fetch(url, { signal, headers: { Accept: "application/json" }, credentials: "same-origin" });
+  return requestJSON<T>(url, { signal });
+}
+
+/** Starts a same-origin operation with no request body. */
+export function postJSON<T>(path: string): Promise<T> {
+  return requestJSON<T>(path, { method: "POST" });
+}
+
+async function requestJSON<T>(path: string, init: RequestInit): Promise<T> {
+  const res = await fetch(path, { ...init, headers: { Accept: "application/json" }, credentials: "same-origin" });
   if (!res.ok) {
     let detail = res.statusText;
     try {

@@ -510,7 +510,7 @@ func TestEveryResponseCarriesTheSecurityHeadersAndNoCORS(t *testing.T) {
 	}
 }
 
-func TestOnlyReadsAreAnswered(t *testing.T) {
+func TestReportAndPageRefuseWrites(t *testing.T) {
 	r := newRig(t)
 	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodOptions} {
 		t.Run(method, func(t *testing.T) {
@@ -731,14 +731,13 @@ func TestSyncProgressShowsTheFilesIndexedWhileRunningThenWhatWasSkipped(t *testi
 			return "skipped files: 1", nil
 		}
 	})
-	done := make(chan struct{})
-	go func() { r.handler.sync.run(context.Background(), r.handler.opts.Sync); close(done) }()
+	r.handler.sync.start(t.Context(), r.handler.opts.Sync)
 	<-progressed
 
 	// When the page asks while it runs, then after it ends
 	running := decode[syncStatus](t, r.get("/api/sync"))
 	close(release)
-	<-done
+	r.handler.sync.jobs.Wait()
 	finished := decode[syncStatus](t, r.get("/api/sync"))
 
 	// Then it sees the progress, then the end with the note about what was skipped
@@ -759,7 +758,8 @@ func TestAFailedIndexingIsReportedWithoutItsCause(t *testing.T) {
 	})
 
 	// When it ends and the page asks
-	r.handler.sync.run(context.Background(), r.handler.opts.Sync)
+	r.handler.sync.start(context.Background(), r.handler.opts.Sync)
+	r.handler.sync.jobs.Wait()
 	rec := r.get("/api/sync")
 
 	// Then the page learns it failed, the cause stays in the log
@@ -1006,7 +1006,8 @@ func TestAnIndexingStoppedByTheShutdownIsNotLoggedAsAFailure(t *testing.T) {
 	cancel()
 
 	// When it ends
-	r.handler.sync.run(ctx, r.handler.opts.Sync)
+	r.handler.sync.start(ctx, r.handler.opts.Sync)
+	r.handler.sync.jobs.Wait()
 
 	// Then the log does not call a stop requested by the user a failure
 	if len(r.logLines) != 0 {

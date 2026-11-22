@@ -1,8 +1,10 @@
 import { formatInteger } from "../../shared/format";
-import type { SyncStatus } from "./api";
+import { ApiError } from "../../shared/api";
+import { useStartSync, type SyncStatus } from "./api";
 
 /** Says where the background indexing stands. A polite live region: the figures below change when it ends. */
 export function SyncBanner({ status: data, unreachable }: { status: SyncStatus | undefined; unreachable: boolean }) {
+  const start = useStartSync();
   let text = "";
   let tone = "text-muted";
   if (unreachable) {
@@ -19,8 +21,25 @@ export function SyncBanner({ status: data, unreachable }: { status: SyncStatus |
     text = "Indexing is off (--no-sync): the figures are those of the last index.";
   }
   return (
-    <p role="status" aria-live="polite" className={`min-h-6 text-sm ${tone}`}>
-      {text}
-    </p>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <p role="status" aria-live="polite" className={`min-h-6 text-sm ${tone}`}>
+        {text}
+      </p>
+      {data && data.state !== "disabled" && (
+        <button
+          type="button"
+          disabled={unreachable || data.state === "running" || start.isPending}
+          onClick={() => start.mutate()}
+          className="min-h-9 rounded-md border border-border px-3 text-sm hover:bg-surface disabled:opacity-60"
+        >
+          Re-index
+        </button>
+      )}
+      {start.isError && (
+        <p role="alert" className="text-sm text-danger">
+          {start.error instanceof ApiError ? start.error.message : "Could not start indexing. Try again."}
+        </p>
+      )}
+    </div>
   );
 }
