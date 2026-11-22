@@ -102,6 +102,14 @@ jobs:
             echo "::error::Could not list the releases of $GITHUB_REPOSITORY."
             exit 1
           fi
+          # grep exits 1 when the notes have no group (nothing releasable) and 2 or more when it fails: only the
+          # first means "no notes", the second stops the run.
+          has_notes() {
+            local rc=0
+            grep -q '^### ' "$RUNNER_TEMP/notes.md" || rc=$?
+            [ "$rc" -le 1 ] || { echo "::error::Could not read the release notes."; exit 1; }
+            [ "$rc" -eq 0 ]
+          }
           is_published() { case $'\n'"$published"$'\n' in *$'\n'"$1"$'\n'*) return 0 ;; esac; return 1; }
           head_sha=$(git rev-parse HEAD)
           latest=$(semver_tags --merged HEAD --sort=-v:refname | sed -n 1p)
@@ -163,7 +171,7 @@ jobs:
             create_tag=true
             git-cliff --unreleased --tag "$version" --strip header -o "$RUNNER_TEMP/notes.md"
             # cliff.toml skips every commit that does not count (docs, chore, ci…): no group, no release.
-            if ! grep -q '^### ' "$RUNNER_TEMP/notes.md"; then
+            if ! has_notes; then
               echo "::notice::No releasable commit since ${latest:-the beginning}: nothing to do."
               echo "release=false" >> "$GITHUB_OUTPUT"
               exit 0
@@ -172,7 +180,7 @@ jobs:
               printf '\n**Full changelog**: https://github.com/%s/compare/%s...%s\n' "$GITHUB_REPOSITORY" "$latest" "$version" >> "$RUNNER_TEMP/notes.md"
             fi
           fi
-          grep -q '^### ' "$RUNNER_TEMP/notes.md" || { echo "::error::git-cliff produced no release notes for $version."; exit 1; }
+          has_notes || { echo "::error::git-cliff produced no release notes for $version."; exit 1; }
 
           {
             echo "release=true"
