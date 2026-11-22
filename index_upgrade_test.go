@@ -240,3 +240,37 @@ func TestAnIndexALaterBuildGaveANewColumnToEveryTableIsStillWrittenByThisBuild(t
 		t.Errorf("activity: %+v", a)
 	}
 }
+
+func TestALogTheBuildBeforeRevisionsIndexedIsNotReadAgainWhileItsFileIsTheSame(t *testing.T) {
+	// Given an index main wrote, where a log was indexed when its file had size 1 and modification time 1
+	path, db := indexAsMainMadeItBeforeItsMigrations(t)
+	mainWritesALog(t, db, "claude", "/logs/claude.jsonl", "Read", "")
+
+	// When this build opens it and lists what it knows
+	known, err := openIndex(t, path).IndexedFiles()
+
+	// Then the log is known by the revision a file reader gives that file: its size and modification time
+	if err != nil || known["/logs/claude.jsonl"].Revision != "1:1" {
+		t.Errorf("known = %+v, %v", known, err)
+	}
+}
+
+func TestALogRevisionIsKeptAsTheReaderGaveItAndMainRewritingTheLogReplacesIt(t *testing.T) {
+	// Given a log this build indexed under an opaque revision
+	path, db := indexAsMainMadeItBeforeItsMigrations(t)
+	w := openIndex(t, path)
+	saveLogHolding(t, w, "/logs/claude.jsonl", nil, nil)
+	known, err := w.IndexedFiles()
+	if err != nil || known["/logs/claude.jsonl"].Revision != "1" {
+		t.Fatalf("known = %+v, %v", known, err)
+	}
+
+	// When main, which knows nothing of revisions, indexes that log again
+	mainWritesALog(t, db, "claude", "/logs/claude.jsonl", "Read", "")
+
+	// Then the log is known by the size and modification time main saw, not by the revision of before
+	known, err = w.IndexedFiles()
+	if err != nil || known["/logs/claude.jsonl"].Revision != "1:1" {
+		t.Errorf("known = %+v, %v", known, err)
+	}
+}

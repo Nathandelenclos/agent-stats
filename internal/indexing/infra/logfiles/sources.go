@@ -90,8 +90,8 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 				for _, s := range sessions {
 					log := path + DBSessionSep + s.id
 					dbLogs[log] = dbLog{db: src.Database, path: path, harness: src.Harness, session: s}
-					files = append(files, application.LogFile{Path: log, Harness: src.Harness, Size: s.size, ModTime: s.mod,
-						Weight: min(s.size*estimatedMessageBytes, maxLogBytes)})
+					files = append(files, application.LogFile{Path: log, Harness: src.Harness, Revision: s.revision,
+						WeightBytes: min(s.size*estimatedMessageBytes, maxLogBytes)})
 				}
 			}
 			continue
@@ -116,7 +116,7 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 				return nil
 			}
 			parsers[path] = src.Parse
-			files = append(files, application.LogFile{Path: path, Harness: src.Harness, Size: info.Size(), ModTime: info.ModTime(), Weight: logWeight(path, info.Size())})
+			files = append(files, application.LogFile{Path: path, Harness: src.Harness, Revision: fileRevision(info), WeightBytes: logWeight(path, info.Size())})
 			return nil
 		})
 		if err != nil {
@@ -127,6 +127,12 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 	l.parsers, l.dbLogs = parsers, dbLogs
 	l.mu.Unlock()
 	return files, problems, nil
+}
+
+// fileRevision is the revision of a log that is a file: its size and modification time, as the index has kept them
+// from before it had revisions.
+func fileRevision(info fs.FileInfo) string {
+	return fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
 }
 
 // Read parses a file returned by List.

@@ -65,7 +65,7 @@ func transcript(t *testing.T, native string, at time.Time) application.IndexedTr
 func TestSaveKeepsValuesAsData(t *testing.T) {
 	s := open(t)
 	at := time.UnixMilli(1767261600000)
-	f := application.LogFile{Path: "/logs/" + hostile + ".jsonl", Harness: kernel.Claude, Size: 10, ModTime: time.Unix(0, 1767261600123456789)}
+	f := application.LogFile{Path: "/logs/" + hostile + ".jsonl", Harness: kernel.Claude, Revision: "10:1767261600123456789"}
 	if err := save(s, f, transcript(t, "s1", at)); err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestSaveKeepsValuesAsData(t *testing.T) {
 		t.Errorf("rows = %q %q %q %d, %v", tool, folder, text, repetition, err)
 	}
 	known, err := s.IndexedFiles()
-	if err != nil || len(known) != 1 || !known[f.Path].ModTime.Equal(f.ModTime) || known[f.Path].Size != 10 {
+	if err != nil || len(known) != 1 || known[f.Path].Revision != f.Revision {
 		t.Errorf("indexed files = %+v %v", known, err)
 	}
 }
@@ -460,7 +460,7 @@ func TestSaveAppliesABatchInOrderAndUndoesOnlyTheLogThatFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := func(native string) application.IndexedLog {
-		return application.IndexedLog{File: application.LogFile{Path: "/logs/" + native + ".jsonl", Harness: kernel.Claude, Size: 1}, Transcript: transcript(t, native, at)}
+		return application.IndexedLog{File: application.LogFile{Path: "/logs/" + native + ".jsonl", Harness: kernel.Claude, Revision: "1"}, Transcript: transcript(t, native, at)}
 	}
 
 	// When one batch holds a good log, the bad one, and a good one again

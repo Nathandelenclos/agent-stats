@@ -136,6 +136,7 @@ func sqlSteps(steps ...string) migration {
 var migrations = []migration{
 	sqlSteps(sessionViews, forgetCodexLogs),
 	sqlSteps(recordSkills),
+	sqlSteps(recordRevisions),
 }
 
 // recordSkills makes the index record the skill each Skill call loads. It is a table of its own, not a column of
@@ -163,6 +164,15 @@ CREATE VIEW usage_tool_calls AS
 		t.args_chars, t.result_chars, t.is_error, t.duration_ms, s.harness
 	FROM tool_calls t JOIN sessions s ON s.id = t.session_id
 		LEFT JOIN tool_call_skills k ON k.session_id = t.session_id AND k.key = t.key;
+`
+
+// recordRevisions keeps the revision a reader gives each log (application.LogFile.Revision) in a table of its own,
+// for the reason recordSkills is one: a build from before it writes files with positional statements that a column
+// more would refuse. A log this build saved has size and mtime 0 in files and its revision here. A row with another
+// size or mtime was written by an earlier build, which saw a file of that size and modification time, and its
+// revision is those two as "<size>:<mtime>", how the readers of files give theirs: nothing is read again for it.
+const recordRevisions = `
+CREATE TABLE file_revisions (path TEXT PRIMARY KEY, revision TEXT NOT NULL) WITHOUT ROWID;
 `
 
 // migrate runs, in one transaction, the migrations the index has not run, then records how many it has run: another
@@ -272,9 +282,11 @@ func private(path string) error {
 // Close closes the database.
 func (s *SQLiteIndex) Close() error { return s.db.Close() }
 
-// IndexedFiles returns every log file indexed so far, with its size and modification time at that point.
+// IndexedFiles returns every log file indexed so far, with its revision at that point.
 func (s *SQLiteIndex) IndexedFiles() (map[string]application.LogFile, error) {
-	rows, err := s.db.Query(`SELECT path, harness, size, mtime FROM files`)
+	rows, err := s.db.Query(`SELECT f.path, f.harness,
+			CASE WHEN f.size = 0 AND f.mtime = 0 THEN COALESCE(r.revision, '') ELSE f.size || ':' || f.mtime END
+		FROM files f LEFT JOIN file_revisions r ON r.path = f.path`)
 	if err != nil {
 		return nil, err
 	}
@@ -283,14 +295,12 @@ func (s *SQLiteIndex) IndexedFiles() (map[string]application.LogFile, error) {
 	for rows.Next() {
 		var f application.LogFile
 		var harness string
-		var mtime int64
-		if err := rows.Scan(&f.Path, &harness, &f.Size, &mtime); err != nil {
+		if err := rows.Scan(&f.Path, &harness, &f.Revision); err != nil {
 			return nil, err
 		}
 		if f.Harness, err = kernel.ParseHarness(harness); err != nil {
 			return nil, err
 		}
-		f.ModTime = time.Unix(0, mtime)
 		known[f.Path] = f
 	}
 	return known, rows.Err()
@@ -298,8 +308,8 @@ func (s *SQLiteIndex) IndexedFiles() (map[string]application.LogFile, error) {
 
 // statements are the prepared statements that write one log, bound to the transaction of a batch.
 type statements struct {
-	deletes                                     [5]*sql.Stmt // the rows of a file, in each of deletedTables
-	session, request, tool, skill, prompt, file *sql.Stmt
+	deletes                                               [5]*sql.Stmt // the rows of a file, in each of deletedTables
+	session, request, tool, skill, prompt, file, revision *sql.Stmt
 }
 
 var deletedTables = [...]string{"sessions", "requests", "tool_calls", "tool_call_skills", "prompts"}
@@ -326,12 +336,13 @@ func prepare(tx *sql.Tx) (st statements, err error) {
 	st.skill = prep(`INSERT OR REPLACE INTO tool_call_skills (file, session_id, key, skill) VALUES (?,?,?,?)`)
 	st.prompt = prep(`INSERT OR REPLACE INTO prompts (file, key, session_id, ts, text, chars, words, yelling, profanity, anguish, negation, repetition, blame)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-	st.file = prep(`INSERT OR REPLACE INTO files (path, harness, size, mtime) VALUES (?,?,?,?)`)
+	st.file = prep(`INSERT OR REPLACE INTO files (path, harness, size, mtime) VALUES (?,?,0,0)`) // the revision is in file_revisions
+	st.revision = prep(`INSERT OR REPLACE INTO file_revisions (path, revision) VALUES (?,?)`)
 	return st, err
 }
 
 func (st statements) close() {
-	for _, stmt := range append(st.deletes[:], st.session, st.request, st.tool, st.skill, st.prompt, st.file) {
+	for _, stmt := range append(st.deletes[:], st.session, st.request, st.tool, st.skill, st.prompt, st.file, st.revision) {
 		if stmt != nil {
 			stmt.Close()
 		}
@@ -420,7 +431,10 @@ func (s *SQLiteIndex) saveLog(st statements, file application.LogFile, t applica
 			return err
 		}
 	}
-	_, err := st.file.Exec(path, file.Harness.String(), file.Size, file.ModTime.UnixNano())
+	if _, err := st.file.Exec(path, file.Harness.String()); err != nil {
+		return err
+	}
+	_, err := st.revision.Exec(path, file.Revision)
 	return err
 }
 

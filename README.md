@@ -284,7 +284,7 @@ What each of the three newer readers counts, and what it does not:
 
 A SQLite database holds many sessions, while the index keeps one record per log: each session of a database is a log of its
 own, named `<database>#<session id>`, and it is read again when its message count or the time of its last update changes
-(one grouped query per database, not a read of the parts). The size and modification time of the database file would
+(one grouped query per table, not a read of the parts). The size and modification time of the database file would
 not do, as they change whenever any session is written and every session would be read again. Databases are opened
 read-only and never written; when nobody has one open (no `-wal` or `-shm` file beside it) it is opened immutable,
 which leaves no file behind, otherwise through SQLite, which reads the `-wal` file too. A session deleted from a

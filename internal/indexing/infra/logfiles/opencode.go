@@ -84,11 +84,11 @@ type OpenCodeDatabase struct {
 
 // dbSession is a session found in a database, with what tells that it changed.
 type dbSession struct {
-	id     string
-	table  string // the session table that holds it
-	events bool   // true when its messages are in session_message, false in message
-	size   int64
-	mod    time.Time
+	id       string
+	table    string // the session table that holds it
+	events   bool   // true when its messages are in session_message, false in message
+	size     int64  // its messages
+	revision string
 }
 
 // dbSchema is what a database holds: the session tables and message tables that have the columns this reader needs.
@@ -312,7 +312,7 @@ func (d *OpenCodeDatabase) list(path string) (sessions []dbSession, problems []e
 			if prev, ok := found[id]; ok && (prev.events || !events) {
 				continue // the events of a session win over its messages, and the first table over the second
 			}
-			found[id] = dbSession{id: id, table: table, events: events, size: count, mod: epochMilli(updated)}
+			found[id] = dbSession{id: id, table: table, events: events, size: count, revision: fmt.Sprintf("%d:%d", count, updated)}
 		}
 		if err := rows.Err(); err != nil {
 			problems = append(problems, unreadable(path, err))

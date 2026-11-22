@@ -116,7 +116,7 @@ func TestEachSessionOfADatabaseIsALogOfItsOwnNamedAfterItsDatabaseAndItsId(t *te
 		t.Error("an empty session is listed")
 	}
 	for id, f := range got {
-		if f.Path != db+DBSessionSep+id || f.Harness != kernel.OpenCode || f.Size == 0 || f.ModTime.IsZero() || f.Weight <= 0 {
+		if f.Path != db+DBSessionSep+id || f.Harness != kernel.OpenCode || f.Revision == "" || f.WeightBytes <= 0 {
 			t.Errorf("%s: %+v", id, f)
 		}
 	}
@@ -161,9 +161,9 @@ func TestASessionThatGrowsWhileItsHarnessRunsIsListedAsChangedAndTheOthersAreNot
 
 	// Then only that session shows as changed since the first listing
 	for id, f := range after {
-		changed := f.Size != before[id].Size || !f.ModTime.Equal(before[id].ModTime)
+		changed := f.Revision != before[id].Revision
 		if changed != (id == "ses_child") {
-			t.Errorf("%s: changed = %v (%+v -> %+v)", id, changed, before[id], f)
+			t.Errorf("%s: changed = %v (%q -> %q)", id, changed, before[id].Revision, f.Revision)
 		}
 	}
 }
