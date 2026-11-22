@@ -110,6 +110,8 @@ func runServe(args []string) error {
 		Reports:     reporting.BuildTimelineReport{Queries: usage},
 		Sessions:    reporting.ListSessions{Queries: sessions},
 		Prompts:     reporting.ReviewPrompts{Queries: usage.Prompts()},
+		Catalog:     interactiveCatalog(*dbPath, *projectDir),
+		Quotas:      readQuotas,
 		Sync:        sync,
 		ParseSince:  parseSince,
 		Assets:      webui.Assets(),

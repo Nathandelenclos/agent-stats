@@ -124,3 +124,30 @@ func runCatalog(args []string, stdout, stderr io.Writer) error {
 	catalogcli.WriteText(stdout, c, *unused, cov.label())
 	return nil
 }
+
+// interactiveCatalog reads the same inventory as the CLI, and borrows the
+// period and project coverage of the view that requested it.
+func interactiveCatalog(dbPath, projectDir string) func(catalog.Query) (catalog.Catalog, error) {
+	return func(q catalog.Query) (catalog.Catalog, error) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return catalog.Catalog{}, err
+		}
+		root := projectDir
+		if root == "" {
+			root = workingProject().Root()
+		} else if root, err = filepath.Abs(root); err != nil {
+			return catalog.Catalog{}, err
+		}
+		activity, err := catalogdb.OpenReadOnly(dbPath)
+		if err != nil {
+			return catalog.Catalog{}, err
+		}
+		defer activity.Close()
+		useCase := catalog.BuildCatalog{
+			Inventory: configfiles.Inventory{Roots: configfiles.DefaultRoots(home, root, os.Getenv)},
+			Activity:  activity,
+		}
+		return useCase.Run(q)
+	}
+}

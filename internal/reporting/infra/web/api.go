@@ -165,9 +165,11 @@ func sessionSummary(s reporting.SessionSummary) sessionJSON {
 }
 
 type metaJSON struct {
-	Harnesses []string `json:"harnesses"`
-	Project   string   `json:"project"` // the name of the project of the folder the server runs in, "" when none was detected
-	Defaults  struct {
+	CatalogAvailable bool     `json:"catalogAvailable,omitempty"`
+	QuotasAvailable  bool     `json:"quotasAvailable,omitempty"`
+	Harnesses        []string `json:"harnesses"`
+	Project          string   `json:"project"` // the name of the project of the folder the server runs in, "" when none was detected
+	Defaults         struct {
 		Since   string `json:"since"`   // the period the page opens on, "" for all
 		Harness string `json:"harness"` // "" for all
 		Scope   string `json:"scope"`   // what the page opens on: "current" (the project above) or "all"
@@ -182,6 +184,8 @@ func (s *Server) meta(w http.ResponseWriter, r *http.Request) {
 	}
 	m := metaJSON{Harnesses: make([]string, 0, len(kernel.Harnesses))}
 	m.Harnesses = kernel.HarnessNames()
+	m.CatalogAvailable = s.localOnly && s.opts.Catalog != nil
+	m.QuotasAvailable = s.localOnly && s.opts.Quotas != nil
 	m.Defaults.Since, m.Defaults.Harness, m.Defaults.Scope = s.opts.Since, s.opts.Harness.String(), s.defaultScope()
 	if project, _ := s.coverage(); !project.IsZero() {
 		m.Project = project.Name()

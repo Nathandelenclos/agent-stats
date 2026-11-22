@@ -10,7 +10,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	catalog "github.com/Nathandelenclos/agent-stats/internal/catalog/application"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	"github.com/Nathandelenclos/agent-stats/internal/quota"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 )
 
@@ -29,6 +31,8 @@ type Options struct {
 	Session  reporting.ShowSession
 	// Prompts reviews the prompts that showed frustration; the prompts mode (key m) is offered when it has queries.
 	Prompts reporting.ReviewPrompts
+	Catalog func(catalog.Query) (catalog.Catalog, error)
+	Quotas  quota.Reader
 	// Sync, when set, runs in the background as the interface opens and on demand, then the report refreshes.
 	Sync Sync
 	// Harness is the harness the first report is limited to; the zero Harness means all of them.

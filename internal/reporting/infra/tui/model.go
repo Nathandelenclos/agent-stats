@@ -13,8 +13,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	catalog "github.com/Nathandelenclos/agent-stats/internal/catalog/application"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	"github.com/Nathandelenclos/agent-stats/internal/platform/textfmt"
+	"github.com/Nathandelenclos/agent-stats/internal/quota"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 )
 
@@ -125,6 +127,13 @@ type Model struct {
 	spinner  spinner.Model
 
 	mode          mode
+	catalog       func(catalog.Query) (catalog.Catalog, error)
+	quotas        quota.Reader
+	localPager    pager
+	localLoaded   bool
+	catalogUnused bool
+	catalogResult catalog.Catalog
+	quotaResult   []quota.Window
 	sessions      sessionsState
 	prompts       promptsState
 	tab           tab
@@ -142,7 +151,7 @@ type Model struct {
 // New returns the model for o. Its Init asks for the first report.
 func New(o Options) Model {
 	t := table.New(table.WithFocused(true))
-	m := Model{reports: o.Reports, lister: o.Sessions, shower: o.Session, reviewer: o.Prompts, sessions: newSessionsState(), sync: o.Sync, detect: o.Detect, syncs: newSyncRuns(), syncing: o.Sync != nil, spinner: spinner.New(spinner.WithSpinner(spinner.MiniDot)), now: time.Now, table: t, width: 80, height: 24, periods: periods}
+	m := Model{reports: o.Reports, lister: o.Sessions, shower: o.Session, reviewer: o.Prompts, catalog: o.Catalog, quotas: o.Quotas, sessions: newSessionsState(), sync: o.Sync, detect: o.Detect, syncs: newSyncRuns(), syncing: o.Sync != nil, spinner: spinner.New(spinner.WithSpinner(spinner.MiniDot)), now: time.Now, table: t, width: 80, height: 24, periods: periods}
 	m.period = len(periods) - 1 // all
 	if o.SinceLabel != "" {
 		m.period = -1
@@ -290,6 +299,15 @@ func (m Model) load() tea.Cmd {
 func (m Model) reload() (Model, tea.Cmd) {
 	m.seq++
 	m.pending = true
+	if m.mode == catalogMode {
+		m.layoutLocalData()
+		return m, m.loadCatalog()
+	}
+	if m.mode == quotasMode {
+		m.localLoaded = false
+		m.layoutLocalData()
+		return m, m.loadQuotas()
+	}
 	if m.mode == promptsMode {
 		return m, m.loadPrompts()
 	}
@@ -351,6 +369,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.layout()
 		return m, nil
+	case catalogMsg:
+		if msg.seq != m.seq {
+			return m, nil
+		}
+		m.pending, m.err = false, msg.err
+		if msg.err == nil {
+			m.catalogResult, m.localLoaded = msg.result, true
+			m.shown.period, m.shown.harness, m.shown.restricted = msg.period, msg.harness, msg.restricted
+		}
+		m.layoutLocalData()
+		return m, nil
+	case quotasMsg:
+		if msg.seq != m.seq {
+			return m, nil
+		}
+		m.pending, m.err, m.localLoaded = false, nil, true
+		m.quotaResult = msg.windows
+		m.layoutLocalData()
+		return m, nil
 	case detailMsg:
 		if d := &m.sessions.detail; d.open && d.id == msg.id && msg.seq == m.sessions.detailSeq {
 			d.err = msg.err
@@ -366,6 +403,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case syncDoneMsg:
 		m.syncing, m.syncNote, m.syncErr = false, msg.note, msg.err
 		if m.detect == nil || errors.Is(msg.err, context.Canceled) {
+			if m.mode == quotasMode {
+				return m, nil
+			}
 			return m.reload() // the index changed: show it
 		}
 		detect := m.detect
@@ -376,6 +416,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case scopeMsg:
 		if msg.err == nil {
 			m.project, m.restricted = reporting.Redetect(m.project, m.restricted, msg.project)
+		}
+		if m.mode == quotasMode {
+			return m, nil
 		}
 		return m.reload()
 	case spinner.TickMsg:
@@ -392,6 +435,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "c":
+		if m.modeEnabled(catalogMode) {
+			return m.selectMode(catalogMode)
+		}
+	case "l":
+		if m.modeEnabled(quotasMode) {
+			return m.selectMode(quotasMode)
+		}
+	}
+	if m.mode == catalogMode || m.mode == quotasMode {
+		return m.localDataKey(msg)
+	}
 	if m.mode == promptsMode {
 		return m.promptsKey(msg)
 	}
@@ -506,6 +562,7 @@ func (m Model) grid() grid {
 
 // layout fills the tables with the current report and fits them to the terminal.
 func (m *Model) layout() {
+	m.layoutLocalData()
 	height := m.height - m.extraTitleLines()
 	g := m.grid()
 	if m.sorts[m.tab].col >= len(g.headers) {
@@ -620,6 +677,9 @@ func pad(s string, w int, right bool) string {
 
 // View draws the interface.
 func (m Model) View() string {
+	if m.mode == catalogMode || m.mode == quotasMode {
+		return m.localDataView()
+	}
 	if m.mode == promptsMode {
 		return m.promptsView()
 	}
@@ -661,10 +721,13 @@ func (m Model) titleBar() string {
 		harness = h.String()
 	}
 	bar := titleStyle.Render("agent-stats") + m.modeLabel()
+	if m.mode == quotasMode {
+		return bar
+	}
 	filters := fmt.Sprintf("period: %s · harness: %s", m.periods[m.shown.period].label, harness)
 	scope := m.coverageLabel()
 	switch {
-	case m.mode != usageMode || lipgloss.Width(bar+"  "+filters+" · "+scope) <= m.width:
+	case (m.mode != usageMode && m.mode != catalogMode) || lipgloss.Width(bar+"  "+filters+" · "+scope) <= m.width:
 		bar += "  " + filters + " · " + scope
 	case lipgloss.Width(filters+" · "+scope) <= m.width:
 		bar += "\n" + filters + " · " + scope
@@ -707,6 +770,10 @@ func (m Model) help() string {
 		keys = []string{"↑↓ pgup/pgdn scroll", "esc back to sessions"}
 	case m.mode == sessionsMode:
 		keys, filters = []string{"↑↓ scroll", "enter open"}, []string{"s sort", "o reverse", "p period", "h harness"}
+	case m.mode == catalogMode:
+		keys, filters = []string{"u unused", "↑↓ scroll"}, []string{"p period", "h harness"}
+	case m.mode == quotasMode:
+		keys = []string{"r refresh", "↑↓ scroll"}
 	case m.mode == promptsMode:
 		keys, filters = []string{"↑↓ pgup/pgdn scroll"}, []string{"p period", "h harness"}
 	case m.dailyOpen:
@@ -718,13 +785,24 @@ func (m Model) help() string {
 		}
 		filters = []string{"s sort", "o reverse", "p period", "h harness"}
 	}
-	if next := m.nextMode(); next != m.mode {
-		keys = append(keys, "m "+strings.ToLower(modeNames[next]))
+	if m.mode == usageMode && m.modeEnabled(catalogMode) {
+		keys = append(keys, "c catalog")
 	}
-	if m.sync != nil {
+	if m.mode == usageMode && m.modeEnabled(quotasMode) {
+		keys = append(keys, "l quotas")
+	}
+	if next := m.nextMode(); next != m.mode {
+		switchHint := "m " + strings.ToLower(modeNames[next])
+		if m.mode == usageMode && m.width < 50 {
+			keys = append([]string{switchHint}, keys...)
+		} else {
+			keys = append(keys, switchHint)
+		}
+	}
+	if m.sync != nil && m.mode != quotasMode {
 		keys = append(keys, "r re-index")
 	}
-	if !m.project.IsZero() && !(m.mode == sessionsMode && m.sessions.detail.open) {
+	if m.mode != quotasMode && !m.project.IsZero() && !(m.mode == sessionsMode && m.sessions.detail.open) {
 		filters = append(filters, "a "+m.coverageSwitch())
 	}
 	keys = append(keys, filters...)

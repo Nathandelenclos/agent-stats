@@ -22,9 +22,11 @@ const (
 	usageMode mode = iota
 	sessionsMode
 	promptsMode
+	catalogMode
+	quotasMode
 )
 
-var modeNames = [...]string{"Usage", "Sessions", "Prompts"}
+var modeNames = [...]string{"Usage", "Sessions", "Prompts", "Catalog", "Quotas"}
 
 // sessionsMsg carries the result of a sessions request; seq tells which request it answers.
 type sessionsMsg struct {
@@ -87,6 +89,10 @@ func (m Model) modeEnabled(md mode) bool {
 		return m.sessionsEnabled()
 	case promptsMode:
 		return m.promptsEnabled()
+	case catalogMode:
+		return m.catalog != nil
+	case quotasMode:
+		return m.quotas != nil
 	}
 	return true
 }
@@ -123,12 +129,21 @@ func (m *Model) loadDetail(id reporting.SessionID) tea.Cmd {
 
 // switchMode moves to the next mode, asking for what it shows.
 func (m Model) switchMode() (Model, tea.Cmd) {
-	next := m.nextMode()
+	return m.selectMode(m.nextMode())
+}
+
+func (m Model) selectMode(next mode) (Model, tea.Cmd) {
 	if next == m.mode {
 		return m, nil
 	}
 	m.sessions.detail = sessionDetail{}
+	m.dailyOpen = false
 	m.mode = next
+	if next == catalogMode || next == quotasMode {
+		m.localLoaded = false
+		m.localPager = pager{}
+		m.err = nil
+	}
 	if next == promptsMode {
 		m.prompts = promptsState{pager: pager{display: m.prompts.display}}
 	}

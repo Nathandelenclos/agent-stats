@@ -24,6 +24,8 @@ import { Sessions, useSessions } from "./features/sessions";
 import { PromptReview } from "./features/prompts/PromptReview";
 import { usePromptReview } from "./features/prompts/api";
 import { SyncBanner, useSyncStatus } from "./features/sync";
+import { Catalog, useCatalog } from "./features/catalog/Catalog";
+import { Quotas } from "./features/quotas/Quotas";
 
 /** Filters live in the address (?since=7d&harness=claude&project=all), so a reload or a bookmark keeps them. */
 function readFilters(meta: Meta, params: URLSearchParams): Filters {
@@ -153,9 +155,7 @@ function Report({ report }: { report: UseQueryResult<ReportData, unknown> }) {
   );
 }
 
-type View = "Usage" | "Sessions" | "Prompts";
-
-const views: View[] = ["Usage", "Sessions", "Prompts"];
+type View = "Usage" | "Sessions" | "Prompts" | "Catalog" | "Quotas";
 
 export function App() {
   const meta = useMeta();
@@ -163,7 +163,12 @@ export function App() {
   const queryClient = useQueryClient();
   // The filters are the person's once they change them, and what the server and the address say until then. The address is
   // read once, as it was when the page opened: the filters written to it since are not the person's choice.
-  const [view, setView] = useState<View>("Usage");
+  const [selectedView, setView] = useState<View>("Usage");
+  const [unused, setUnused] = useState(false);
+  const views: View[] = ["Usage", "Sessions", "Prompts"];
+  if (meta.data?.catalogAvailable) views.push("Catalog");
+  if (meta.data?.quotasAvailable) views.push("Quotas");
+  const view = views.includes(selectedView) ? selectedView : "Usage";
   const [chosen, setChosen] = useState<Filters>();
   const [address] = useState(() => new URLSearchParams(window.location.search));
   const initial = useMemo(() => (meta.data ? readFilters(meta.data, address) : undefined), [meta.data, address]);
@@ -175,7 +180,14 @@ export function App() {
   const project = filters?.scope === "current" ? (meta.data?.project ?? "") : "";
   const sessions = useSessions(view === "Sessions" ? filters : undefined, project);
   const prompts = usePromptReview(view === "Prompts" ? filters : undefined, project);
-  const shownScope = { Usage: report.data?.scope, Sessions: sessions.data?.scope, Prompts: prompts.data?.scope }[view];
+  const catalog = useCatalog(view === "Catalog" ? filters : undefined, project, unused);
+  const shownScope = {
+    Usage: report.data?.scope,
+    Sessions: sessions.data?.scope,
+    Prompts: prompts.data?.scope,
+    Catalog: catalog.data?.scope,
+    Quotas: undefined,
+  }[view];
 
   // The figures were read from a partial index while it ran, and the server may have learned its project from it: ask again when it ends.
   const syncState = sync.data?.state;
@@ -186,6 +198,7 @@ export function App() {
         queryClient.invalidateQueries({ queryKey: ["report"] }),
         queryClient.invalidateQueries({ queryKey: ["sessions"] }),
         queryClient.invalidateQueries({ queryKey: ["prompts"] }),
+        queryClient.invalidateQueries({ queryKey: ["catalog"] }),
       ]));
     }
   }, [syncState, syncFinishedAt, queryClient]);
@@ -229,10 +242,12 @@ export function App() {
             {meta.isError && <Failure title="The server did not answer." message={describe(meta.error)} retry={() => void meta.refetch()} />}
             {meta.data && filters && (
               <>
-                <FilterBar meta={meta.data} value={filters} onChange={setChosen} />
+                {view !== "Quotas" && <FilterBar meta={meta.data} value={filters} onChange={setChosen} />}
                 {view === "Usage" && <Report report={report} />}
                 {view === "Sessions" && <Sessions filters={filters} project={project} list={sessions} />}
                 {view === "Prompts" && <PromptReview query={prompts} />}
+                {view === "Catalog" && <Catalog query={catalog} unused={unused} onUnusedChange={setUnused} />}
+                {view === "Quotas" && <Quotas />}
               </>
             )}
           </main>

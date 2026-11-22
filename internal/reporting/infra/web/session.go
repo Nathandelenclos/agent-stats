@@ -65,7 +65,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		!p.query.Since.IsZero() && d.End.Before(p.query.Since):
 		sessionMissing(w)
 	default:
-		writeJSON(w, s.log, sessionDetails(d, p.scope, s.localPrompts))
+		writeJSON(w, s.log, sessionDetails(d, p.scope, s.localOnly))
 	}
 }
 

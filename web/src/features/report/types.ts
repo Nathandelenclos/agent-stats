@@ -49,6 +49,8 @@ export type Scope = "current" | "all";
 
 export interface Meta {
   harnesses: string[];
+  catalogAvailable?: boolean;
+  quotasAvailable?: boolean;
   /** The name of the project the server runs in; "" when it found none, and there is then no scope to choose. */
   project: string;
   defaults: { since: string; harness: string; scope: Scope };

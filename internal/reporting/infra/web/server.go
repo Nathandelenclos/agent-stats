@@ -14,7 +14,9 @@ import (
 	"sync"
 	"time"
 
+	catalog "github.com/Nathandelenclos/agent-stats/internal/catalog/application"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	"github.com/Nathandelenclos/agent-stats/internal/quota"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 )
 
@@ -26,6 +28,8 @@ type Options struct {
 	Reports  reporting.BuildTimelineReport
 	Sessions reporting.ListSessions
 	Prompts  reporting.ReviewPrompts
+	Catalog  func(catalog.Query) (catalog.Catalog, error)
+	Quotas   quota.Reader
 	// Sync, when set, runs at startup and on request. Serve cancels and waits for it when its context ends.
 	Sync Sync
 	// ParseSince reads a period start as the command line states it (7d, 12h, 2006-01-02).
@@ -58,15 +62,15 @@ const defaultShutdownGrace = 5 * time.Second
 
 // Server is the HTTP handler of the web interface.
 type Server struct {
-	opts         Options
-	localPrompts bool
-	indexCtx     context.Context
-	port         string // the port listened on, which Host headers must carry
-	sync         *syncer
-	log          logf
-	now          func() time.Time
-	parseSince   func(string, time.Time) (time.Time, error)
-	mux          *http.ServeMux
+	opts       Options
+	localOnly  bool
+	indexCtx   context.Context
+	port       string // the port listened on, which Host headers must carry
+	sync       *syncer
+	log        logf
+	now        func() time.Time
+	parseSince func(string, time.Time) (time.Time, error)
+	mux        *http.ServeMux
 
 	mu         sync.Mutex
 	stopped    bool           // no request starts any more
@@ -86,7 +90,7 @@ func New(o Options, addr net.Addr) *Server {
 	}
 	host, port, _ := net.SplitHostPort(addr.String())
 	s.port = port
-	s.localPrompts = !o.AllowRemote && isLoopbackHost(host)
+	s.localOnly = !o.AllowRemote && isLoopbackHost(host)
 	s.sync = newSyncer(s.now, s.log)
 	s.mux = http.NewServeMux()
 	s.mux.HandleFunc("/api/meta", s.meta)
@@ -95,6 +99,8 @@ func New(o Options, addr net.Addr) *Server {
 	s.mux.HandleFunc("/api/sessions", s.sessions)
 	s.mux.HandleFunc("/api/sessions/{id}", s.session)
 	s.mux.HandleFunc("/api/prompts", s.prompts)
+	s.mux.HandleFunc("/api/catalog", s.catalog)
+	s.mux.HandleFunc("/api/quotas", s.quotas)
 	s.mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		problem{Type: problemNotFound, Title: "No such route", Status: http.StatusNotFound}.write(w)
 	})

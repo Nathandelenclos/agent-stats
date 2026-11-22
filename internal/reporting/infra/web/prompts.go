@@ -60,7 +60,7 @@ func (s *Server) prompts(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, "reviewing the prompts", err)
 		return
 	}
-	writeJSON(w, s.log, promptReview(review, p.scope, s.localPrompts, p.limit))
+	writeJSON(w, s.log, promptReview(review, p.scope, s.localOnly, p.limit))
 }
 
 func promptReview(r reporting.PromptReview, scope string, localPrompts bool, limit int) promptReviewJSON {

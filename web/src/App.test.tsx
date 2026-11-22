@@ -1,3 +1,4 @@
+import { focusManager } from "@tanstack/react-query";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -307,5 +308,95 @@ it("keeps view navigation before the main content and opens Prompts with the act
   expect(buttons.map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "false", "true"]);
   expect(fetch).toHaveBeenCalledWith("/api/prompts?since=30d&project=current&limit=1000", expect.any(Object));
   expect(periodSelect(container).value).toBe("30d");
+  window.history.replaceState(null, "", "/");
+});
+
+it("keeps report filters when opening Catalog and lets the person ask for unused entries", async () => {
+  window.history.replaceState(null, "", "?since=30d&harness=claude&project=current");
+  const fetchReport = serveReports(() => report(), { ...metaInProject("imports"), catalogAvailable: true });
+  const unused = { harness: "claude", kind: "skill", scope: "user", unit: "loads", enabled: true, uses: 0, lastTs: 0, name: "testing" };
+  const fetch = vi.fn(async (input: RequestInfo | URL) => {
+    const requested = new URL(String(input), "http://localhost");
+    if (requested.pathname === "/api/catalog") {
+      const entries = requested.searchParams.get("unused") === "true"
+        ? [unused]
+        : [unused, { ...unused, uses: null, name: "untracked" }];
+      return new Response(JSON.stringify({ entries, scope: "current", skipped: 1 }));
+    }
+    return fetchReport(input);
+  });
+  vi.stubGlobal("fetch", fetch);
+  const { container } = render(withQueries(testQueryClient(), <App />));
+  const byName = (name: string) => [...container.querySelectorAll("nav button")].find((button) => button.textContent === name);
+  await eventually(() => expect(container.textContent).toContain("Usage by model"));
+  expect(fetch.mock.calls.some(([url]) => String(url).startsWith("/api/catalog"))).toBe(false);
+
+  click(byName("Catalog")!);
+
+  const entries = () => [...container.querySelectorAll("tbody tr")].map((row) => row.textContent ?? "");
+  await eventually(() => expect(entries()).toHaveLength(2));
+  expect(fetch).toHaveBeenCalledWith("/api/catalog?since=30d&harness=claude&project=current", expect.any(Object));
+  expect(byName("Catalog")?.getAttribute("aria-pressed")).toBe("true");
+  expect(byName("Quotas")).toBeUndefined();
+  expect(entries().find((row) => row.includes("testing"))).toContain("0 loadsNever");
+  expect(entries().find((row) => row.includes("untracked"))).toContain("UnknownUnknown");
+  expect(container.textContent).toContain("1 source was skipped.");
+  const checkbox = container.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+  expect(checkbox.labels?.[0]?.textContent).toContain("Unused only");
+  click(checkbox);
+
+  await eventually(() => expect(entries()).toHaveLength(1));
+  expect(fetch).toHaveBeenCalledWith("/api/catalog?since=30d&harness=claude&project=current&unused=true", expect.any(Object));
+  expect(entries()[0]).toContain("testing");
+  expect(checkbox.checked).toBe(true);
+  window.history.replaceState(null, "", "/");
+});
+
+it("reads account quotas without usage filters and refreshes them on demand", async () => {
+  window.history.replaceState(null, "", "?since=30d&harness=claude&project=current");
+  const fetchReport = serveReports(() => report(), { ...metaInProject("imports"), quotasAvailable: true });
+  let calls = 0;
+  const snapshot = {
+    provider: "Codex", label: "Weekly quota", remaining: 0, resetAt: "0001-01-01T00:00:00Z", observedAt: new Date().toISOString(),
+  };
+  const fetch = vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input) === "/api/quotas") {
+      calls++;
+      return new Response(JSON.stringify(calls === 1 ? [
+        snapshot,
+        { ...snapshot, label: "Expired quota", remaining: 42, resetAt: new Date(Date.now() - 60_000).toISOString() },
+      ] : [{ ...snapshot, remaining: 73 }]));
+    }
+    return fetchReport(input);
+  });
+  vi.stubGlobal("fetch", fetch);
+  const { container } = render(withQueries(testQueryClient(), <App />));
+  const quotas = () => [...container.querySelectorAll("nav button")].find((button) => button.textContent === "Quotas");
+  await eventually(() => expect(container.textContent).toContain("Usage by model"));
+  expect(calls).toBe(0);
+  click(quotas()!);
+
+  await eventually(() => expect(container.textContent).toContain("0% remaining"));
+  expect(quotas()?.getAttribute("aria-pressed")).toBe("true");
+  expect(container.textContent).toContain("Quota unavailable.");
+  expect(container.textContent).toContain("Resetsunknown");
+  expect(container.textContent).not.toContain("Expired quota");
+  expect([...container.querySelectorAll("label")].some((label) => label.textContent === "Period")).toBe(false);
+  expect(fetch.mock.calls.filter(([url]) => String(url).startsWith("/api/quotas")).map(([url]) => url)).toEqual(["/api/quotas"]);
+
+  await act(async () => {
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+  });
+  expect(calls).toBe(1);
+
+  const refresh = [...container.querySelectorAll("button")].find((button) => button.textContent === "Refresh quotas")!;
+  refresh.focus();
+  click(refresh);
+  await eventually(() => expect(container.textContent).toContain("73% remaining"));
+  expect(document.activeElement).toBe(refresh);
+  expect(calls).toBe(2);
+
+  focusManager.setFocused(undefined);
   window.history.replaceState(null, "", "/");
 });

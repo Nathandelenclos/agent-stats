@@ -19,6 +19,7 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	"github.com/Nathandelenclos/agent-stats/internal/platform/termquiet"
 	"github.com/Nathandelenclos/agent-stats/internal/pricing/infra/pricetable"
+	"github.com/Nathandelenclos/agent-stats/internal/quota"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 	reportcli "github.com/Nathandelenclos/agent-stats/internal/reporting/infra/cli"
 	usagedb "github.com/Nathandelenclos/agent-stats/internal/reporting/infra/sqlite"
@@ -81,6 +82,13 @@ func run() error {
 		return runServe(os.Args[2:])
 	}
 	termquiet.Restore()
+	if len(os.Args) == 3 && os.Args[1] == "quota" && os.Args[2] == "record-claude" {
+		path := quotaFile()
+		if path == "" {
+			return fmt.Errorf("no user cache directory for Claude quota")
+		}
+		return quota.RecordClaudeStatus(os.Stdin, path, time.Now())
+	}
 	if len(os.Args) > 1 && os.Args[1] == "catalog" {
 		return runCatalog(os.Args[2:], os.Stdout, os.Stderr)
 	}
@@ -162,6 +170,7 @@ func run() error {
 		o := tui.Options{Reports: reporting.BuildTimelineReport{Queries: usage}, Harness: only, SinceLabel: *since, Since: from,
 			Sessions: reporting.ListSessions{Queries: sessions}, Session: reporting.ShowSession{Queries: sessions},
 			Prompts: reporting.ReviewPrompts{Queries: usage.Prompts()},
+			Catalog: interactiveCatalog(*dbPath, *projectDir), Quotas: readQuotas,
 			Project: cov.project, Restricted: cov.restricted, Detect: redetection(*all, *projectDir, detect)}
 		if indexLogs != nil {
 			o.Sync = tuiSync(indexLogs)

@@ -347,6 +347,23 @@ The catalog reads names only. MCP environment variables, headers, URLs, tokens a
 read into the output. Files must be regular files and are size-bounded; anything unusable (a FIFO, an oversized or malformed
 file, a name with control characters) is left out and noted on stderr (`skipped` in `--json`).
 
+
+In the terminal, press `c` for Catalog and `u` to toggle unused items. The local web dashboard offers the
+same catalog in its sidebar. Both apply the active period, harness and project filters to usage.
+
+## Account quotas
+
+Open Quotas from the web sidebar, or press `l` in the terminal and `r` to refresh. Quotas apply to the
+provider account, independently of the report filters. The views show the remaining percentage and the
+reset time for each available window. Catalog and Quotas are available on a loopback server without
+`--allow-remote`.
+
+Codex is read through the installed app-server with its current login when the view opens or refreshes.
+Claude Code can send the standard status-line JSON to `agent-stats quota record-claude` on stdin. If you
+already have a status line, forward its input to this command from that script and keep its current
+display. The command stores the observed 5-hour and 7-day figures locally for up to 15 minutes, and
+discards windows once they reset. The rest of the status-line payload stays out of the cache.
+
 ## Supported harnesses
 
 | Harness | Logs read |
