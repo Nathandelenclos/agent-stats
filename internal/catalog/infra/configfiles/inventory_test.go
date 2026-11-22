@@ -312,14 +312,122 @@ func TestOhMyPiInventory(t *testing.T) {
 	expect(t, describe(omp), "mcp:omp-docs@user", "mcp:project-server@project", "skill:omp-skill@user", "skill:shared-skill@user", "agent:worker@user")
 }
 
-func TestPiInventoryListsPackagesWithoutTheirCredentials(t *testing.T) {
-	// Given pi's settings with package sources that carry credentials, query strings and fragments
+func TestPiInventoryLabelsPackagesByTheirInstalledNameOrByTheirRank(t *testing.T) {
+	// Given pi's settings listing eleven package sources, two of them installed (their package.json names them)
 	// When its inventory is read
 	pi := installed(t, fixtureRoots(t), kernel.Pi)
 
-	// Then it lists the shared skill and the packages, whose sources lost what was secret
-	expect(t, describe(pi), "skill:shared-skill@user", "plugin:pi-extras@user",
-		"plugin:pkg@user", "plugin:other@user", "plugin:third@user", "plugin:npm:@org/pkg@user")
+	// Then an installed package shows the name it declares, every other one shows its rank in the file, and no
+	// source, however it is written, shows at all
+	expect(t, describe(pi), "skill:shared-skill@user", "plugin:pi-extras@user", "plugin:@org/pkg@user",
+		"plugin:pi package #2@user", "plugin:pi package #3@user", "plugin:pi package #4@user", "plugin:pi package #6@user",
+		"plugin:pi package #7@user", "plugin:pi package #8@user", "plugin:pi package #9@user", "plugin:pi package #10@user",
+		"plugin:pi package #11@user")
+	noSecret(t, pi)
+}
+
+// piWithPackage writes a pi settings file with one package source, and the package.json of the npm package "pkg"
+// under pi's npm directory (content "" writes none), and returns the roots and the label the inventory gives it.
+func piWithPackage(t *testing.T, source, packageJSON string) string {
+	t.Helper()
+	r := fixtureRoots(t)
+	agent := filepath.Join(r.Home, ".pi", "agent")
+	b, _ := json.Marshal(map[string]any{"packages": []string{source}})
+	mustWrite(t, filepath.Join(agent, "settings.json"), string(b))
+	mustMkdir(t, filepath.Join(agent, "npm", "node_modules", "pkg"))
+	if packageJSON != "" {
+		mustWrite(t, filepath.Join(agent, "npm", "node_modules", "pkg", "package.json"), packageJSON)
+	}
+	in := installed(t, r, kernel.Pi)
+	noSecret(t, in)
+	for _, it := range in.Items {
+		if it.Kind == domain.Plugin {
+			return it.Name.String()
+		}
+	}
+	t.Fatalf("no package listed: %q", describe(in))
+	return ""
+}
+
+func TestPiPackageShowsTheNameItsInstalledPackageDeclares(t *testing.T) {
+	// Given an npm package installed under pi's npm directory whose package.json names it
+	// When the inventory is read
+	got := piWithPackage(t, "npm:pkg@1.0.0", `{"name": "pkg"}`)
+
+	// Then the package is shown under that name
+	if got != "pkg" {
+		t.Errorf("label %q", got)
+	}
+}
+
+func TestPiPackageWhoseDeclaredNameIsNotAnNpmNameShowsItsRank(t *testing.T) {
+	for name, content := range map[string]string{
+		"a marker in the name":     `{"name": "pkg SECRET-NAME"}`,
+		"an uppercase name":        `{"name": "SECRET-UPPER"}`,
+		"a path in the name":       `{"name": "../SECRET-PATH"}`,
+		"a name too long":          `{"name": "` + strings.Repeat("a", 215) + `"}`,
+		"a name that is no string": `{"name": ["SECRET-LIST"]}`,
+		"malformed json":           `{"name": "pkg", SECRET-MALFORMED`,
+		"no package.json":          ``,
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Given an installed package whose package.json does not carry a name npm would accept
+			// When the inventory is read, then the package is shown by its rank, and no marker is anywhere
+			if got := piWithPackage(t, "npm:pkg", content); got != "pi package #1" {
+				t.Errorf("label %q", got)
+			}
+		})
+	}
+}
+
+func TestPiPackageJSONThatIsNotAnInsideRegularBoundedFileIsNotRead(t *testing.T) {
+	// Given a package whose package.json is a link out of pi's npm directory, a FIFO, or far over the bound
+	r := fixtureRoots(t)
+	agent := filepath.Join(r.Home, ".pi", "agent")
+	mustWrite(t, filepath.Join(agent, "settings.json"), `{"packages": ["npm:linked", "npm:fifo", "npm:huge", "npm:escape"]}`)
+	nm := filepath.Join(agent, "npm", "node_modules")
+	outside := filepath.Join(t.TempDir(), "package.json")
+	mustWrite(t, outside, `{"name": "stolen"}`)
+	mustMkdir(t, filepath.Join(nm, "linked"))
+	if err := os.Symlink(outside, filepath.Join(nm, "linked", "package.json")); err != nil {
+		t.Fatal(err)
+	}
+	mustMkdir(t, filepath.Join(nm, "fifo"))
+	mustFifo(t, filepath.Join(nm, "fifo", "package.json"))
+	mustMkdir(t, filepath.Join(nm, "huge"))
+	mustWrite(t, filepath.Join(nm, "huge", "package.json"), `{"name": "huge", "x": "`+strings.Repeat("x", 1<<20)+`"}`)
+	elsewhere := t.TempDir()
+	mustWrite(t, filepath.Join(elsewhere, "package.json"), `{"name": "stolen-dir"}`)
+	if err := os.Symlink(elsewhere, filepath.Join(nm, "escape")); err != nil {
+		t.Fatal(err)
+	}
+
+	// When the inventory is read, then none is read: each shows its rank
+	in := installed(t, r, kernel.Pi)
+	expect(t, describe(in), "skill:shared-skill@user", "plugin:pi package #1@user", "plugin:pi package #2@user", "plugin:pi package #3@user", "plugin:pi package #4@user")
+}
+
+func TestPiPackageSourceNeverShapesItsLabel(t *testing.T) {
+	// Given sources written every way a source can be, none of them installed
+	r := fixtureRoots(t)
+	sources := []string{
+		"git:github.com/org/SECRET-LAST", "https://SECRET-HOST.example.test", "github.com/org/repo?token=a SECRET-SECOND-WORD",
+		"https://host/org/SECRET%2DX", "https://u:SECRET-PW@host/x.git?token=SECRET-Q#SECRET-F", "git@github.com:org/SECRET-SCP",
+		"./SECRET-REL/dir", "SECRET-TOKEN@host.example", "", "npm:SECRET-UPPER@1.0.0",
+	}
+	b, _ := json.Marshal(map[string]any{"packages": sources})
+	mustWrite(t, filepath.Join(r.Home, ".pi", "agent", "settings.json"), string(b))
+
+	// When the inventory is read
+	in := installed(t, r, kernel.Pi)
+
+	// Then each is shown by its rank, and no marker is anywhere
+	var want []string
+	for i := range sources {
+		want = append(want, fmt.Sprintf("plugin:pi package #%d@user", i+1))
+	}
+	expect(t, describe(in), append(want, "skill:shared-skill@user")...)
+	noSecret(t, in)
 }
 
 func TestHomeIsNotAProject(t *testing.T) {
@@ -482,48 +590,6 @@ func TestADirectoryOverTheEntryBoundIsReadUpToIt(t *testing.T) {
 	// When the inventory is read, then it says so
 	if notes := strings.Join(installed(t, r, kernel.Claude).Skipped, "\n"); !strings.Contains(notes, "too many entries") {
 		t.Errorf("notes: %s", notes)
-	}
-}
-
-func TestPackageSourcesShowOnlyTheNameThatRecognisesThem(t *testing.T) {
-	for in, want := range map[string]string{
-		// package names, which are the whole source
-		"pi-extras":      "pi-extras",
-		"npm:@org/pkg":   "npm:@org/pkg",
-		"pkg@1.2.3":      "pkg@1.2.3",
-		"npm:pkg@^1.2":   "npm:pkg@^1.2",
-		"@org/pkg@1.2.3": "@org/pkg@1.2.3",
-		// remote sources show their last path segment alone: no host, user, password, query, fragment or other segment
-		"https://u:p@host/x.git?token=SECRET-Q#SECRET-F": "x",
-		"https://host/SECRET-PATH/org/pkg.git":           "pkg",
-		"https://HOST/org/SECRET-MID/pkg":                "pkg",
-		"github.com/org/repo?token=SECRET-SHORT-QUERY":   "repo",
-		"github.com/SECRET-SHORT-PATH/repo#SECRET-FRAG":  "repo",
-		"git+ssh://git@h/org/pkg#SECRET-REF":             "pkg",
-		"git:user:SECRET-TOKEN@github.com/org/r":         "r",
-		"git:https://u:SECRET@host/org/other.git":        "other",
-		"npm:https://u:SECRET-P@w@h/pkg?x=1":             "pkg",
-		"git@github.com:org/repo":                        "repo",
-		"user:SECRET-TOKEN@host:org/repo#ref":            "repo",
-		"user:SECRET-TOKEN@github.com/org/repo":          "repo",
-		"https://a:SECRET-A@h/x https://c:SECRET-C@i/y":  "x y",
-		"./local/dir":         "dir",
-		"/abs/SECRET-DIR/ext": "ext",
-		// what has no safe name is not shown at all
-		"user:SECRET-TOKEN@host":    "<package>",
-		"SECRET-TOKEN@host.example": "<package>",
-		"https://host/":             "<package>",
-		"https://host/org/a%20b?x":  "<package>",
-		"":                          "<package>",
-	} {
-		// Given a package source, when its label is made, then only the name remains
-		got := packageLabel(in)
-		if got != want {
-			t.Errorf("packageLabel(%q) = %q, want %q", in, got, want)
-		}
-		if strings.Contains(got, "SECRET") && !strings.Contains(want, "SECRET") {
-			t.Errorf("packageLabel(%q) leaks: %q", in, got)
-		}
 	}
 }
 

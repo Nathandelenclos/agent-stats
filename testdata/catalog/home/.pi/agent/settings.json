@@ -1,1 +1,13 @@
-{"theme": "dark", "packages": ["pi-extras", "git+https://fixture-user:SECRET-PI-PASSWORD@git.example.test/org/pkg.git?token=SECRET-PI-QUERY#frag", "git:https://fixture-user:SECRET-PI-OPAQUE@git.example.test/org/other.git", "git:fixture-user:SECRET-PI-SCP@git.example.test/org/third.git", {"source": "npm:@org/pkg", "skills": ["x"]}]}
+{"theme": "dark", "packages": [
+  "pi-extras",
+  "git+https://fixture-user:SECRET-PI-PASSWORD@git.example.test/org/pkg.git?token=SECRET-PI-QUERY#frag",
+  "git:https://fixture-user:SECRET-PI-OPAQUE@git.example.test/org/other.git",
+  "git:fixture-user:SECRET-PI-SCP@git.example.test/org/third.git",
+  {"source": "npm:@org/pkg@1.2.3", "skills": ["x"]},
+  "git:github.com/org/SECRET-LAST-SEGMENT",
+  "https://SECRET-HOST-ONLY.example.test",
+  "github.com/org/repo?token=SECRET-QUERY-FIRST SECRET-QUERY-SECOND",
+  "https://host/org/SECRET%2DENCODED",
+  "npm:SECRET-NOT-INSTALLED@1.0.0",
+  "/home/someone/SECRET-LOCAL-DIR"
+]}

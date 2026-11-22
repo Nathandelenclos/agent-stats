@@ -2,9 +2,9 @@ package configfiles
 
 import (
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"regexp"
-	"strings"
 
 	"github.com/Nathandelenclos/agent-stats/internal/catalog/domain"
 )
@@ -41,7 +41,9 @@ func (i Inventory) pi(c *collector) {
 	}
 }
 
-// piPackages adds the packages of a pi settings.json: each is a source string, or an object with a "source".
+// piPackages adds the packages of a pi settings.json: each is a source string, or an object with a "source". The
+// source is declared by the user and can hold anything (a token in a path, a password in a URL), so nothing of it is
+// shown, and no label is made from it: see piPackageLabel.
 func (c *collector) piPackages(path string, scope domain.Scope) {
 	var s struct {
 		Packages []jsonValue `json:"packages"`
@@ -50,7 +52,7 @@ func (c *collector) piPackages(path string, scope domain.Scope) {
 		c.problem(path, err)
 		return
 	}
-	for _, raw := range s.Packages {
+	for rank, raw := range s.Packages {
 		var src string
 		var obj struct {
 			Source string `json:"source"`
@@ -61,43 +63,57 @@ func (c *collector) piPackages(path string, scope domain.Scope) {
 			}
 			src = obj.Source
 		}
-		c.add(domain.Plugin, packageLabel(src), scope, domain.Name{}, path, false)
+		c.add(domain.Plugin, c.piPackageLabel(filepath.Dir(path), src, rank+1), scope, domain.Name{}, path, false)
 	}
 }
 
-// npmSource is a package name, with or without "npm:", scope and version: the whole source is then safe to show. A
-// version starts like one (a digit or a range operator), so that "user@host" is not taken for "name@version".
-var npmSource = regexp.MustCompile(`^(?:npm:)?(?:@[A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+(?:@[\^~<>=]*[0-9*][A-Za-z0-9.*+-]*)?$`)
+// npmName is what a package name is allowed to look like (npm's own grammar: at most 214 characters, lower case, an
+// optional "@scope/"). It guards the name read from a package.json and the directory looked for.
+var npmName = regexp.MustCompile(`^(?:@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*$`)
 
-// pathName is what the last path segment of a source must look like to be shown.
-var pathName = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+// npmSource is an npm package source: "npm:" is optional, and the name may be followed by a version, which starts like
+// one (a digit or a range operator) so that "user@host" is not taken for "name@version". Group 1 is the name.
+var npmSource = regexp.MustCompile(`^(?:npm:)?((?:@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*)(?:@[\^~<>=]*[0-9*][A-Za-z0-9.*+-]*)?$`)
 
-// packageLabel is how a pi package source is shown. A source can hold anything, a token in a path as well as a
-// password in a URL, so nothing of it is shown that is not needed to recognise the package: a package name as is,
-// otherwise the last path segment (without ".git") when it is a plain name, else "<package>". The host, the user,
-// the password, the query, the fragment and the other segments never appear. A source string may hold several
-// blank-separated sources, each labelled alone.
-func packageLabel(src string) string {
-	words := strings.Fields(src)
-	for i, w := range words {
-		words[i] = wordLabel(w)
-	}
-	if len(words) == 0 {
-		return "<package>"
-	}
-	return strings.Join(words, " ")
-}
+const maxNpmNameLen = 214
 
-func wordLabel(w string) string {
-	if j := strings.IndexAny(w, "?#"); j >= 0 {
-		w = w[:j]
-	}
-	if npmSource.MatchString(w) {
-		return w
-	}
-	last := w[strings.LastIndex(w, "/")+1:]
-	if name := strings.TrimSuffix(last, ".git"); name != "" && pathName.MatchString(name) {
+// piPackageLabel is how a pi package is shown: by the "name" its installed package.json declares, else by its rank in
+// the settings file ("pi package #3"). Never by anything of the source string: a token or a password can be written
+// anywhere in a source, in a path, a host, a query or a fragment, and no rule that picks a part of it is safe. The
+// source only says which directory to look in, for an npm package; the label is read from that package.
+// ponytail: only npm packages are looked up, in pi's npm directory (pi >= 0.83: <settings dir>/npm/node_modules); a
+// git package, whose directory would have to be derived from its URL, keeps its rank.
+func (c *collector) piPackageLabel(settingsDir, src string, rank int) string {
+	if name, ok := installedPackageName(settingsDir, src); ok {
 		return name
 	}
-	return "<package>"
+	return fmt.Sprintf("pi package #%d", rank)
+}
+
+// installedPackageName reads the name of the npm package a source designates from its package.json: a regular file
+// of bounded size that, once links are resolved, lies in pi's npm directory, naming itself by npm's grammar.
+func installedPackageName(settingsDir, src string) (string, bool) {
+	m := npmSource.FindStringSubmatch(src)
+	if m == nil {
+		return "", false
+	}
+	nodeModules, err := filepath.EvalSymlinks(filepath.Join(settingsDir, "npm", "node_modules"))
+	if err != nil {
+		return "", false
+	}
+	file, err := filepath.EvalSymlinks(filepath.Join(nodeModules, m[1], "package.json"))
+	if err != nil || !within(file, nodeModules) {
+		return "", false
+	}
+	b, err := readLimited(file, maxHeadBytes)
+	if err != nil {
+		return "", false
+	}
+	var p struct {
+		Name string `json:"name"`
+	}
+	if json.Unmarshal(b, &p) != nil || len(p.Name) > maxNpmNameLen || !npmName.MatchString(p.Name) {
+		return "", false
+	}
+	return p.Name, true
 }

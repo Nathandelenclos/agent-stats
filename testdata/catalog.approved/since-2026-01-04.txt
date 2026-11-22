@@ -45,14 +45,20 @@ skill  omp-skill       user     ?     loads     ?
 skill  shared-skill    user     ?     loads     ?
 agent  worker          user     ?     requests  ?
 
-pi · 6 installed, 0 never used
-KIND    ITEM          SCOPE  USES  UNIT         LAST USED
-skill   shared-skill  user   ?     loads        ?
-plugin  npm:@org/pkg  user   ?     invocations  ?
-plugin  other         user   ?     invocations  ?
-plugin  pi-extras     user   ?     invocations  ?
-plugin  pkg           user   ?     invocations  ?
-plugin  third         user   ?     invocations  ?
-tool    bash          logs   1     calls        2026-01-05
+pi · 12 installed, 0 never used
+KIND    ITEM            SCOPE  USES  UNIT         LAST USED
+skill   shared-skill    user   ?     loads        ?
+plugin  @org/pkg        user   ?     invocations  ?
+plugin  pi package #10  user   ?     invocations  ?
+plugin  pi package #11  user   ?     invocations  ?
+plugin  pi package #2   user   ?     invocations  ?
+plugin  pi package #3   user   ?     invocations  ?
+plugin  pi package #4   user   ?     invocations  ?
+plugin  pi package #6   user   ?     invocations  ?
+plugin  pi package #7   user   ?     invocations  ?
+plugin  pi package #8   user   ?     invocations  ?
+plugin  pi package #9   user   ?     invocations  ?
+plugin  pi-extras       user   ?     invocations  ?
+tool    bash            logs   1     calls        2026-01-05
 --- stderr ---
 skipped ~/.claude/plugins/installed_plugins.json: plugin escape@market: install path points outside its directory
