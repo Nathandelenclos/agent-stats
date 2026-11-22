@@ -38,6 +38,31 @@ func TestLookupStripsProviderAndDate(t *testing.T) {
 	}
 }
 
+func TestLookupFindsAClaudeModelWrittenWithADottedVersion(t *testing.T) {
+	// Given a list that knows claude-sonnet-4-5, and a model that is named claude-sonnet-4.5 by a gateway
+	dashed, dotted := rates(t, RatesPerToken{Input: 0.1}), rates(t, RatesPerToken{Input: 0.2})
+	l := PriceList{"claude-sonnet-4-5": dashed}
+
+	// When its price is looked up, with or without a provider and a date
+	for _, m := range []string{"claude-sonnet-4.5", "anthropic/claude-sonnet-4.5", "Claude-Sonnet-4.5-20250929"} {
+		// Then the price of claude-sonnet-4-5 is found
+		if r, ok := l.Lookup(m); !ok || r != dashed {
+			t.Errorf("%s: %v %v", m, r, ok)
+		}
+	}
+
+	// And a name the list holds as written wins over the dashed one
+	l["claude-sonnet-4.5"] = dotted
+	if r, ok := l.Lookup("claude-sonnet-4.5"); !ok || r != dotted {
+		t.Errorf("exact name: %v %v", r, ok)
+	}
+
+	// And the versions of the models of other makers are not rewritten
+	if _, ok := (PriceList{"gemini-2-5-pro": dashed}).Lookup("gemini-2.5-pro"); ok {
+		t.Error("a dotted version of another maker was found as dashed")
+	}
+}
+
 func TestCostBills1hCacheWritesAtTwiceInput(t *testing.T) {
 	r := rates(t, RatesPerToken{Input: 0.1, Output: 1, CacheRead: 0.01, CacheWrite: 0.125})
 	got, err := r.Cost(tokens(t, kernel.TokenCounts{Input: 100, Output: 10, CacheRead: 1000, CacheWrite: 30, CacheWrite1h: 20}))
