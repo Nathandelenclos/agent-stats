@@ -36,6 +36,7 @@ func DefaultSources(home string) []Source {
 		{kernel.Codex, filepath.Join(codex, "archived_sessions"), rollout, ParseCodex},
 		{kernel.OMP, filepath.Join(home, ".omp", "agent", "sessions"), jsonl, ParsePi(kernel.OMP)},
 		{kernel.Pi, filepath.Join(home, ".pi", "agent", "sessions"), jsonl, ParsePi(kernel.Pi)},
+		{kernel.Gemini, filepath.Join(envOr("GEMINI_CLI_HOME", home), ".gemini", "tmp"), IsGeminiConversation, ParseGemini},
 	}
 }
 
