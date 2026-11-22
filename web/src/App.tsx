@@ -132,7 +132,12 @@ function Report({ report, explore }: {
       )}
       {r.byModel.length > 0 && (
         <Section id="by-model" title="Model">
-          {zone("The model table", <UsageTable caption="Usage by model" label="Model" groups={r.byModel} onSelect={select("model")} />)}
+          {zone("The model table", <UsageTable caption="Usage by model" label="Model" groups={r.byModel} onSelect={select("model")} performance />)}
+        </Section>
+      )}
+      {r.byProvider.length > 0 && (
+        <Section id="by-provider" title="Provider">
+          {zone("The provider table", <UsageTable caption="Usage by provider" label="Provider" groups={r.byProvider} performance />)}
         </Section>
       )}
       {r.byFolder.length > 0 && (

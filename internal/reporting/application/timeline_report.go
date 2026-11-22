@@ -9,7 +9,8 @@ import (
 // TimelineReport is the usage report with its usage per local calendar day, oldest first.
 type TimelineReport struct {
 	Report
-	Daily []UsageGroup // Group is the day, as 2006-01-02
+	ByProvider []UsageGroup
+	Daily      []UsageGroup // Group is the day, as 2006-01-02
 }
 
 // BuildTimelineReport summarises indexed usage and when it happened for the web, terminal and static daily report.
@@ -25,6 +26,9 @@ func (uc BuildTimelineReport) Run(ctx context.Context, q Query) (TimelineReport,
 	err := uc.Queries.Snapshot(ctx, func(u UsageReader) (err error) {
 		f := domain.Filter{Since: q.Since, Harness: q.Harness, Project: q.Project}
 		if r.Report, err = build(u, f); err != nil {
+			return err
+		}
+		if r.ByProvider, err = u.UsageBy(f, domain.ByProvider); err != nil {
 			return err
 		}
 		r.Daily, err = u.UsageBy(f, domain.ByDay)

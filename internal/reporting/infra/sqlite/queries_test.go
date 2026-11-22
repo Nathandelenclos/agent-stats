@@ -25,7 +25,7 @@ const readModel = `
 CREATE TABLE usage_requests (ts INTEGER NOT NULL, model TEXT NOT NULL,
 	input INTEGER NOT NULL, output INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL,
 	cost REAL NOT NULL, priced INTEGER NOT NULL, duration_ms REAL, ttft_ms REAL, error TEXT,
-	harness TEXT NOT NULL, agent_type TEXT NOT NULL, folder TEXT);
+	harness TEXT NOT NULL, agent_type TEXT NOT NULL, folder TEXT, provider TEXT NOT NULL DEFAULT '');
 CREATE TABLE usage_tool_calls (ts INTEGER NOT NULL, name TEXT NOT NULL, server TEXT NOT NULL,
 	args_chars INTEGER NOT NULL, result_chars INTEGER NOT NULL, is_error INTEGER NOT NULL, duration_ms REAL, harness TEXT NOT NULL, folder TEXT);
 CREATE TABLE usage_folders (folder TEXT NOT NULL);
@@ -46,7 +46,9 @@ func indexed(t *testing.T, at time.Time) string {
 		args []any
 	}{
 		{readModel, nil},
-		{`INSERT INTO usage_requests VALUES (?, ?, 1000, 100, 0, 0, 2, 1, 1500, NULL, NULL, 'claude', 'main', ?)`, []any{ms, hostile, hostile}},
+		{`INSERT INTO usage_requests
+		(ts, model, input, output, cache_read, cache_write, cost, priced, duration_ms, ttft_ms, error, harness, agent_type, folder)
+		VALUES (?, ?, 1000, 100, 0, 0, 2, 1, 1500, NULL, NULL, 'claude', 'main', ?)`, []any{ms, hostile, hostile}},
 		{`INSERT INTO usage_tool_calls VALUES (?, ?, 'grace', 0, 0, 1, NULL, 'claude', NULL)`, []any{ms, hostile}},
 	} {
 		if _, err := db.Exec(stmt.sql, stmt.args...); err != nil {
@@ -161,7 +163,9 @@ func TestSnapshotReadsOneStateWhileTheIndexIsWritten(t *testing.T) {
 		if total, err = q.Total(report.Filter{}); err != nil {
 			return err
 		}
-		if _, err = w.Exec(`INSERT INTO usage_requests VALUES (?, 'm2', 1, 1, 0, 0, 1, 1, NULL, NULL, NULL, 'claude', 'main', NULL)`, at.UnixMilli()); err != nil {
+		if _, err = w.Exec(`INSERT INTO usage_requests
+		(ts, model, input, output, cache_read, cache_write, cost, priced, duration_ms, ttft_ms, error, harness, agent_type, folder)
+		VALUES (?, 'm2', 1, 1, 0, 0, 1, 1, NULL, NULL, NULL, 'claude', 'main', NULL)`, at.UnixMilli()); err != nil {
 			return err
 		}
 		groups, err = q.UsageBy(report.Filter{}, report.ByHarness)
@@ -213,11 +217,15 @@ func TestUsageByDayFollowsTheLocalCalendarOldestFirst(t *testing.T) {
 		time.Date(2026, 1, 2, 23, 30, 0, 0, tokyo),
 		time.Date(2026, 1, 5, 12, 0, 0, 0, tokyo),
 	} {
-		if _, err := db.Exec(`INSERT INTO usage_requests VALUES (?, 'm', 1, 1, 0, 0, 1, 1, NULL, NULL, NULL, 'claude', 'main', NULL)`, ts.UnixMilli()); err != nil {
+		if _, err := db.Exec(`INSERT INTO usage_requests
+		(ts, model, input, output, cache_read, cache_write, cost, priced, duration_ms, ttft_ms, error, harness, agent_type, folder)
+		VALUES (?, 'm', 1, 1, 0, 0, 1, 1, NULL, NULL, NULL, 'claude', 'main', NULL)`, ts.UnixMilli()); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := db.Exec(`INSERT INTO usage_requests VALUES (0, 'm', 1, 1, 0, 0, 1, 1, NULL, NULL, NULL, 'claude', 'main', NULL)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO usage_requests
+		(ts, model, input, output, cache_read, cache_write, cost, priced, duration_ms, ttft_ms, error, harness, agent_type, folder)
+		VALUES (0, 'm', 1, 1, 0, 0, 1, 1, NULL, NULL, NULL, 'claude', 'main', NULL)`); err != nil {
 		t.Fatal(err)
 	}
 	r, err := OpenReadOnly(path)
@@ -291,5 +299,42 @@ func TestNoReportStartsForACallerThatAlreadyGaveUp(t *testing.T) {
 	// Then the snapshot does not start
 	if !errors.Is(err, context.Canceled) || called {
 		t.Errorf("snapshot under an ended context: err = %v, ran = %v", err, called)
+	}
+}
+
+func TestProviderUsageCountsTimingCoverage(t *testing.T) {
+	path := indexed(t, time.UnixMilli(t0))
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE usage_requests SET provider = 'anthropic', ttft_ms = 200;
+		INSERT INTO usage_requests (ts, model, input, output, cache_read, cache_write, cost, priced, harness, agent_type, provider)
+		VALUES (1, 'm', 0, 9999, 0, 0, 0, 0, 'claude', 'main', 'anthropic')`); err != nil {
+		t.Fatal(err)
+	}
+	u, err := OpenReadOnly(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer u.Close()
+	err = u.Snapshot(context.Background(), func(r reporting.UsageReader) error {
+		groups, err := r.UsageBy(report.Filter{}, report.ByProvider)
+		if err != nil {
+			return err
+		}
+		if len(groups) != 1 {
+			t.Fatalf("provider groups = %+v", groups)
+		}
+		got := groups[0]
+		if got.Group != "anthropic" || got.Requests != 2 || got.DurationSamples != 1 || got.TTFTSamples != 1 ||
+			got.ThroughputSamples != 1 || got.AvgTokensPerSecond < 66.6 || got.AvgTokensPerSecond > 66.7 {
+			t.Fatalf("provider timing coverage = %+v", got)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

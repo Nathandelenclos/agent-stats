@@ -10,24 +10,29 @@ import (
 // usageJSON is the API form of a usage: the fields of the command line's --json report. Timestamps are Unix
 // milliseconds, 0 when unknown.
 type usageJSON struct {
-	Requests      int64   `json:"requests"`
-	Failed        int64   `json:"failed"`
-	Input         int64   `json:"input"`
-	Output        int64   `json:"output"`
-	CacheRead     int64   `json:"cacheRead"`
-	CacheWrite    int64   `json:"cacheWrite"`
-	Cost          float64 `json:"cost"`
-	Unpriced      int64   `json:"unpriced"`
-	AvgDurationMs float64 `json:"avgDurationMs"`
-	AvgTTFTMs     float64 `json:"avgTtftMs"`
-	CacheRate     float64 `json:"cacheRate"`
-	FirstTS       int64   `json:"firstTs"`
-	LastTS        int64   `json:"lastTs"`
+	Requests           int64   `json:"requests"`
+	Failed             int64   `json:"failed"`
+	Input              int64   `json:"input"`
+	Output             int64   `json:"output"`
+	CacheRead          int64   `json:"cacheRead"`
+	CacheWrite         int64   `json:"cacheWrite"`
+	Cost               float64 `json:"cost"`
+	Unpriced           int64   `json:"unpriced"`
+	AvgDurationMs      float64 `json:"avgDurationMs"`
+	AvgTTFTMs          float64 `json:"avgTtftMs"`
+	DurationSamples    int64   `json:"durationSamples"`
+	TTFTSamples        int64   `json:"ttftSamples"`
+	AvgTokensPerSecond float64 `json:"avgTokensPerSecond"`
+	ThroughputSamples  int64   `json:"throughputSamples"`
+	CacheRate          float64 `json:"cacheRate"`
+	FirstTS            int64   `json:"firstTs"`
+	LastTS             int64   `json:"lastTs"`
 }
 
 func usage(u reporting.Usage) usageJSON {
 	return usageJSON{u.Requests, u.Failed, u.Input, u.Output, u.CacheRead, u.CacheWrite, float64(u.Cost), u.Unpriced,
-		float64(u.AvgDuration), float64(u.AvgTTFT), u.CacheRate(), kernel.UnixMilli(u.First), kernel.UnixMilli(u.Last)}
+		float64(u.AvgDuration), float64(u.AvgTTFT),
+		u.DurationSamples, u.TTFTSamples, u.AvgTokensPerSecond, u.ThroughputSamples, u.CacheRate(), kernel.UnixMilli(u.First), kernel.UnixMilli(u.Last)}
 }
 
 type groupJSON struct {
@@ -69,14 +74,15 @@ func toolSummary(t reporting.ToolUsage) toolJSON {
 
 // reportJSON is the usage report of the command line's --json, with the usage per local day added.
 type reportJSON struct {
-	Scope     string      `json:"scope"` // what the figures cover: "current" (the project of the server) or "all"
-	Total     usageJSON   `json:"total"`
-	ByHarness []groupJSON `json:"byHarness"`
-	ByModel   []groupJSON `json:"byModel"`
-	ByFolder  []groupJSON `json:"byFolder"`
-	ByAgent   []groupJSON `json:"byAgentType"`
-	Tools     []toolJSON  `json:"tools"`
-	Daily     []groupJSON `json:"daily"` // key: the local day, 2006-01-02, oldest first
+	Scope      string      `json:"scope"` // what the figures cover: "current" (the project of the server) or "all"
+	Total      usageJSON   `json:"total"`
+	ByHarness  []groupJSON `json:"byHarness"`
+	ByProvider []groupJSON `json:"byProvider"`
+	ByModel    []groupJSON `json:"byModel"`
+	ByFolder   []groupJSON `json:"byFolder"`
+	ByAgent    []groupJSON `json:"byAgentType"`
+	Tools      []toolJSON  `json:"tools"`
+	Daily      []groupJSON `json:"daily"` // key: the local day, 2006-01-02, oldest first
 }
 
 // report answers GET /api/report?since=&harness=&project=.
@@ -91,7 +97,7 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, "building the report", err)
 		return
 	}
-	out := reportJSON{Scope: p.scope, Total: usage(rep.Total), ByHarness: groups(rep.ByHarness), ByModel: groups(rep.ByModel),
+	out := reportJSON{Scope: p.scope, Total: usage(rep.Total), ByHarness: groups(rep.ByHarness), ByProvider: groups(rep.ByProvider), ByModel: groups(rep.ByModel),
 		ByFolder: groups(rep.ByFolder), ByAgent: groups(rep.ByAgent), Daily: groups(rep.Daily), Tools: tools(rep.Tools)}
 	writeJSON(w, s.log, out)
 }

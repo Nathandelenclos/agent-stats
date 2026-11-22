@@ -1,6 +1,6 @@
 import { DataTable, type Column } from "../../shared/DataTable";
 import { formatInteger, formatMs, formatPercent, formatUSD } from "../../shared/format";
-import { inputTokens, type Tool, type UsageGroup } from "./types";
+import { inputTokens, type Tool, type Usage, type UsageGroup } from "./types";
 
 const usageColumns = (label: string): Column<UsageGroup>[] => [
   { id: "key", header: label, value: (r) => r.key, truncate: true },
@@ -12,11 +12,23 @@ const usageColumns = (label: string): Column<UsageGroup>[] => [
   { id: "cost", header: "Cost", value: (r) => r.cost, render: (r) => formatUSD(r.cost), numeric: true },
 ];
 
-/** Usage grouped by harness, model, folder or agent type. */
-export function UsageTable({ caption, label, groups, onSelect }: {
-  caption: string; label: string; groups: UsageGroup[]; onSelect?: (key: string) => void;
+const timings: Column<UsageGroup>[] = [
+  { id: "duration", header: "Avg duration", value: (r) => r.avgDurationMs, render: (r) => measured(r.avgDurationMs, r.durationSamples, r, formatMs), numeric: true },
+  { id: "ttft", header: "Avg first token", value: (r) => r.avgTtftMs, render: (r) => measured(r.avgTtftMs, r.ttftSamples, r, formatMs), numeric: true },
+  { id: "tps", header: "Avg tokens/s", value: (r) => r.avgTokensPerSecond, render: (r) => measured(r.avgTokensPerSecond, r.throughputSamples, r, (value) => value.toFixed(1)), numeric: true },
+];
+
+function measured(value: number, samples: number, usage: Usage, format: (n: number) => string) {
+  if (!samples) return "n/a";
+  return <>{format(value)} <span className="text-xs text-muted">({formatInteger(samples)}/{formatInteger(usage.requests)})</span></>;
+}
+
+/** Usage grouped by coding agent, model, provider, folder or agent type. */
+export function UsageTable({ caption, label, groups, onSelect, performance = false }: {
+  caption: string; label: string; groups: UsageGroup[]; onSelect?: (key: string) => void; performance?: boolean;
 }) {
   const columns = usageColumns(label);
+  if (performance) columns.push(...timings);
   if (onSelect && columns[0]) {
     columns[0].render = (r) => <button type="button" className="dashboard-link" onClick={() => onSelect(r.key)}>{r.key || "(none)"}</button>;
   }

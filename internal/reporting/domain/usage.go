@@ -26,6 +26,7 @@ const (
 	ByAgentType
 	// ByDay groups by local calendar day, as 2006-01-02, oldest first. A request with no known time has no day and is left out.
 	ByDay
+	ByProvider
 )
 
 // USD is a sum of request costs in US dollars.
@@ -36,17 +37,21 @@ type Milliseconds float64
 
 // Usage aggregates model requests.
 type Usage struct {
-	Requests    int64
-	Failed      int64
-	Input       int64 // uncached input tokens
-	Output      int64
-	CacheRead   int64
-	CacheWrite  int64
-	Cost        USD
-	Unpriced    int64 // requests whose cost cannot be determined
-	AvgDuration Milliseconds
-	AvgTTFT     Milliseconds
-	First, Last time.Time
+	Requests           int64
+	Failed             int64
+	Input              int64 // uncached input tokens
+	Output             int64
+	CacheRead          int64
+	CacheWrite         int64
+	Cost               USD
+	Unpriced           int64 // requests whose cost cannot be determined
+	AvgDuration        Milliseconds
+	AvgTTFT            Milliseconds
+	DurationSamples    int64
+	TTFTSamples        int64
+	AvgTokensPerSecond float64
+	ThroughputSamples  int64
+	First, Last        time.Time
 }
 
 // InputWithCache counts every input token: uncached, read from cache and written to cache.

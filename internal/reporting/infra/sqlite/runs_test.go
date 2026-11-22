@@ -60,7 +60,9 @@ func newCrossing(t *testing.T) crossing {
 		{"child-of-b-in-a", "root-b", "subagent", c.a, 16},
 	} {
 		at := t0 + int64(i)
-		exec(`INSERT INTO usage_requests VALUES (?, 'm', 1, 1, 0, 0, ?, 1, NULL, NULL, NULL, 'claude', ?, ?)`, at, s.cost, s.agent, s.folder)
+		exec(`INSERT INTO usage_requests
+		(ts, model, input, output, cache_read, cache_write, cost, priced, duration_ms, ttft_ms, error, harness, agent_type, folder)
+		VALUES (?, 'm', 1, 1, 0, 0, ?, 1, NULL, NULL, NULL, 'claude', ?, ?)`, at, s.cost, s.agent, s.folder)
 		exec(`INSERT INTO session_overview VALUES (?, ?, 'claude', ?, ?, ?, ?, ?, ?, ?)`, s.id, s.root, s.agent, s.id, s.folder, at, at, at, at)
 		exec(`INSERT INTO session_requests
 		(root_id, session_id, ts, model, input, output, cache_read, cache_write, cost, priced, duration_ms, ttft_ms, error)

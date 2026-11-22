@@ -11,6 +11,10 @@ export interface Usage {
   unpriced: number;
   avgDurationMs: number;
   avgTtftMs: number;
+  durationSamples: number;
+  ttftSamples: number;
+  avgTokensPerSecond: number;
+  throughputSamples: number;
   cacheRate: number;
   firstTs: number;
   lastTs: number;
@@ -37,6 +41,7 @@ export interface Report {
   total: Usage;
   byHarness: UsageGroup[];
   byModel: UsageGroup[];
+  byProvider: UsageGroup[];
   byFolder: UsageGroup[];
   byAgentType: UsageGroup[];
   tools: Tool[];

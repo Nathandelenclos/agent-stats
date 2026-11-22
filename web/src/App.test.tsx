@@ -404,3 +404,17 @@ it("reads account quotas without usage filters and refreshes them on demand", as
   focusManager.setFocused(undefined);
   window.history.replaceState(null, "", "/");
 });
+
+it("shows provider performance with the measured-request counts", async () => {
+  serveReports(() => report({ byProvider: [group("anthropic", {
+    requests: 4, avgDurationMs: 1250, avgTtftMs: 250, avgTokensPerSecond: 30,
+    durationSamples: 2, ttftSamples: 1, throughputSamples: 2,
+  })] }));
+  const { container } = render(withQueries(testQueryClient(), <App />));
+  const provider = () => container.querySelector('[aria-label="Usage by provider, scrollable"]');
+  await eventually(() => expect(provider()).not.toBeNull());
+  expect(provider()?.textContent).toContain("anthropic");
+  expect(provider()?.textContent).toContain("1.3 s (2/4)");
+  expect(provider()?.textContent).toContain("250 ms (1/4)");
+  expect(provider()?.textContent).toContain("30.0 (2/4)");
+});

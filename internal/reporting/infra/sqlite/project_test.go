@@ -69,7 +69,9 @@ func newWorkplace(t *testing.T) workplace {
 	exec(readModel + sessionModel)
 	for i, s := range w.worked() {
 		at := t0 + int64(i)
-		exec(`INSERT INTO usage_requests VALUES (?, 'm', 1, 1, 0, 0, ?, 1, NULL, NULL, NULL, 'claude', 'main', ?)`, at, s.cost, s.folder)
+		exec(`INSERT INTO usage_requests
+		(ts, model, input, output, cache_read, cache_write, cost, priced, duration_ms, ttft_ms, error, harness, agent_type, folder)
+		VALUES (?, 'm', 1, 1, 0, 0, ?, 1, NULL, NULL, NULL, 'claude', 'main', ?)`, at, s.cost, s.folder)
 		exec(`INSERT INTO usage_tool_calls VALUES (?, ?, '', 0, 0, 0, NULL, 'claude', ?)`, at, "tool-"+s.id, s.folder)
 		exec(`INSERT INTO usage_folders VALUES (?)`, s.folder)
 		exec(`INSERT INTO session_overview VALUES (?, ?, 'claude', 'main', NULL, ?, ?, ?, ?, ?)`, s.id, s.id, s.folder, at, at, at, at)

@@ -4,7 +4,7 @@ import type { SyncStatus } from "../features/sync";
 
 export const usage = (over: Partial<Usage> = {}): Usage => ({
   requests: 10, failed: 1, input: 1000, output: 500, cacheRead: 3000, cacheWrite: 0, cost: 1.5, unpriced: 0,
-  avgDurationMs: 0, avgTtftMs: 0, cacheRate: 0.75, firstTs: 1_700_000_000_000, lastTs: 1_700_086_400_000, ...over,
+  avgDurationMs: 0, avgTtftMs: 0, durationSamples: 0, ttftSamples: 0, avgTokensPerSecond: 0, throughputSamples: 0, cacheRate: 0.75, firstTs: 1_700_000_000_000, lastTs: 1_700_086_400_000, ...over,
 });
 
 export const group = (key: string, over: Partial<Usage> = {}): UsageGroup => ({ key, ...usage(over) });
@@ -13,7 +13,7 @@ export const tool = (name: string, calls = 4): Tool => ({
   name, server: "", calls, errors: 0, argsChars: 0, resultChars: 120, avgMs: 15, lastTs: 1_700_000_000_000,
 });
 
-const nothing: Report = { scope: "all", total: usage({ requests: 0, cost: 0, failed: 0 }), byHarness: [], byModel: [], byFolder: [], byAgentType: [], tools: [], daily: [] };
+const nothing: Report = { scope: "all", total: usage({ requests: 0, cost: 0, failed: 0 }), byHarness: [], byModel: [], byProvider: [], byFolder: [], byAgentType: [], tools: [], daily: [] };
 
 /** A report with activity; `over` replaces any part of it. */
 export const report = (over: Partial<Report> = {}): Report => ({
@@ -21,6 +21,7 @@ export const report = (over: Partial<Report> = {}): Report => ({
   total: usage(),
   byHarness: [group("claude")],
   byModel: [group("opus"), group("sonnet", { requests: 3, cost: 0.4 })],
+  byProvider: [],
   byFolder: [group("/work/app")],
   byAgentType: [group("main")],
   tools: [tool("Bash")],
