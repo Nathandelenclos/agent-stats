@@ -48,7 +48,9 @@ func DefaultSources(home string) []Source {
 		{Harness: kernel.Kilo, Root: kiloData, Database: &OpenCodeDatabase{Prefix: "kilo", Fallback: "opencode", Override: os.Getenv("KILO_DB")}},
 		GeminiSource(filepath.Join(envOr("GEMINI_CLI_HOME", home), ".gemini", "tmp")),
 	}
-	return append(sources, vscodeChatSources(codeUserDir(home))...)
+	codeUser := codeUserDir(home)
+	sources = append(sources, vscodeChatSources(codeUser)...)
+	return append(sources, clineSources(home, codeUser)...)
 }
 
 // GeminiSource reads the conversations of Gemini CLI under root, the "tmp" directory of its home.

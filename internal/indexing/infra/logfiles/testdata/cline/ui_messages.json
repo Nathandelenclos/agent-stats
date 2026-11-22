@@ -1,0 +1,10 @@
+[
+  {"ts":1773200230100,"type":"say","say":"task","text":"Inspect the sample"},
+  {"ts":1773200230200,"type":"say","say":"api_req_started","text":"{\"request\":\"pending\"}"},
+  {"ts":1773200230300,"type":"say","say":"api_req_started","text":"{\"tokensIn\":10,\"tokensOut\":5,\"cacheReads\":2,\"cacheWrites\":3,\"cost\":0.02}"},
+  {"ts":1773200230300,"type":"say","say":"api_req_started","text":"{\"tokensIn\":10,\"tokensOut\":5,\"cacheReads\":2,\"cacheWrites\":3,\"cost\":0.02}"},
+  {"ts":1773200230400,"type":"say","say":"deleted_api_reqs","text":"{\"tokensIn\":999,\"cost\":1.23}"},
+  {"ts":1773200230500,"type":"say","say":"user_feedback","text":"Use the small fixture"},
+  {"ts":1773200230600,"type":"say","say":"api_req_started","text":"{\"cancelReason\":\"streaming_failed\",\"streamingFailedMessage\":\"demo failure\"}"},
+  {"ts":1773200230700,"type":"say","say":"api_req_started","text":"{bad"}
+]
