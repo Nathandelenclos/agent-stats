@@ -31,8 +31,9 @@ type sessionsMsg struct {
 	err             error
 }
 
-// detailMsg carries the description of one session.
+// detailMsg carries the description of one session; seq tells which request it answers.
 type detailMsg struct {
+	seq    int
 	id     reporting.SessionID
 	detail reporting.SessionDetail
 	err    error
@@ -46,6 +47,9 @@ type sessionsState struct {
 	table  table.Model
 	shown  []reporting.SessionSummary // the listed sessions in the order the table shows them
 	detail sessionDetail
+	// detailSeq is the latest detail request, whatever session it was for: an older answer is ignored, even for
+	// the session on screen (it may describe the session before it grew).
+	detailSeq int
 }
 
 // sessionDetail is the screen of one session: Esc closes it.
@@ -76,12 +80,14 @@ func (m Model) loadSessions() tea.Cmd {
 	}
 }
 
-// loadDetail asks the use case to describe a session, off the UI loop.
-func (m Model) loadDetail(id reporting.SessionID) tea.Cmd {
+// loadDetail asks the use case to describe a session, off the UI loop; answers to earlier requests no longer count.
+func (m *Model) loadDetail(id reporting.SessionID) tea.Cmd {
 	shower := m.shower
+	m.sessions.detailSeq++
+	seq := m.sessions.detailSeq
 	return func() tea.Msg {
 		d, err := shower.Run(id)
-		return detailMsg{id, d, err}
+		return detailMsg{seq, id, d, err}
 	}
 }
 

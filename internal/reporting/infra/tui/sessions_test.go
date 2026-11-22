@@ -471,6 +471,33 @@ func TestAnAnswerToAnEarlierSessionsRequestIsIgnored(t *testing.T) {
 	}
 }
 
+func TestAnEarlierAnswerDoesNotReplaceTheRefreshedDetail(t *testing.T) {
+	// Given a session opened while its detail was still loading, then re-indexed so that it was asked for again
+	sessions := sampleSessions()
+	sessions.details["codex:cheap"] = detailOf(sessions.list[0])
+	m, open := pressType(t, inSessions(t, sessions), tea.KeyEnter)
+	initial := open() // the first answer: 40 requests, held back
+	grown := detailOf(sessions.list[0])
+	grown.Requests = 41
+	sessions.details["codex:cheap"] = grown
+	next, refresh := m.Update(syncDoneMsg{})
+	m = next.(Model)
+	for _, c := range refresh().(tea.BatchMsg) {
+		m = send(t, m, c())
+	}
+	if view := m.View(); !strings.Contains(view, "41 requests") {
+		t.Fatalf("the refreshed detail is not shown:\n%s", view)
+	}
+
+	// When the first answer finally arrives
+	m = send(t, m, initial)
+
+	// Then the detail on screen is still the refreshed one
+	if view := m.View(); !strings.Contains(view, "41 requests") || strings.Contains(view, "40 requests") {
+		t.Errorf("a late answer replaced the refreshed detail:\n%s", view)
+	}
+}
+
 func TestTheDetailOfASessionThatIsNoLongerOpenIsDropped(t *testing.T) {
 	// Given the list of sessions, no detail open
 	sessions := sampleSessions()

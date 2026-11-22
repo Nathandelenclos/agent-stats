@@ -230,7 +230,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.layout()
 		return m, nil
 	case detailMsg:
-		if d := &m.sessions.detail; d.open && d.id == msg.id {
+		if d := &m.sessions.detail; d.open && d.id == msg.id && msg.seq == m.sessions.detailSeq {
 			d.err = msg.err
 			if msg.err == nil {
 				d.data, d.loaded = msg.detail, true
