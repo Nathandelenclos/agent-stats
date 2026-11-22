@@ -117,7 +117,10 @@ var sessionTableColumns = []string{"id", "parent_id", "directory", "title", "tim
 
 // paths lists the databases to read under dir. A database is a regular file named <prefix>.db or <prefix>-<channel>.db.
 func (d *OpenCodeDatabase) paths(dir string) []string {
-	if d.Override != "" && d.Override != ":memory:" {
+	if d.Override == ":memory:" {
+		return nil // the harness keeps its sessions in memory: there is no database to read
+	}
+	if d.Override != "" {
 		p := d.Override
 		if !filepath.IsAbs(p) {
 			p = filepath.Join(dir, p)

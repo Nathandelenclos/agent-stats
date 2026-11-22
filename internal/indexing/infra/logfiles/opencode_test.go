@@ -423,6 +423,21 @@ func TestATitleOrAFolderLongerThanTheLimitInBytesIsNotRead(t *testing.T) {
 	}
 }
 
+func TestAHarnessKeptInMemoryHasNoDatabaseOnDisk(t *testing.T) {
+	// Given a data directory that holds a database, and a harness the user set to keep its sessions in memory
+	root := t.TempDir()
+	buildDB(t, filepath.Join(root, "kilo.db"), "messages.sql")
+	logs := harnessLogs(kernel.Kilo, root, &OpenCodeDatabase{Prefix: "kilo", Override: ":memory:"})
+
+	// When its logs are listed
+	files, problems, err := logs.List()
+
+	// Then there are none, and the database of the directory was not looked for
+	if err != nil || len(files) != 0 || len(problems) != 0 {
+		t.Errorf("files %v, problems %v, err %v", files, problems, err)
+	}
+}
+
 func TestMessagesThatCannotBeReadAreSkippedAndCounted(t *testing.T) {
 	// Given a session with a message that cannot be read, usage that is negative or beyond any model's window, a negative cost,
 	// an error name with an escape sequence, and a folder that has one
