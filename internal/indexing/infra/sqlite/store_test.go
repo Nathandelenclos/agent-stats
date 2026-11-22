@@ -137,25 +137,10 @@ func subagentOf(t *testing.T, parent, name string, at time.Time) application.Ind
 	return tr
 }
 
-func TestSessionViewsGroupSubagentsUnderTheirIndexedParent(t *testing.T) {
-	// Given a session with a subagent, and a subagent whose parent log was never indexed
-	s := open(t)
-	at := time.UnixMilli(1767261600000)
-	for _, f := range []struct {
-		path string
-		tr   application.IndexedTranscript
-	}{
-		{"/logs/main.jsonl", transcript(t, "main", at)},
-		{"/logs/child.jsonl", subagentOf(t, "main", "child", at)},
-		{"/logs/orphan.jsonl", subagentOf(t, "gone", "orphan", at)},
-	} {
-		if err := s.Save(application.LogFile{Path: f.path, Harness: kernel.Claude}, f.tr); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	// When the session views are read
-	roots := map[string]string{}
+// listedUnder reads how the index groups sessions for a listing: each session, with the session it is listed under.
+func listedUnder(t *testing.T, s *SQLiteIndex) map[string]string {
+	t.Helper()
+	listed := map[string]string{}
 	rows, err := s.db.Query(`SELECT id, root_id FROM session_overview`)
 	if err != nil {
 		t.Fatal(err)
@@ -166,27 +151,64 @@ func TestSessionViewsGroupSubagentsUnderTheirIndexedParent(t *testing.T) {
 		if err := rows.Scan(&id, &root); err != nil {
 			t.Fatal(err)
 		}
-		roots[id] = root
+		listed[id] = root
 	}
+	return listed
+}
 
-	// Then the subagent belongs to its parent and the orphan is its own root
-	want := map[string]string{"claude:main": "claude:main", "claude:main/child": "claude:main", "claude:gone/orphan": "claude:gone/orphan"}
-	if len(roots) != len(want) {
-		t.Fatalf("roots = %v, want %v", roots, want)
+// requestsListedUnder counts the requests a listing adds up for a session: its own and its subagents'.
+func requestsListedUnder(t *testing.T, s *SQLiteIndex, session string) int {
+	t.Helper()
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM session_requests WHERE root_id = ?`, session).Scan(&n); err != nil {
+		t.Fatal(err)
 	}
-	for id, root := range want {
-		if roots[id] != root {
-			t.Errorf("root of %s = %q, want %q", id, roots[id], root)
+	return n
+}
+
+func TestASubagentIsListedUnderItsSession(t *testing.T) {
+	// Given a session with a subagent
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	for _, f := range []struct {
+		path string
+		tr   application.IndexedTranscript
+	}{
+		{"/logs/main.jsonl", transcript(t, "main", at)},
+		{"/logs/child.jsonl", subagentOf(t, "main", "child", at)},
+	} {
+		if err := s.Save(application.LogFile{Path: f.path, Harness: kernel.Claude}, f.tr); err != nil {
+			t.Fatal(err)
 		}
 	}
-	var n int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM session_requests WHERE root_id = 'claude:main'`).Scan(&n); err != nil || n != 2 {
-		t.Errorf("requests of the main session's tree = %d, %v; want its own and its subagent's", n, err)
+
+	// When the sessions are listed
+	listed := listedUnder(t, s)
+
+	// Then the subagent belongs to its session, and its requests count for it
+	if listed["claude:main/child"] != "claude:main" || listed["claude:main"] != "claude:main" {
+		t.Errorf("listed under = %v", listed)
+	}
+	if n := requestsListedUnder(t, s, "claude:main"); n != 2 {
+		t.Errorf("requests of the session = %d, want its own and its subagent's", n)
 	}
 }
 
-func TestSessionPromptsKeepLogOrderAndSignals(t *testing.T) {
-	// Given a session whose prompts were logged in a different order than their keys or times sort
+func TestASubagentWhoseSessionWasNeverIndexedIsListedOnItsOwn(t *testing.T) {
+	// Given a subagent whose session log was never indexed
+	s := open(t)
+	if err := s.Save(application.LogFile{Path: "/logs/orphan.jsonl", Harness: kernel.Claude}, subagentOf(t, "gone", "orphan", time.UnixMilli(1767261600000))); err != nil {
+		t.Fatal(err)
+	}
+
+	// When the sessions are listed, then it stands for itself
+	if listed := listedUnder(t, s); listed["claude:gone/orphan"] != "claude:gone/orphan" {
+		t.Errorf("listed under = %v", listed)
+	}
+}
+
+func TestPromptsKeepTheOrderTheyWereTypedInAndTheirSignals(t *testing.T) {
+	// Given a session whose prompts were typed in a different order than their keys sort
 	s := open(t)
 	at := time.UnixMilli(1767261600000)
 	tr := transcript(t, "s1", at)
@@ -196,7 +218,7 @@ func TestSessionPromptsKeepLogOrderAndSignals(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// When the prompts are read through the published view, by position
+	// When the prompts of the session are read
 	rows, err := s.db.Query(`SELECT text, chars, yelling, profanity, anguish, negation, repetition, blame
 		FROM session_prompts WHERE session_id = 'claude:s1' ORDER BY position`)
 	if err != nil {
@@ -213,7 +235,7 @@ func TestSessionPromptsKeepLogOrderAndSignals(t *testing.T) {
 		texts = append(texts, text)
 	}
 
-	// Then they come back in log order, with the signals of each
+	// Then they come back in the order they were typed in, each with its signals
 	if len(texts) != 2 || texts[0] != "first" || texts[1] != hostile {
 		t.Errorf("prompts = %q", texts)
 	}
