@@ -53,9 +53,10 @@ agent-stats --since 7d               # last 7 days (also 24h, 30d, or a date: 20
 agent-stats --harness codex          # one harness: claude, codex, omp or pi
 agent-stats --harness claude --json  # machine-readable report
 agent-stats --no-sync                # report from the existing index, skip re-reading the logs
+agent-stats prompts                  # review the prompts that showed frustration, last 7 days (see below)
 ```
 
-`m` switches between the **Usage** report and the **Sessions** view; the title shows which one is open (`[Usage] Sessions` or `Usage [Sessions]`).
+`m` cycles through the **Usage** report, the **Sessions** view and the **Prompts** review; the title shows which one is open (`[Usage] Sessions Prompts`, `Usage [Sessions] Prompts` or `Usage Sessions [Prompts]`).
 Sessions lists one row per session (a subagent whose parent log was not indexed, or a conversation forked from another, has its own row): title, cost,
 number of prompts you typed and their average length in characters, requests, duration, start, harness, main model with its share of the cost,
 number of subagents, agent type and folder. A narrow terminal leaves out the last columns whole: at 80 columns the title, cost, prompts, average prompt,
@@ -67,6 +68,46 @@ The period and harness filters apply as in Usage: a session is listed when its l
 found in it (yelling, profanity, anguish, negation, blame, repeated). Prompt text is shown cut to a line, with control characters replaced.
 `↑↓`, `PgUp`/`PgDn`, `Home`/`End` scroll, `Esc` goes back to the list.
 The sessions are not part of `--json` or the plain-text report.
+
+### Prompts review
+
+The **Prompts** mode and the `agent-stats prompts` subcommand help you spot what you keep correcting or repeating, so you can
+write it down once in `AGENTS.md` or `CLAUDE.md`. They look at the prompts you typed (not the briefs your agents sent to their
+subagents) that show at least one frustration signal, over the period and harness filters of the report:
+
+- **Recurring**: flagged prompts that say the same thing across sessions, give or take case and punctuation (at least two words),
+  with a hint line each: `Repeated 3 times in 2 sessions: consider writing this down.` A correction that shows no signal is not
+  looked at, and a rephrasing is a different ask: the grouping is an exact match on the normalised text. Nothing is ever written
+  to `AGENTS.md` for you.
+- **Folders**: how many flagged prompts, sessions and signals each working folder gathered, so you see where frustration concentrates.
+- **Prompts**: the flagged prompts, the most signals first (then the most recent), each with its date, harness, session title, folder,
+  signals and a one-line excerpt with control characters replaced.
+
+In the interface, `↑↓`, `PgUp`/`PgDn`, `Home`/`End` scroll, `p` and `h` change the period and the harness, `r` indexes again.
+On the command line:
+
+```sh
+agent-stats prompts                           # last 7 days, every harness, as text
+agent-stats prompts --since 30d --harness claude
+agent-stats prompts --since all --json        # every prompt ever indexed, as JSON
+```
+
+`--since` takes the values of the report plus `all`, and defaults to `7d` for this command; `--harness`, `--json`, `--no-sync`,
+`--db` and `--prices` work as in the report. The text lists the 20 first prompts, 10 asks and 10 folders; `--json` lists everything:
+
+```text
+{
+  "prompts":   [ { ts, harness, session, title, folder, excerpt,
+                   signals: { yelling, profanity, anguish, negation, blame, repeated } } ],
+  "sessions":  3,
+  "recurring": [ { excerpt, count, sessions, firstTs, lastTs } ],
+  "byFolder":  [ { folder, prompts, sessions, signals } ]
+}
+```
+
+Timestamps are Unix milliseconds (`0` when unknown); empty lists print as `[]`. The signals are keyword counts (French and English): a long pasted
+text can raise them, so read the counts as a hint, not a score. Excerpts of your prompts appear in the output: review it
+before pasting it anywhere.
 
 | Flag | Meaning |
 |------|---------|
@@ -165,12 +206,12 @@ The code is split in vertical slices, each in clean-architecture layers where de
 | Slice | Role |
 |-------|------|
 | `internal/indexing` | Reads session logs (`infra/logfiles`: Claude, Codex, pi/oh-my-pi parsers) and keeps them in the SQLite index (`infra/sqlite`). |
-| `internal/reporting` | Builds the usage report and describes sessions (`ListSessions`, `ShowSession`). Its `UsageQueries` and `SessionQueries` ports read only the views `indexing` publishes (`usage_*`, `session_*`; only `session_prompts` carries prompt text). Both are implemented by a read-only adapter over the index (`infra/sqlite`); `infra/tui` is the interactive view (Bubble Tea), an input adapter over these use cases. |
+| `internal/reporting` | Builds the usage report, describes sessions (`ListSessions`, `ShowSession`) and reviews the flagged prompts (`ReviewPrompts`). Its `UsageQueries`, `SessionQueries` and `PromptQueries` ports read only the views `indexing` publishes (`usage_*`, `session_*`; only `session_prompts` carries prompt text). They are implemented by a read-only adapter over the index (`infra/sqlite`); `infra/tui` is the interactive view (Bubble Tea), an input adapter over these use cases. |
 | `internal/pricing` | Rates and price list; `infra/pricetable` loads the embedded LiteLLM table and the `--prices` override. |
 | `internal/kernel` | What every slice shares: harnesses, token counts, request cost. No I/O. |
 | `internal/platform` | Small technical helpers (safe file opening). |
 
-`main.go` wires the slices together and opens the interactive view on a terminal; `present.go` renders the plain report as text or JSON.
+`main.go` wires the slices together and opens the interactive view on a terminal; `present.go` renders the plain report as text or JSON, and `prompts.go` the prompts subcommand.
 
 ## Development
 
@@ -181,7 +222,9 @@ go build .
 ```
 
 The report is locked by an approved snapshot: `testdata/report.approved.json` is produced from the fixtures in
-`testdata/home`, which hold short hand-written logs, not real sessions.
+`testdata/home`, which hold short hand-written logs, not real sessions. The prompts review is locked the same way by
+`testdata/prompts.approved.txt` and `testdata/prompts.approved.json`, built from neutral prompts written by the test. On a
+difference a test writes `<file>.received` next to the approved file: read the diff, and only rename it if the change is intended.
 
 ### Refreshing the price table
 
