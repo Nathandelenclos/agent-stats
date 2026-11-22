@@ -129,19 +129,19 @@ func TestNothingIsReadAgainWhenNothingChangedInTheDatabases(t *testing.T) {
 	}
 }
 
-func TestOnlyTheSessionThatGainedAMessageIsReadAgain(t *testing.T) {
-	// Given a home that was indexed once, and Kilo Code running with its database open for writing
+// kiloTypedWhileRunning indexes a home, then has Kilo Code (running, its database open for writing) save one more prompt
+// in the session ses_fork, and indexes again.
+func kiloTypedWhileRunning(t *testing.T) (rep indexing.IndexReport, dbPath string) {
+	t.Helper()
 	home := moreHome(t)
-	dbPath := filepath.Join(t.TempDir(), "index.db")
+	dbPath = filepath.Join(t.TempDir(), "index.db")
 	moreIndex(t, home, dbPath)
 	writer, err := sql.Open("sqlite", filepath.Join(home, ".local/share/kilo/kilo.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer writer.Close()
+	t.Cleanup(func() { writer.Close() })
 	writer.SetMaxOpenConns(1)
-
-	// When the user types one more prompt in one session, and the logs are indexed again
 	for _, q := range []string{
 		`PRAGMA journal_mode = WAL`,
 		`INSERT INTO message VALUES ('msg_90', 'ses_fork', 1767226500000, 1767226500000, '{"role":"user","time":{"created":1767226500000}}')`,
@@ -151,13 +151,26 @@ func TestOnlyTheSessionThatGainedAMessageIsReadAgain(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	rep, _ := moreIndex(t, home, dbPath)
+	rep, _ = moreIndex(t, home, dbPath)
+	return rep, dbPath
+}
+
+func TestOnlyTheSessionThatGainedAMessageIsReadAgain(t *testing.T) {
+	// Given a home that was indexed once, and one prompt typed since in one session of Kilo Code
+	// When the logs are indexed again
+	rep, _ := kiloTypedWhileRunning(t)
 
 	// Then that session alone is read again
 	if rep.Indexed != 1 || len(rep.Errors) > 0 {
 		t.Fatalf("third run: %+v", rep)
 	}
-	// And its report lists the new prompt after the first
+}
+
+func TestAPromptTypedWhileKiloCodeRunsIsInTheReportOfItsSession(t *testing.T) {
+	// Given a prompt typed since the last indexing in one session of Kilo Code
+	_, dbPath := kiloTypedWhileRunning(t)
+
+	// When the report of that session is shown
 	usage, err := usagedb.OpenReadOnly(dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -168,6 +181,8 @@ func TestOnlyTheSessionThatGainedAMessageIsReadAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	detail, err := reporting.ShowSession{Queries: usage.Sessions()}.Run(id)
+
+	// Then it lists the new prompt after the first
 	if err != nil || len(detail.Prompts) != 2 || detail.Prompts[1].Text != "One more thing" {
 		t.Errorf("prompts of the session = %+v, %v", detail.Prompts, err)
 	}

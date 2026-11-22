@@ -81,6 +81,24 @@ func newOpenCode(t *testing.T, scripts ...string) (logs *FileSessionLogs, db str
 	return harnessLogs(kernel.OpenCode, root, &OpenCodeDatabase{Prefix: "opencode"}), db
 }
 
+// aNewerOpenCodeTyped makes a newer version of OpenCode write a prompt into a session that an older one wrote to.
+func aNewerOpenCodeTyped(t *testing.T, db, session, text string) {
+	t.Helper()
+	w, err := sql.Open("sqlite", db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	for _, q := range []string{
+		`CREATE TABLE session_message (id text PRIMARY KEY, session_id text NOT NULL, type text NOT NULL, seq integer, time_created integer NOT NULL, time_updated integer NOT NULL, data text NOT NULL)`,
+		`INSERT INTO session_message VALUES ('ev_1', '` + session + `', 'user', 1, 1767225640000, 1767225640000, '{"text":"` + text + `"}')`,
+	} {
+		if _, err := w.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func ms(v int64) time.Time { return time.UnixMilli(v) }
 
 func TestEachSessionOfADatabaseIsALogOfItsOwnNamedAfterItsDatabaseAndItsId(t *testing.T) {
@@ -150,7 +168,7 @@ func TestASessionThatGrowsWhileItsHarnessRunsIsListedAsChangedAndTheOthersAreNot
 	}
 }
 
-func TestSessionOfTheMessagesGenerationKeepsItsPlaceAndItsPrompt(t *testing.T) {
+func TestASessionOfAnOlderOpenCodeKeepsItsPlaceAndItsPrompt(t *testing.T) {
 	// Given a session with a prompt made of several parts, some of which the user did not type
 	logs, _ := newOpenCode(t, "messages.sql")
 
@@ -244,8 +262,8 @@ func TestAForkedSessionCountsOnlyWhatWasSaidSinceTheFork(t *testing.T) {
 	}
 }
 
-func TestMessagesThatCannotBeUsedAreSkippedAndCounted(t *testing.T) {
-	// Given a session with a message that is not JSON, usage that is negative or beyond any model's window, a negative cost,
+func TestMessagesThatCannotBeReadAreSkippedAndCounted(t *testing.T) {
+	// Given a session with a message that cannot be read, usage that is negative or beyond any model's window, a negative cost,
 	// an error name with an escape sequence, and a folder that has one
 	logs, _ := newOpenCode(t, "messages.sql")
 
@@ -262,8 +280,8 @@ func TestMessagesThatCannotBeUsedAreSkippedAndCounted(t *testing.T) {
 	}
 }
 
-func TestPromptsAndTitleOfTheEventsGenerationAreWhatTheUserTyped(t *testing.T) {
-	// Given a session of the events generation that holds a message the user did not type
+func TestPromptsAndTitleOfANewerOpenCodeAreWhatTheUserTyped(t *testing.T) {
+	// Given a session of a newer OpenCode that holds a message the user did not type
 	logs, _ := newOpenCode(t, "events.sql")
 
 	// When it is read
@@ -275,37 +293,48 @@ func TestPromptsAndTitleOfTheEventsGenerationAreWhatTheUserTyped(t *testing.T) {
 	}
 }
 
-func TestEventsGenerationGivesTheTimeToFirstTokenAndTheDurationOfTheStream(t *testing.T) {
-	// Given a session of the events generation with two answers and a compaction
+func TestANewerOpenCodeGivesTheTimeToFirstTokenAndTheDurationOfTheStream(t *testing.T) {
+	// Given a session of a newer OpenCode with an answer that states when its first token came and when its stream ended
 	logs, _ := newOpenCode(t, "events.sql")
 
 	// When it is read
 	p := transcriptOf(t, logs, "ses_a")
 
-	// Then the answers and the compaction are requests
-	if len(p.Requests) != 3 {
-		t.Fatalf("requests = %+v", p.Requests)
-	}
-	a3, a4, a5 := p.Requests[0], p.Requests[1], p.Requests[2]
-	// And the first states when the first token came and when the stream ended
+	// Then the request has that time to first token and that duration, with its usage
+	a3 := p.Requests[0]
 	if a3.TTFT.Value() != 800*time.Millisecond || a3.Duration.Value() != 6*time.Second || a3.LoggedCost.USD() != 0.5 || a3.StopReason != "tool-calls" {
 		t.Errorf("a3 = %+v", a3)
 	}
 	if want := (kernel.TokenCounts{Input: 200, Output: 80, Reasoning: 20, CacheRead: 1000, CacheWrite: 50}); a3.Tokens.Counts() != want {
 		t.Errorf("a3 tokens = %+v, want %+v", a3.Tokens.Counts(), want)
 	}
-	// And the second failed and logged no time to first token
-	if a4.Failure != "ProviderOverloaded" || a4.TTFT.Known() || a4.Duration.Value() != 5*time.Second {
+}
+
+func TestAFailedAnswerOfANewerOpenCodeIsAFailedRequestWithoutATimeToFirstToken(t *testing.T) {
+	logs, _ := newOpenCode(t, "events.sql")
+
+	p := transcriptOf(t, logs, "ses_a")
+
+	if a4 := p.Requests[1]; a4.Failure != "ProviderOverloaded" || a4.TTFT.Known() || a4.Duration.Value() != 5*time.Second {
 		t.Errorf("a4 = %+v", a4)
 	}
-	// And the compaction counts as a request of its own
-	if a5.Key != "msg_a5" || a5.Tokens.Counts().Input != 500 || a5.LoggedCost.USD() != 0.1 {
+}
+
+func TestACompactionOfANewerOpenCodeIsARequestOfItsOwn(t *testing.T) {
+	logs, _ := newOpenCode(t, "events.sql")
+
+	p := transcriptOf(t, logs, "ses_a")
+
+	if len(p.Requests) != 3 {
+		t.Fatalf("requests = %+v", p.Requests)
+	}
+	if a5 := p.Requests[2]; a5.Key != "msg_a5" || a5.Tokens.Counts().Input != 500 || a5.LoggedCost.USD() != 0.1 {
 		t.Errorf("a5 = %+v", a5)
 	}
 }
 
-func TestEventsGenerationTakesToolCallsFromTheirPartsAndFromTheMessageThatHoldsOne(t *testing.T) {
-	// Given a session whose first answer has its tool calls as parts, and whose second holds its tool call itself
+func TestANewerOpenCodeTakesToolCallsFromTheirPartsAndFromTheMessageThatHoldsOne(t *testing.T) {
+	// Given a session of a newer OpenCode whose first answer has its tool calls apart from it, and whose second holds its tool call itself
 	logs, _ := newOpenCode(t, "events.sql")
 
 	// When it is read
@@ -327,7 +356,7 @@ func TestEventsGenerationTakesToolCallsFromTheirPartsAndFromTheMessageThatHoldsO
 	}
 }
 
-func TestASessionOfTheEventsGenerationWithAParentIsASubagentOfIt(t *testing.T) {
+func TestASessionOfANewerOpenCodeWithAParentIsASubagentOfIt(t *testing.T) {
 	logs, _ := newOpenCode(t, "events.sql")
 
 	sub := transcriptOf(t, logs, "ses_b")
@@ -338,7 +367,7 @@ func TestASessionOfTheEventsGenerationWithAParentIsASubagentOfIt(t *testing.T) {
 	}
 }
 
-func TestAForkedSessionOfTheEventsGenerationIsNotASubagentAndCountsOnlyWhatWasSaidSinceTheFork(t *testing.T) {
+func TestAForkedSessionOfANewerOpenCodeIsNotASubagentAndCountsOnlyWhatWasSaidSinceTheFork(t *testing.T) {
 	logs, _ := newOpenCode(t, "events.sql")
 
 	fork := transcriptOf(t, logs, "ses_c")
@@ -351,28 +380,16 @@ func TestAForkedSessionOfTheEventsGenerationIsNotASubagentAndCountsOnlyWhatWasSa
 	}
 }
 
-func TestASessionKnownToBothGenerationsIsReadFromItsEventsOnly(t *testing.T) {
-	// Given a session that has messages in both generations of the schema
+func TestASessionThatAnOlderAndANewerOpenCodeBothWroteToIsReadFromTheNewerOneOnly(t *testing.T) {
+	// Given a session that an older and a newer OpenCode both wrote to
 	logs, db := newOpenCode(t, "messages.sql")
-	writer, err := sql.Open("sqlite", db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer writer.Close()
-	for _, q := range []string{
-		`CREATE TABLE session_message (id text PRIMARY KEY, session_id text NOT NULL, type text NOT NULL, seq integer, time_created integer NOT NULL, time_updated integer NOT NULL, data text NOT NULL)`,
-		`INSERT INTO session_message VALUES ('ev_1', 'ses_child', 'user', 1, 1767225640000, 1767225640000, '{"text":"from the events"}')`,
-	} {
-		if _, err := writer.Exec(q); err != nil {
-			t.Fatal(err)
-		}
-	}
+	aNewerOpenCodeTyped(t, db, "ses_child", "from the newer one")
 
 	// When it is read
 	p := transcriptOf(t, logs, "ses_child")
 
-	// Then what it said in the events is read, and its messages are not counted too
-	if len(p.Prompts) != 1 || p.Prompts[0].Text != "from the events" || len(p.Requests) != 0 {
+	// Then what the newer one wrote is read, and what the older one wrote is not counted too
+	if len(p.Prompts) != 1 || p.Prompts[0].Text != "from the newer one" || len(p.Requests) != 0 {
 		t.Errorf("prompts %+v, requests %+v", p.Prompts, p.Requests)
 	}
 }

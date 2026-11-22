@@ -24,12 +24,12 @@ const geminiDocument = `{"sessionId":"s-1","projectHash":"h","startTime":"2026-0
 {"id":"m4","timestamp":"2026-02-01T10:00:10.000Z","type":"gemini","content":"cancelled before any usage"}
 ]}`
 
-func TestGeminiDocumentCountsEachMessageWithUsageOnceAndSplitsItsTokens(t *testing.T) {
-	// Given a conversation in the JSON format, with a prompt, an answer with usage and two tool calls, an error and an answer without usage
+func TestAConversationInTheJSONFormatIsASessionWithItsPromptAndItsSpan(t *testing.T) {
+	// Given a conversation with a prompt made of two parts, answers and an error
 	// When it is read
 	p := parse(t, ParseGemini, "/home/u/.gemini/tmp/demo/chats/session-1.json", geminiDocument)
 
-	// Then the session is named by its id, spans the messages, and the prompt is the text of its parts
+	// Then the session is named by its id and spans its messages
 	s := p.Session
 	if s.ID.String() != "gemini:s-1" || s.Harness != kernel.Gemini || s.AgentType != domain.MainAgent || !s.ParentID.IsZero() {
 		t.Errorf("session = %+v", s)
@@ -37,10 +37,18 @@ func TestGeminiDocumentCountsEachMessageWithUsageOnceAndSplitsItsTokens(t *testi
 	if want := time.Date(2026, 2, 1, 10, 0, 0, 0, time.UTC); !s.Start.Equal(want) || !s.End.Equal(want.Add(10*time.Second)) {
 		t.Errorf("span = %v .. %v", s.Start, s.End)
 	}
+	// And its prompt is the text of its parts, which also titles it
 	if len(p.Prompts) != 1 || p.Prompts[0].Text != "Add a cache" || p.Prompts[0].Key != "m1" || s.Title != "Add a cache" {
 		t.Errorf("prompts = %+v, title %q", p.Prompts, s.Title)
 	}
-	// And only the answer that states usage is a request: the cache is part of the input, the thoughts part of the output
+}
+
+func TestOnlyTheAnswerThatStatesItsUsageIsARequest(t *testing.T) {
+	// Given a conversation with an answer that states its usage, an error and an answer without usage
+	// When it is read
+	p := parse(t, ParseGemini, "/home/u/.gemini/tmp/demo/chats/session-1.json", geminiDocument)
+
+	// Then the answer with usage is the only request, and it has no time to first token or duration
 	if len(p.Requests) != 1 {
 		t.Fatalf("requests = %+v", p.Requests)
 	}
@@ -48,11 +56,26 @@ func TestGeminiDocumentCountsEachMessageWithUsageOnceAndSplitsItsTokens(t *testi
 	if r.Key != "m2" || r.Model != "gemini-x" || r.Provider != "google" || r.Duration.Known() || r.TTFT.Known() || r.Failed() {
 		t.Errorf("request = %+v", r)
 	}
+}
+
+func TestTheCachedTokensArePartOfTheInputAndTheThoughtsPartOfTheOutput(t *testing.T) {
+	// Given an answer of 1000 input tokens of which 600 are cached, 50 output tokens and 20 thoughts
+	// When it is read
+	p := parse(t, ParseGemini, "/home/u/.gemini/tmp/demo/chats/session-1.json", geminiDocument)
+
+	// Then the cache is counted as cache reads and not added to the input, and the thoughts count as output
 	want := kernel.TokenCounts{Input: 1000 - 600 + 10, Output: 70, CacheRead: 600, Reasoning: 20}
-	if got := r.Tokens.Counts(); got != want {
+	if got := p.Requests[0].Tokens.Counts(); got != want {
 		t.Errorf("tokens = %+v, want %+v", got, want)
 	}
-	// And the tool calls keep their sizes, their status and the MCP server they name
+}
+
+func TestToolCallsKeepTheirSizesTheirStatusAndTheServerTheyName(t *testing.T) {
+	// Given an answer with two tool calls, one of which failed and belongs to an MCP server
+	// When the conversation is read
+	p := parse(t, ParseGemini, "/home/u/.gemini/tmp/demo/chats/session-1.json", geminiDocument)
+
+	// Then each call states its size, its status and its server
 	if len(p.Tools) != 2 {
 		t.Fatalf("tools = %+v", p.Tools)
 	}
@@ -64,42 +87,83 @@ func TestGeminiDocumentCountsEachMessageWithUsageOnceAndSplitsItsTokens(t *testi
 
 func journal(lines ...string) string { return strings.Join(lines, "\n") + "\n" }
 
-func TestAJournalIsReplayedBeforeTheConversationIsCounted(t *testing.T) {
-	// Given a journal in which an answer is replaced, a prompt is removed, a tool result is edited, the tail is rewound and the order changes
-	log := journal(
-		`{"sessionId":"s-2","projectHash":"h","startTime":"2026-02-02T10:00:00.000Z","kind":"main"}`,
-		`{"id":"u1","timestamp":"2026-02-02T10:00:01.000Z","type":"user","content":[{"text":"first"}]}`,
-		`{"id":"a1","timestamp":"2026-02-02T10:00:02.000Z","type":"gemini","content":"x","model":"m","tokens":{"input":10,"output":1,"cached":0,"thoughts":0,"tool":0,"total":11},"toolCalls":[{"id":"c1","name":"glob","args":{},"result":[],"status":"success","timestamp":"2026-02-02T10:00:02.000Z"}]}`,
-		`{"id":"u2","timestamp":"2026-02-02T10:00:03.000Z","type":"user","content":[{"text":"second"}]}`,
-		`{"id":"a2","timestamp":"2026-02-02T10:00:04.000Z","type":"gemini","content":"y","model":"m","tokens":{"input":20,"output":2,"cached":0,"thoughts":0,"tool":0,"total":22}}`,
-		`{"id":"a1","timestamp":"2026-02-02T10:00:02.000Z","type":"gemini","content":"x again","model":"m","tokens":{"input":11,"output":1,"cached":0,"thoughts":0,"tool":0,"total":12},"toolCalls":[{"id":"c1","name":"glob","args":{},"result":[],"status":"success","timestamp":"2026-02-02T10:00:02.000Z"}]}`,
-		`{"$patch":{"id":"a1","toolCalls":[{"id":"c1","result":[{"big":"0123456789"}]}]}}`,
-		`{"$patch":{"updates":[{"id":"u1","content":[{"text":"first, edited"}]}],"orderIds":["a2","a1"]}}`,
-		`{"id":"u3","timestamp":"2026-02-02T10:00:05.000Z","type":"user","content":[{"text":"third"}]}`,
-		`{"$patch":{"removeIds":["u2"]}}`,
-		`{"$rewindTo":"u3"}`,
-	)
+const answerToReplace = `{"id":"a1","timestamp":"2026-02-02T10:00:02.000Z","type":"gemini","content":"x","model":"m","tokens":{"input":10,"output":1,"cached":0,"thoughts":0,"tool":0,"total":11},"toolCalls":[{"id":"c1","name":"glob","args":{},"result":[],"status":"success","timestamp":"2026-02-02T10:00:02.000Z"}]}`
+
+const conversationStart = `{"sessionId":"s-2","projectHash":"h","startTime":"2026-02-02T10:00:00.000Z","kind":"main"}`
+
+func TestAnAnswerThatIsSaidAgainCountsOnceWithItsNewUsage(t *testing.T) {
+	// Given a journal in which an answer is stated twice, the second time with other usage
+	log := journal(conversationStart, answerToReplace,
+		`{"id":"a1","timestamp":"2026-02-02T10:00:02.000Z","type":"gemini","content":"x again","model":"m","tokens":{"input":11,"output":1,"cached":0,"thoughts":0,"tool":0,"total":12}}`)
 
 	// When it is read
 	p := parse(t, ParseGemini, "/h/.gemini/tmp/demo/chats/session-2.jsonl", log)
 
-	// Then only what survived the replay is counted: the rewound prompt and the removed one are gone, the replaced answer counts once with its new usage
-	var prompts []string
-	for _, pr := range p.Prompts {
-		prompts = append(prompts, pr.Text)
-	}
-	if strings.Join(prompts, "|") != "first, edited" {
-		t.Errorf("prompts = %v", prompts)
-	}
-	if len(p.Requests) != 2 || p.Requests[0].Key != "a2" || p.Requests[1].Key != "a1" || p.Requests[1].Tokens.Counts().Input != 11 {
+	// Then the answer is one request with its last usage
+	if len(p.Requests) != 1 || p.Requests[0].Key != "a1" || p.Requests[0].Tokens.Counts().Input != 11 {
 		t.Errorf("requests = %+v", p.Requests)
 	}
-	// And a patched result is measured as it now stands
+}
+
+func TestAPromptThatWasRemovedIsNotCounted(t *testing.T) {
+	log := journal(conversationStart,
+		`{"id":"u1","timestamp":"2026-02-02T10:00:01.000Z","type":"user","content":[{"text":"first"}]}`,
+		`{"id":"u2","timestamp":"2026-02-02T10:00:03.000Z","type":"user","content":[{"text":"second"}]}`,
+		`{"$patch":{"removeIds":["u2"]}}`)
+
+	p := parse(t, ParseGemini, "/h/.gemini/tmp/demo/chats/session-2.jsonl", log)
+
+	if len(p.Prompts) != 1 || p.Prompts[0].Text != "first" {
+		t.Errorf("prompts = %+v", p.Prompts)
+	}
+}
+
+func TestRewindingToAMessageDropsItAndWhatCameAfter(t *testing.T) {
+	log := journal(conversationStart,
+		`{"id":"u1","timestamp":"2026-02-02T10:00:01.000Z","type":"user","content":[{"text":"first"}]}`,
+		`{"id":"u2","timestamp":"2026-02-02T10:00:03.000Z","type":"user","content":[{"text":"second"}]}`,
+		`{"id":"u3","timestamp":"2026-02-02T10:00:05.000Z","type":"user","content":[{"text":"third"}]}`,
+		`{"$rewindTo":"u2"}`)
+
+	p := parse(t, ParseGemini, "/h/.gemini/tmp/demo/chats/session-2.jsonl", log)
+
+	if len(p.Prompts) != 1 || p.Prompts[0].Text != "first" {
+		t.Errorf("prompts = %+v", p.Prompts)
+	}
+}
+
+func TestAnEditedPromptIsCountedAsItNowReads(t *testing.T) {
+	log := journal(conversationStart,
+		`{"id":"u1","timestamp":"2026-02-02T10:00:01.000Z","type":"user","content":[{"text":"first"}]}`,
+		`{"$patch":{"updates":[{"id":"u1","content":[{"text":"first, edited"}]}]}}`)
+
+	p := parse(t, ParseGemini, "/h/.gemini/tmp/demo/chats/session-2.jsonl", log)
+
+	if len(p.Prompts) != 1 || p.Prompts[0].Text != "first, edited" {
+		t.Errorf("prompts = %+v", p.Prompts)
+	}
+}
+
+func TestAnEditedToolResultIsMeasuredAsItNowStands(t *testing.T) {
+	log := journal(conversationStart, answerToReplace,
+		`{"$patch":{"id":"a1","toolCalls":[{"id":"c1","result":[{"big":"0123456789"}]}]}}`)
+
+	p := parse(t, ParseGemini, "/h/.gemini/tmp/demo/chats/session-2.jsonl", log)
+
 	if len(p.Tools) != 1 || p.Tools[0].ResultChars != len(`[{"big":"0123456789"}]`) {
 		t.Errorf("tools = %+v", p.Tools)
 	}
-	if p.SkippedLines != 0 {
-		t.Errorf("skipped %d", p.SkippedLines)
+}
+
+func TestMessagesAreCountedInTheOrderTheJournalGivesThem(t *testing.T) {
+	log := journal(conversationStart, answerToReplace,
+		`{"id":"a2","timestamp":"2026-02-02T10:00:04.000Z","type":"gemini","content":"y","model":"m","tokens":{"input":20,"output":2,"cached":0,"thoughts":0,"tool":0,"total":22}}`,
+		`{"$patch":{"orderIds":["a2","a1"]}}`)
+
+	p := parse(t, ParseGemini, "/h/.gemini/tmp/demo/chats/session-2.jsonl", log)
+
+	if len(p.Requests) != 2 || p.Requests[0].Key != "a2" || p.Requests[1].Key != "a1" {
+		t.Errorf("requests = %+v", p.Requests)
 	}
 }
 
