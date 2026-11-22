@@ -282,3 +282,21 @@ func TestClaudeSkillCallsNameTheSkillTheyLoad(t *testing.T) {
 		t.Errorf("tools %q, want %q", got, want)
 	}
 }
+
+func TestCodexMCPFunctionCallNamesItsServer(t *testing.T) {
+	// Given a Codex rollout whose model called an MCP tool as a function call named "mcp__demo__read", with no McpToolCall event
+	log := `{"timestamp":"2026-01-01T10:00:00Z","type":"response_item","payload":{"type":"function_call","name":"mcp__demo__read","call_id":"c1","arguments":"{}"}}
+{"timestamp":"2026-01-01T10:00:01Z","type":"response_item","payload":{"type":"function_call","name":"wait","call_id":"c2","arguments":"{}"}}
+`
+	// When the transcript is parsed
+	p := parse(t, ParseCodex, "/x/rollout-3.jsonl", log)
+
+	// Then the call belongs to the server "demo" under the tool name "read", and another function call keeps its name and no server
+	var got []string
+	for _, c := range p.Tools {
+		got = append(got, c.Server+"/"+c.Name)
+	}
+	if want := "demo/read /wait"; strings.Join(got, " ") != want {
+		t.Errorf("tools %q, want %q", got, want)
+	}
+}
