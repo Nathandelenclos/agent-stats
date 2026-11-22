@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -11,15 +12,56 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 )
 
-// listedFor is a session index that records the filters of the listings it is asked for.
-type listedFor struct{ filters []domain.Filter }
+// workedIn is an index of what agents did in two projects: 3 requests and 1 session in /work/app, 4 requests and 2 sessions
+// in /work/other. It answers what the filter keeps, and counts the questions it is asked.
+type workedIn struct{ reads int }
 
-func (x *listedFor) Sessions(_ context.Context, f domain.Filter) ([]domain.SessionSummary, error) {
-	x.filters = append(x.filters, f)
-	return nil, nil
+const (
+	requestsInApp, requestsElsewhere = 3, 4
+	sessionsInApp, sessionsElsewhere = 1, 2
+)
+
+func (x *workedIn) requests(f domain.Filter) int64 {
+	if f.Project.IsZero() {
+		return requestsInApp + requestsElsewhere
+	}
+	if f.Project.Contains("/work/app") {
+		return requestsInApp
+	}
+	return requestsElsewhere
 }
 
-func (x *listedFor) Session(context.Context, domain.SessionID) (domain.SessionDetail, error) {
+func (x *workedIn) Snapshot(_ context.Context, fn func(reporting.UsageReader) error) error {
+	return fn(x)
+}
+func (x *workedIn) Total(f domain.Filter) (domain.Usage, error) {
+	x.reads++
+	return domain.Usage{Requests: x.requests(f)}, nil
+}
+
+func (x *workedIn) UsageBy(f domain.Filter, d domain.Dimension) ([]domain.UsageGroup, error) {
+	x.reads++
+	if d != domain.ByDay {
+		return nil, nil
+	}
+	return []domain.UsageGroup{{Group: "2026-11-20", Usage: domain.Usage{Requests: x.requests(f)}}}, nil
+}
+
+func (x *workedIn) Tools(domain.Filter) ([]domain.ToolUsage, error) { x.reads++; return nil, nil }
+
+func (x *workedIn) Sessions(_ context.Context, f domain.Filter) ([]domain.SessionSummary, error) {
+	x.reads++
+	var out []domain.SessionSummary
+	for i, folder := range []string{"/work/app", "/work/other", "/work/other"} {
+		if f.Project.IsZero() || f.Project.Contains(folder) {
+			id, _ := domain.NewSessionID(fmt.Sprintf("s%d", i))
+			out = append(out, domain.SessionSummary{ID: id, Harness: kernel.Claude, Folder: folder})
+		}
+	}
+	return out, nil
+}
+
+func (x *workedIn) Session(context.Context, domain.SessionID) (domain.SessionDetail, error) {
 	return domain.SessionDetail{}, domain.ErrSessionNotFound
 }
 
@@ -32,17 +74,33 @@ func appProject(t *testing.T) kernel.Project {
 	return p
 }
 
-// scopedRig is a server started in the app project, which reports and lists sessions through recording indexes.
-// startedOnAll says whether it was started with --all.
-func scopedRig(t *testing.T, startedOnAll bool) (*rig, *listedFor) {
+// scopedRig is a server started in the app project. startedOnAll says whether it was started with --all.
+func scopedRig(t *testing.T, startedOnAll bool) (*rig, *workedIn) {
 	t.Helper()
-	sessions := &listedFor{}
+	index := &workedIn{}
 	app := appProject(t)
 	return newRig(t, func(o *Options) {
 		o.Project, o.Restricted = app, !startedOnAll
-		o.Sessions = reporting.ListSessions{Queries: sessions}
-	}), sessions
+		o.Reports = reporting.BuildTimelineReport{Queries: index}
+		o.Sessions = reporting.ListSessions{Queries: index}
+	}), index
 }
+
+// covered is what a report and a list of sessions say they hold.
+type covered struct{ requests, days, sessions int64 }
+
+// ask reads the report and the sessions the way the page does, with the query string given to both.
+func ask(t *testing.T, r *rig, query string) covered {
+	t.Helper()
+	report := decode[reportJSON](t, r.get("/api/report"+query))
+	sessions := decode[sessionsJSON](t, r.get("/api/sessions"+query))
+	return covered{report.Total.Requests, report.Daily[0].Requests, int64(sessions.Count)}
+}
+
+var (
+	inApp      = covered{requestsInApp, requestsInApp, sessionsInApp}
+	everywhere = covered{requestsInApp + requestsElsewhere, requestsInApp + requestsElsewhere, sessionsInApp + sessionsElsewhere}
+)
 
 func TestMetaSaysWhichProjectTheServerRunsInAndThatItOpensOnIt(t *testing.T) {
 	// Given a server started in a project
@@ -83,51 +141,60 @@ func TestMetaOpensOnEveryProjectWhenTheServerWasStartedWithAll(t *testing.T) {
 	}
 }
 
-func TestTheReportAndTheSessionsAreThoseOfTheProjectByDefault(t *testing.T) {
-	// Given a server started in a project
-	r, sessions := scopedRig(t, false)
+func TestTheReportTheDaysAndTheSessionsAreThoseOfTheProjectByDefault(t *testing.T) {
+	// Given a server started in a project that other projects share the index with
+	r, _ := scopedRig(t, false)
 
 	// When the page asks for the report and the sessions without naming a scope
-	r.get("/api/report")
-	r.get("/api/sessions")
+	got := ask(t, r, "")
 
-	// Then both are about the project
-	if len(r.idx.filters) == 0 || r.idx.filters[0].Project != appProject(t) || len(sessions.filters) != 1 || sessions.filters[0].Project != appProject(t) {
-		t.Errorf("report filters %+v, sessions filters %+v", r.idx.filters, sessions.filters)
+	// Then the totals, the days and the sessions are those of the project
+	if got != inApp {
+		t.Errorf("covered %+v, want %+v", got, inApp)
 	}
 }
 
-func TestTheReportAndTheSessionsCoverEveryProjectWhenAskedTo(t *testing.T) {
+func TestEveryProjectIsCoveredWhenTheClientAsksForAll(t *testing.T) {
 	// Given a server started in a project
-	r, sessions := scopedRig(t, false)
+	r, _ := scopedRig(t, false)
 
 	// When the page asks for every project
-	r.get("/api/report?project=all")
-	r.get("/api/sessions?project=all")
+	got := ask(t, r, "?project=all")
 
-	// Then neither is restricted
-	if len(r.idx.filters) == 0 || !r.idx.filters[0].Project.IsZero() || len(sessions.filters) != 1 || !sessions.filters[0].Project.IsZero() {
-		t.Errorf("report filters %+v, sessions filters %+v", r.idx.filters, sessions.filters)
+	// Then the totals, the days and the sessions are those of every project
+	if got != everywhere {
+		t.Errorf("covered %+v, want %+v", got, everywhere)
 	}
 }
 
 func TestTheProjectCanBeAskedForWhenTheServerWasStartedWithAll(t *testing.T) {
 	// Given a server started in a project with --all
-	r, sessions := scopedRig(t, true)
+	r, _ := scopedRig(t, true)
 
-	// When the page asks for the report and the sessions of the current project, and then without a scope
-	r.get("/api/report?project=current")
-	r.get("/api/sessions?project=current")
-	r.get("/api/sessions")
+	// When the page asks for the current project
+	got := ask(t, r, "?project=current")
 
-	// Then the explicit ones are about the project and the default one covers every project
-	if r.idx.filters[0].Project != appProject(t) || sessions.filters[0].Project != appProject(t) || !sessions.filters[1].Project.IsZero() {
-		t.Errorf("report filters %+v, sessions filters %+v", r.idx.filters, sessions.filters)
+	// Then the totals, the days and the sessions are those of the project
+	if got != inApp {
+		t.Errorf("covered %+v, want %+v", got, inApp)
+	}
+}
+
+func TestEveryProjectIsCoveredByDefaultWhenTheServerWasStartedWithAll(t *testing.T) {
+	// Given a server started in a project with --all
+	r, _ := scopedRig(t, true)
+
+	// When the page asks without naming a scope
+	got := ask(t, r, "")
+
+	// Then it covers every project
+	if got != everywhere {
+		t.Errorf("covered %+v, want %+v", got, everywhere)
 	}
 }
 
 func TestAScopeOtherThanCurrentOrAllIsRefusedWithoutReadingTheIndex(t *testing.T) {
-	r, sessions := scopedRig(t, false)
+	r, index := scopedRig(t, false)
 	for _, c := range []struct{ name, target string }{
 		{"a folder", "/api/report?project=%2Fwork%2Fother"},
 		{"a folder on the sessions", "/api/sessions?project=%2Fwork%2Fother"},
@@ -153,8 +220,8 @@ func TestAScopeOtherThanCurrentOrAllIsRefusedWithoutReadingTheIndex(t *testing.T
 		})
 	}
 	// And no figure was read
-	if len(r.idx.filters) != 0 || len(sessions.filters) != 0 {
-		t.Errorf("the index was read for a refused request: %v %v", r.idx.filters, sessions.filters)
+	if index.reads != 0 {
+		t.Errorf("the index was read %d times for refused requests", index.reads)
 	}
 }
 
