@@ -94,13 +94,33 @@ func TestFlaggedPromptsAreTheUsersOwnPromptsThatShowASignal(t *testing.T) {
 			t.Errorf("not the user's flagged prompt: %+v", x)
 		}
 	}
-	// And a prompt keeps its session's identity, its signals and its time
-	hostilePrompt := list[2]
-	if hostilePrompt.Session.String() != "claude:main" || hostilePrompt.Harness != kernel.Claude || hostilePrompt.Title != hostile || hostilePrompt.Folder != hostile {
-		t.Errorf("session = %+v", hostilePrompt)
+	if !list[0].At.After(list[3].At) && !list[0].At.Equal(list[3].At) {
+		t.Errorf("not most recent first: %v", promptTexts(list))
 	}
-	if !hostilePrompt.At.Equal(time.UnixMilli(t0)) || hostilePrompt.Signals != (report.PromptSignals{Yelling: 3, Profanity: 1, Anguish: 2, Negation: 4, Blame: 5}) {
-		t.Errorf("prompt = %+v", hostilePrompt)
+}
+
+func TestAFlaggedPromptKeepsItsSessionAndItsSignals(t *testing.T) {
+	// Given a flagged prompt typed in a session that has a title and a folder
+	p := openPrompts(t)
+
+	// When the flagged prompts are listed
+	list, err := p.FlaggedPrompts(report.Filter{Harness: kernel.Claude, Since: time.UnixMilli(t0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Then the prompt carries its session's identity, title and folder, its signals and the time it was typed
+	var got report.FlaggedPrompt
+	for _, x := range list {
+		if strings.HasPrefix(x.Text, hostile) {
+			got = x
+		}
+	}
+	if got.Session.String() != "claude:main" || got.Harness != kernel.Claude || got.Title != hostile || got.Folder != hostile {
+		t.Errorf("session = %+v", got)
+	}
+	if !got.At.Equal(time.UnixMilli(t0)) || got.Signals != (report.PromptSignals{Yelling: 3, Profanity: 1, Anguish: 2, Negation: 4, Blame: 5}) {
+		t.Errorf("prompt = %+v", got)
 	}
 }
 

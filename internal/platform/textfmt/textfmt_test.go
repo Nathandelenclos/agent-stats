@@ -60,7 +60,11 @@ func TestExcerptIsOneNeutralLine(t *testing.T) {
 	if got, want := Excerpt(in, 80), "fix the build �[2J now"; got != want {
 		t.Errorf("Excerpt = %q, want %q", got, want)
 	}
-	// And a long text is cut with an ellipsis
+}
+
+func TestExcerptMarksWhatItCuts(t *testing.T) {
+	// Given a text longer than the room it has
+	// When it is reduced to an excerpt, then the cut is marked by an ellipsis
 	if got := Excerpt("one two three four", 9); got != "one two …" {
 		t.Errorf("cut = %q", got)
 	}

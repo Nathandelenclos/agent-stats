@@ -255,12 +255,15 @@ func TestPromptsPeriodAcceptsAll(t *testing.T) {
 	}
 }
 
-func TestTheDefaultCommandKeepsItsOwnSinceRules(t *testing.T) {
-	// Given the default command, an empty --since still reads as everything
+func TestTheDefaultCommandStillReadsAnEmptySinceAsEverything(t *testing.T) {
+	// Given the default command with no --since, when its period is read, then it is everything
 	if got, err := sinceOf("", "", promptsBase); err != nil || !got.IsZero() {
 		t.Errorf("empty = %v, %v", got, err)
 	}
-	// And "all" is still refused there
+}
+
+func TestTheDefaultCommandStillRefusesAll(t *testing.T) {
+	// Given the default command with --since all, when its period is read, then it is refused
 	if _, err := sinceOf("", "all", promptsBase); err == nil {
 		t.Error("the default command accepted all")
 	}
