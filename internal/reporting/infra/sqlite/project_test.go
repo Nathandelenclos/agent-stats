@@ -73,7 +73,9 @@ func newWorkplace(t *testing.T) workplace {
 		exec(`INSERT INTO usage_tool_calls VALUES (?, ?, '', 0, 0, 0, NULL, 'claude', ?)`, at, "tool-"+s.id, s.folder)
 		exec(`INSERT INTO usage_folders VALUES (?)`, s.folder)
 		exec(`INSERT INTO session_overview VALUES (?, ?, 'claude', 'main', NULL, ?, ?, ?, ?, ?)`, s.id, s.id, s.folder, at, at, at, at)
-		exec(`INSERT INTO session_requests VALUES (?, ?, ?, 'm', 1, 1, 0, 0, ?, 1, NULL, NULL, NULL)`, s.id, s.id, at, s.cost)
+		exec(`INSERT INTO session_requests
+		(root_id, session_id, ts, model, input, output, cache_read, cache_write, cost, priced, duration_ms, ttft_ms, error)
+		VALUES (?, ?, ?, 'm', 1, 1, 0, 0, ?, 1, NULL, NULL, NULL)`, s.id, s.id, at, s.cost)
 	}
 	exec(`INSERT INTO usage_folders VALUES ('')`) // a session that has no folder is not listed, but a reader must survive one
 	w.index, err = OpenReadOnly(path)

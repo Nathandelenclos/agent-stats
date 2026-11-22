@@ -139,6 +139,7 @@ var migrations = []migration{
 	sqlSteps(recordSkills),
 	sqlSteps(recordRevisions),
 	sqlSteps(publishFolders),
+	sqlSteps(publishRequestDetails),
 }
 
 // recordSkills makes the index record the skill each Skill call loads. It is a table of its own, not a column of
@@ -189,6 +190,20 @@ CREATE VIEW usage_tool_calls AS
 		LEFT JOIN tool_call_skills k ON k.session_id = t.session_id AND k.key = t.key;
 CREATE VIEW usage_folders AS
 	SELECT DISTINCT folder FROM sessions WHERE folder IS NOT NULL AND folder <> '';
+`
+
+// publishRequestDetails exposes existing metadata without rewriting indexed requests.
+const publishRequestDetails = `
+DROP VIEW session_requests;
+CREATE VIEW session_requests AS
+	SELECT o.root_id, r.session_id, r.ts, r.model, r.input, r.output, r.cache_read, r.cache_write, r.cost, r.priced,
+		r.duration_ms, r.ttft_ms, r.error, r.key, r.provider, r.stop_reason
+	FROM requests r JOIN session_overview o ON o.id = r.session_id;
+DROP VIEW usage_requests;
+CREATE VIEW usage_requests AS
+	SELECT r.ts, r.model, r.input, r.output, r.cache_read, r.cache_write, r.cost, r.priced, r.duration_ms, r.ttft_ms, r.error,
+		s.harness, s.agent_type, s.folder, r.provider
+	FROM requests r JOIN sessions s ON s.id = r.session_id;
 `
 
 // migrate runs, in one transaction, the migrations the index has not run, then records how many it has run: another

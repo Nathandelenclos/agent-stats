@@ -110,6 +110,7 @@ func runServe(args []string) error {
 		Reports:         reporting.BuildTimelineReport{Queries: usage},
 		Sessions:        reporting.ListSessions{Queries: sessions},
 		RelatedSessions: reporting.ListRelatedSessions{Queries: sessions},
+		SessionRequests: reporting.ListSessionRequests{Queries: sessions},
 		SessionPrompt:   reporting.ShowSessionPrompt{Queries: sessions},
 		Prompts:         reporting.ReviewPrompts{Queries: usage.Prompts()},
 		Catalog:         interactiveCatalog(*dbPath, *projectDir),

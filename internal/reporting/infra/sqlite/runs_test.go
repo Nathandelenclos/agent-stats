@@ -62,7 +62,9 @@ func newCrossing(t *testing.T) crossing {
 		at := t0 + int64(i)
 		exec(`INSERT INTO usage_requests VALUES (?, 'm', 1, 1, 0, 0, ?, 1, NULL, NULL, NULL, 'claude', ?, ?)`, at, s.cost, s.agent, s.folder)
 		exec(`INSERT INTO session_overview VALUES (?, ?, 'claude', ?, ?, ?, ?, ?, ?, ?)`, s.id, s.root, s.agent, s.id, s.folder, at, at, at, at)
-		exec(`INSERT INTO session_requests VALUES (?, ?, ?, 'm', 1, 1, 0, 0, ?, 1, NULL, NULL, NULL)`, s.root, s.id, at, s.cost)
+		exec(`INSERT INTO session_requests
+		(root_id, session_id, ts, model, input, output, cache_read, cache_write, cost, priced, duration_ms, ttft_ms, error)
+		VALUES (?, ?, ?, 'm', 1, 1, 0, 0, ?, 1, NULL, NULL, NULL)`, s.root, s.id, at, s.cost)
 		exec(`INSERT INTO usage_folders VALUES (?)`, s.folder)
 	}
 	// the run of a root spans all its sessions, as the index's view says

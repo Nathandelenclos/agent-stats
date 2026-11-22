@@ -20,7 +20,8 @@ CREATE TABLE session_overview (id TEXT NOT NULL, root_id TEXT NOT NULL, harness 
 	title TEXT, folder TEXT, started_at INTEGER, ended_at INTEGER, run_started_at INTEGER NOT NULL, run_ended_at INTEGER NOT NULL);
 CREATE TABLE session_requests (root_id TEXT NOT NULL, session_id TEXT NOT NULL, ts INTEGER NOT NULL, model TEXT NOT NULL,
 	input INTEGER NOT NULL, output INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL,
-	cost REAL NOT NULL, priced INTEGER NOT NULL, duration_ms REAL, ttft_ms REAL, error TEXT);
+	cost REAL NOT NULL, priced INTEGER NOT NULL, duration_ms REAL, ttft_ms REAL, error TEXT,
+	key TEXT NOT NULL DEFAULT '', provider TEXT NOT NULL DEFAULT 'anthropic', stop_reason TEXT);
 CREATE TABLE session_tool_calls (root_id TEXT NOT NULL, session_id TEXT NOT NULL, ts INTEGER NOT NULL, name TEXT NOT NULL,
 	server TEXT NOT NULL, args_chars INTEGER NOT NULL, result_chars INTEGER NOT NULL, is_error INTEGER NOT NULL, duration_ms REAL);
 CREATE TABLE session_prompts (session_id TEXT NOT NULL, position INTEGER NOT NULL, ts INTEGER NOT NULL, text TEXT NOT NULL,
@@ -57,7 +58,9 @@ func sessionsIndexed(t *testing.T) string {
 			('codex:old', 'codex:old', 'codex', 'main', NULL, NULL, ?, ?, ?, ?),
 			('claude:gone/orphan', 'claude:gone/orphan', 'claude', 'subagent', 'orphan', NULL, 0, 0, 0, 0)`,
 			[]any{hostile, hostile, t0, t0, t0, t1, hostile, "kid", t0, t1, t0, t1, t0 - 60_000, t0, t0 - 60_000, t0}},
-		{`INSERT INTO session_requests VALUES
+		{`INSERT INTO session_requests
+		(root_id, session_id, ts, model, input, output, cache_read, cache_write, cost, priced, duration_ms, ttft_ms, error)
+		VALUES
 			('claude:main', 'claude:main', ?, 'cheap', 100, 10, 0, 0, 1, 1, 1000, NULL, NULL),
 			('claude:main', 'claude:main', ?, ?, 100, 10, 0, 0, 3, 1, 2000, NULL, 'boom'),
 			('claude:main', 'claude:main/kid', ?, 'cheap', 50, 5, 0, 0, 0.5, 1, NULL, NULL, NULL),
@@ -301,5 +304,33 @@ func TestNoSessionIsShownToACallerThatGaveUp(t *testing.T) {
 	// When it asks for a session, then the index answers with the context's error
 	if _, err := s.Session(ctx, id, kernel.Project{}); !errors.Is(err, context.Canceled) {
 		t.Errorf("Session error = %v, want context.Canceled", err)
+	}
+}
+
+func TestSessionRequestsPage(t *testing.T) {
+	s := openSessions(t)
+	id, _ := report.NewSessionID("claude:main")
+	ctx := context.Background()
+	page, err := s.SessionRequests(ctx, id, report.Filter{}, false, 2, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page) != 2 || page[0].Error != "boom" || page[0].Provider != "anthropic" || page[1].AgentType == "main" {
+		t.Fatalf("first page should contain the latest failure and the subagent call: %+v", page)
+	}
+
+	last, err := s.SessionRequests(ctx, id, report.Filter{}, false, 2, 2)
+	if err != nil || len(last) != 1 || last[0].Duration != 1000 {
+		t.Fatalf("last page should contain the earliest main call: %+v, %v", last, err)
+	}
+
+	failures, err := s.SessionRequests(ctx, id, report.Filter{}, true, 5, 0)
+	if err != nil || len(failures) != 1 || failures[0].Error != "boom" {
+		t.Fatalf("failures only: %+v, %v", failures, err)
+	}
+
+	filter := report.Filter{Since: time.UnixMilli(t1 + 1)}
+	if _, err := s.SessionRequests(ctx, id, filter, false, 2, 0); !errors.Is(err, report.ErrSessionNotFound) {
+		t.Fatalf("filtered session error: %v", err)
 	}
 }

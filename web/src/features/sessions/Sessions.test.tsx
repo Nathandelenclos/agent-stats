@@ -223,7 +223,7 @@ it("moves to a neighboring detail section with the keyboard", async () => {
   const { container } = showSessions();
   await openSession(container);
   const tabs = () => [...container.querySelectorAll<HTMLElement>('[role="tab"]')];
-  await eventually(() => expect(tabs()).toHaveLength(5));
+  await eventually(() => expect(tabs()).toHaveLength(6));
   act(() => tabs()[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
   expect(tabs()[1]!.getAttribute("aria-selected")).toBe("true");
   expect(document.activeElement).toBe(tabs()[1]);
@@ -246,4 +246,34 @@ it("returns focus to the opened prompt after expanding the session prompt list",
   click(button(container, "Back to session")!);
   expect(previous.closest("[hidden]")).toBeNull();
   expect(document.activeElement).toBe(previous);
+});
+
+it("browses request pages and resets the page when filtering failures", async () => {
+  const requests = vi.fn(async (input: string) => {
+    if (input.includes("/requests?")) {
+      const params = new URLSearchParams(input.split("?")[1]);
+      return json({
+        requests: [{
+          model: params.get("offset") === "0" ? "opus" : "older-model",
+          provider: "anthropic", agentType: "main", ts: session.startTs, input: 10, output: 2,
+          cacheRead: 20, cacheWrite: 0, cost: 0.002, priced: true, durationMs: 500, ttftMs: 100,
+          stopReason: "error", failed: true, error: "private failure",
+        }],
+        hasMore: params.get("offset") === "0",
+      });
+    }
+    return json(input.startsWith("/api/sessions/") ? detail : list("current"));
+  });
+  vi.stubGlobal("fetch", requests);
+  const { container } = showSessions();
+  await openSession(container);
+  await selectSection(container, "Requests");
+  await eventually(() => expect(container.textContent).toContain("private failure"));
+  click(button(container, "Older")!);
+  await eventually(() => expect(container.textContent).toContain("older-model"));
+  container.querySelector("input[type=checkbox]")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  await eventually(() => expect(requests).toHaveBeenCalledWith(
+    "/api/sessions/claude%3Amain%2Fhelper/requests?since=7d&harness=claude&project=current&limit=25&offset=0&failed=1",
+    expect.any(Object),
+  ));
 });

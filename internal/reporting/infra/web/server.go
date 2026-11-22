@@ -28,6 +28,7 @@ type Options struct {
 	Reports         reporting.BuildTimelineReport
 	Sessions        reporting.ListSessions
 	RelatedSessions reporting.ListRelatedSessions
+	SessionRequests reporting.ListSessionRequests
 	SessionPrompt   reporting.ShowSessionPrompt
 	Prompts         reporting.ReviewPrompts
 	Catalog         func(catalog.Query) (catalog.Catalog, error)
@@ -100,6 +101,7 @@ func New(o Options, addr net.Addr) *Server {
 	s.mux.HandleFunc("/api/report", s.report)
 	s.mux.HandleFunc("/api/sessions", s.sessions)
 	s.mux.HandleFunc("/api/sessions/{id}", s.session)
+	s.mux.HandleFunc("/api/sessions/{id}/requests", s.sessionRequests)
 	s.mux.HandleFunc("/api/sessions/{id}/prompts/{position}", s.sessionPrompt)
 	s.mux.HandleFunc("/api/related-sessions", s.relatedSessions)
 	s.mux.HandleFunc("/api/prompts", s.prompts)

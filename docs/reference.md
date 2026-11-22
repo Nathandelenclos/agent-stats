@@ -91,6 +91,10 @@ The report has a one-line total (requests, failures, cost, tokens in and out, ca
 per harness, model, folder and agent type, then the most used tools with their MCP server, call count, errors and
 result size.
 
+In the browser, open a session and select **Requests** to page through indexed model usage, including
+its subagents. **Failed only** filters the list. Open a failed row to read its error text on a loopback
+server. Some coding agents record usage by turn rather than for each individual provider call.
+
 ## Prompts review
 
 The **Prompts** mode and the `agent-stats prompts` subcommand help you spot what you keep correcting or repeating, so you can

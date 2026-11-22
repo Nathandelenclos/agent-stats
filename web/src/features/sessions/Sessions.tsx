@@ -4,6 +4,7 @@ import { describe, Failure } from "../../shared/Failure";
 import { formatDateTime, formatInteger, formatMs, formatPercent, formatUSD } from "../../shared/format";
 import { describeSignals } from "../report/signals";
 import { ToolsTable, type Filters, type Usage } from "../report";
+import { SessionRequests } from "./SessionRequests";
 import { PromptMarkdown, PromptReader } from "./PromptReader";
 import { useSessionDetail, type Session, type SessionDetail, type SessionPrompt, type useSessions } from "./api";
 
@@ -32,7 +33,7 @@ const sessionMetrics: Column<Session>[] = [
   { id: "folder", header: "Folder", value: (row) => row.folder, truncate: true },
 ];
 
-const sectionNames = ["Summary", "Models", "Tools", "Subagents", "Prompts"] as const;
+const sectionNames = ["Summary", "Models", "Tools", "Subagents", "Prompts", "Requests"] as const;
 type SectionName = typeof sectionNames[number];
 type PromptTarget = { position: number; revision?: string };
 type OpenPrompt = (id: string, position: number, revision?: string) => void;
@@ -188,7 +189,8 @@ function SessionPage({ id, filters, project, close, active, reading, onSection, 
       {detail.isPending && <p role="status">Loading session…</p>}
       {detail.isError && <Failure title="The session could not be loaded." message={describe(detail.error)} retry={() => void detail.refetch()} />}
       {detail.isSuccess && (
-        <SessionContents detail={detail.data} active={active} onSection={onSection} openPrompt={(id, position, revision, button) => {
+        <SessionContents detail={detail.data} active={active} onSection={onSection}
+          requests={<SessionRequests key={JSON.stringify([id, project, filters])} id={id} project={project} filters={filters} />} openPrompt={(id, position, revision, button) => {
           promptButton.current = button;
           openPrompt(id, position, revision);
         }} />
@@ -223,7 +225,8 @@ function Metric({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function SessionContents({ detail, active, onSection, openPrompt }: {
+function SessionContents({ detail, active, onSection, openPrompt, requests }: {
+  requests: ReactNode;
   detail: SessionDetail;
   active: SectionName;
   onSection: (section: SectionName) => void;
@@ -289,7 +292,7 @@ function SessionContents({ detail, active, onSection, openPrompt }: {
             hidden={section !== active}
             tabIndex={0}
           >
-            {section === active && <SectionContent detail={detail} section={section} openPrompt={openPrompt} />}
+            {section === active && (section === "Requests" ? requests : <SectionContent detail={detail} section={section} openPrompt={openPrompt} />)}
           </section>
         ))}
       </div>
@@ -297,7 +300,7 @@ function SessionContents({ detail, active, onSection, openPrompt }: {
   );
 }
 
-function SectionContent({ detail, section, openPrompt }: { detail: SessionDetail; section: SectionName; openPrompt: PromptClick }) {
+function SectionContent({ detail, section, openPrompt }: { detail: SessionDetail; section: Exclude<SectionName, "Requests">; openPrompt: PromptClick }) {
   const { session, tools, subagents, prompts, promptsVisible } = detail;
   switch (section) {
     case "Summary": {

@@ -613,3 +613,39 @@ func TestTheFolderASessionWorkedInIsPublishedWithItsToolCallsAndInTheListOfFolde
 		t.Errorf("listed folders = %s", got)
 	}
 }
+
+func TestRequestDetailsViewMigrationPreservesIndexedCalls(t *testing.T) {
+	s := open(t)
+	row := transcript(t, "s1", time.UnixMilli(1767261600000))
+	row.Transcript.Requests[0].StopReason = "stop"
+	f := application.LogFile{Path: "/logs/s1.jsonl", Harness: kernel.Claude, Revision: "10:1767261600123456789"}
+	if err := save(s, f, row); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(schemaBeforeRequestDetails); err != nil {
+		t.Fatal(err)
+	}
+	path := pathOf(t, s)
+	s.Close()
+
+	upgraded := reopen(t, path)
+	var provider, stop, key string
+	var cost float64
+	if err := upgraded.db.QueryRow(`SELECT provider, stop_reason, key, cost FROM session_requests`).Scan(&provider, &stop, &key, &cost); err != nil {
+		t.Fatal(err)
+	}
+	if provider != "anthropic" || stop != "stop" || key != "m1" || cost != 2 {
+		t.Fatalf("indexed call after upgrade: %q %q %q %v", provider, stop, key, cost)
+	}
+	if err := upgraded.db.QueryRow(`SELECT provider FROM usage_requests`).Scan(&provider); err != nil || provider != "anthropic" {
+		t.Fatalf("usage provider after upgrade: %q %v", provider, err)
+	}
+}
+
+const schemaBeforeRequestDetails = `
+PRAGMA user_version = 4;
+DROP VIEW session_requests;
+CREATE VIEW session_requests AS SELECT session_id, cost FROM requests;
+DROP VIEW usage_requests;
+CREATE VIEW usage_requests AS SELECT ts, model FROM requests;
+`

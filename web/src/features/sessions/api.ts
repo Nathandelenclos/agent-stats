@@ -93,3 +93,40 @@ export function useSessionPrompt(id: string, position: number, revision: string 
     retry: shouldRetry,
   });
 }
+
+export interface SessionRequest {
+  ts: number;
+  model: string;
+  provider: string;
+  stopReason: string;
+  agentType: string;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cost: number;
+  priced: boolean;
+  durationMs: number;
+  ttftMs: number;
+  failed: boolean;
+  error?: string;
+}
+
+export const requestPageSize = 25;
+
+export function useSessionRequests(id: string, filters: Filters, project: string, failed: boolean, offset: number) {
+  const params = {
+    ...filterParams(filters),
+    limit: String(requestPageSize),
+    offset: String(offset),
+    ...(failed ? { failed: "1" } : {}),
+  };
+  return useQuery({
+    queryKey: ["sessions", "requests", id, params, project],
+    queryFn: ({ signal }) => getJSON<{ requests: SessionRequest[]; hasMore: boolean }>(
+      `/api/sessions/${encodeURIComponent(id)}/requests`, params, signal,
+    ),
+    gcTime: 0,
+    retry: shouldRetry,
+  });
+}
