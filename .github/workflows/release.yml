@@ -37,6 +37,8 @@ on:
       # Only the release-notes job reads it.
       OPENAI_API_KEY:
         required: false
+      HOMEBREW_TAP_DEPLOY_KEY:
+        required: false
   workflow_dispatch:
 
 permissions:
@@ -574,3 +576,14 @@ jobs:
           body=$(gh release view "$VERSION" --json body --jq '.body')
           [ -n "${body//[[:space:]]/}" ] || { echo "::error::The draft release $VERSION has no notes."; exit 1; }
           gh release edit "$VERSION" --draft=false --verify-tag
+
+  homebrew:
+    name: Homebrew
+    needs: [plan, publish]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/homebrew.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+    secrets:
+      HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}

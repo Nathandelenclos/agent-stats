@@ -81,6 +81,6 @@ jobs:
       attestations: write
       actions: read # the publishing job reads the size of the summary artifact before downloading it
     uses: ./.github/workflows/release.yml
-    # Only this secret, not `secrets: inherit`. Optional, and read by one job that cannot write (release.yml).
     secrets:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}

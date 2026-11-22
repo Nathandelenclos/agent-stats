@@ -9,6 +9,12 @@ machine** (see [Privacy](#privacy)).
 
 ## Install
 
+On macOS with Homebrew:
+
+```sh
+brew install nathandelenclos/tap/agent-stats
+```
+
 With Go 1.26.11 or later:
 
 ```sh
