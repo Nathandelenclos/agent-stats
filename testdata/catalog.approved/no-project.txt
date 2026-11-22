@@ -1,3 +1,4 @@
+All projects
 
 claude · 19 installed, 9 never used
 KIND    ITEM              SCOPE         USES  UNIT         LAST USED

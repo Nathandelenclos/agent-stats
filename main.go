@@ -88,10 +88,15 @@ func run() error {
 	harness := flag.String("harness", "", "only one harness: claude, codex, omp, pi")
 	asJSON := flag.Bool("json", false, "print the report as JSON")
 	noSync := flag.Bool("no-sync", false, "skip re-reading the logs")
+	all := flag.Bool("all", false, "count every project, not only the one of the current folder")
+	projectDir := flag.String("project", "", "only count the sessions that worked in this folder or below it (default: the project of the current folder, if sessions worked in it)")
 	flag.Parse()
 
 	if *dbPath == "" {
 		return fmt.Errorf("no user cache directory: pass --db")
+	}
+	if *all && *projectDir != "" {
+		return fmt.Errorf("--all and --project exclude each other")
 	}
 	from, err := parseSince(*since, time.Now())
 	if err != nil {
@@ -131,25 +136,33 @@ func run() error {
 		return err
 	}
 	defer usage.Close()
+	sc, err := scopeOf(*all, *projectDir, usage)
+	if err != nil {
+		return err
+	}
 	if ui {
 		sessions := usage.Sessions()
 		o := tui.Options{Reports: reporting.BuildReport{Queries: usage}, Harness: only, SinceLabel: *since, Since: from,
-			Sessions: reporting.ListSessions{Queries: sessions}, Session: reporting.ShowSession{Queries: sessions}}
+			Sessions: reporting.ListSessions{Queries: sessions}, Session: reporting.ShowSession{Queries: sessions},
+			Project: sc.project, Scoped: sc.scoped}
 		if indexLogs != nil {
 			o.Sync = tuiSync(indexLogs)
 		}
 		return tui.Run(o)
 	}
-	rep, err := reporting.BuildReport{Queries: usage}.Run(reporting.Query{Since: from, Harness: only})
+	rep, err := reporting.BuildReport{Queries: usage}.Run(reporting.Query{Since: from, Harness: only, Project: sc.restriction()})
 	if err != nil {
 		return err
 	}
 	if *asJSON {
+		if sc.scoped { // the JSON has no field for it, and its numbers differ from those of the whole
+			fmt.Fprintln(os.Stderr, sc.label())
+		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(toJSON(rep))
 	}
-	printReport(rep)
+	printReport(rep, sc)
 	return nil
 }
 

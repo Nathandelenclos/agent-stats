@@ -55,9 +55,10 @@ func writeCatalogJSON(w io.Writer, c catalog.Catalog) error {
 	return enc.Encode(toCatalogJSON(c))
 }
 
-// printCatalog writes one table per harness: kind, item, scope, uses and last use. Names come from configuration
+// printCatalog writes what the usage covers, then one table per harness: kind, item, scope, uses and last use. Names come from configuration
 // files and logs, so they are made printable.
-func printCatalog(w io.Writer, c catalog.Catalog, onlyUnused bool) {
+func printCatalog(w io.Writer, c catalog.Catalog, onlyUnused bool, sc scope) {
+	fmt.Fprintln(w, sc.label())
 	if len(c.Entries) == 0 {
 		if onlyUnused {
 			fmt.Fprintln(w, "Nothing installed goes unused in this range.")

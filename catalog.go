@@ -14,7 +14,10 @@ import (
 	catalogdb "github.com/Nathandelenclos/agent-stats/internal/catalog/infra/sqlite"
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/infra/sqlite"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	"github.com/Nathandelenclos/agent-stats/internal/platform/projectscope"
 	"github.com/Nathandelenclos/agent-stats/internal/pricing/infra/pricetable"
+	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
+	usagedb "github.com/Nathandelenclos/agent-stats/internal/reporting/infra/sqlite"
 )
 
 // runCatalog is the `agent-stats catalog` subcommand: what each harness has installed, linked to how much it was used.
@@ -23,7 +26,6 @@ func runCatalog(args []string, stdout, stderr io.Writer) error {
 	if cache, err := os.UserCacheDir(); err == nil {
 		defaultDB = filepath.Join(cache, "agent-stats", "index.db")
 	}
-	cwd, _ := os.Getwd()
 	fl := flag.NewFlagSet("agent-stats catalog", flag.ContinueOnError)
 	fl.SetOutput(stderr)
 	dbPath := fl.String("db", defaultDB, "index database (default: agent-stats/index.db in the user cache directory)")
@@ -33,10 +35,13 @@ func runCatalog(args []string, stdout, stderr io.Writer) error {
 	asJSON := fl.Bool("json", false, "print the catalog as JSON")
 	noSync := fl.Bool("no-sync", false, "skip re-reading the logs")
 	unused := fl.Bool("unused", false, "only installed items the logs never show in use")
-	project := fl.String("project", cwd, "folder whose project-level configuration is read (empty: none)")
+	project := fl.String("project", "", "folder of the project: its project-level configuration is read and only its sessions count (default: the project of the current folder, its sessions counted if there are any; empty: none)")
+	all := fl.Bool("all", false, "count the usage of every project, not only the project's")
 	if err := fl.Parse(args); err != nil {
 		return err
 	}
+	projectGiven := false
+	fl.Visit(func(f *flag.Flag) { projectGiven = projectGiven || f.Name == "project" })
 	if fl.NArg() > 0 {
 		return fmt.Errorf("unexpected argument %q", fl.Arg(0))
 	}
@@ -57,10 +62,22 @@ func runCatalog(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if *project != "" {
-		if *project, err = filepath.Abs(*project); err != nil {
+	// The project, for its configuration and for the sessions that count: the folder given, none when it is given
+	// empty, else the project of the current folder.
+	var given, working kernel.Project
+	configDir := ""
+	switch {
+	case projectGiven && *project == "":
+	case projectGiven:
+		if configDir, err = filepath.Abs(*project); err != nil {
 			return err
 		}
+		if given, err = projectscope.Of(configDir); err != nil {
+			return err
+		}
+	default:
+		working = workingProject()
+		configDir = working.Root()
 	}
 
 	index, err := sqlite.Open(sqlite.Options{Path: *dbPath, User: currentUser()})
@@ -86,20 +103,32 @@ func runCatalog(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	defer activity.Close()
+	sessions, err := usagedb.OpenReadOnly(*dbPath)
+	if err != nil {
+		return err
+	}
+	defer sessions.Close()
+	sc, err := chooseScope(*all, given, working, reporting.DetectProject{Queries: sessions})
+	if err != nil {
+		return err
+	}
 
 	c, err := catalog.BuildCatalog{
-		Inventory: configfiles.Inventory{Roots: configfiles.DefaultRoots(home, *project, os.Getenv)},
+		Inventory: configfiles.Inventory{Roots: configfiles.DefaultRoots(home, configDir, os.Getenv)},
 		Activity:  activity,
-	}.Run(catalog.Query{Since: from, Harness: only, UnusedOnly: *unused})
+	}.Run(catalog.Query{Since: from, Harness: only, UnusedOnly: *unused, Project: sc.restriction()})
 	if err != nil {
 		return err
 	}
 	if *asJSON {
+		if sc.scoped { // the JSON has no field for it, and its numbers differ from those of the whole
+			fmt.Fprintln(stderr, sc.label())
+		}
 		return writeCatalogJSON(stdout, c)
 	}
 	for _, note := range c.Skipped {
 		fmt.Fprintln(stderr, "skipped", printable(note))
 	}
-	printCatalog(stdout, c, *unused)
+	printCatalog(stdout, c, *unused, sc)
 	return nil
 }

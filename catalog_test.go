@@ -69,7 +69,7 @@ func indexedCatalogHome(t *testing.T) []string {
 	t.Cleanup(func() { time.Local = local })
 	_, project := catalogHome(t)
 	db := filepath.Join(t.TempDir(), "index.db")
-	base := []string{"--db", db, "--project", project}
+	base := []string{"--db", db, "--project", project, "--all"}
 	catalogOutput(t, base...)
 	return append(base, "--no-sync")
 }
@@ -145,7 +145,7 @@ func TestCatalogHoldsNothingTheConfigurationDeclaresAsASource(t *testing.T) {
 		t.Fatalf("the fixture tree holds %d markers: it no longer covers every shape", markers)
 	}
 	db := filepath.Join(t.TempDir(), "index.db")
-	base := []string{"--db", db, "--project", project}
+	base := []string{"--db", db, "--project", project, "--all"}
 	catalogOutput(t, base...)
 	base = append(base, "--no-sync")
 
@@ -175,7 +175,7 @@ func TestCatalogJSONTellsUnknownUsageFromNone(t *testing.T) {
 	// Given the fixture home, indexed
 	_, project := catalogHome(t)
 	db := filepath.Join(t.TempDir(), "index.db")
-	out, _ := catalogOutput(t, "--db", db, "--project", project, "--json")
+	out, _ := catalogOutput(t, "--db", db, "--project", project, "--all", "--json")
 
 	// When the JSON is read
 	var c jsonCatalog
@@ -208,8 +208,8 @@ func TestCatalogShowsHostileLoggedNamesEscaped(t *testing.T) {
 
 	// When the catalogue is printed as a table and as JSON
 	db := filepath.Join(t.TempDir(), "index.db")
-	text, _ := catalogOutput(t, "--db", db, "--project", project)
-	asJSON, _ := catalogOutput(t, "--db", db, "--project", project, "--json", "--no-sync")
+	text, _ := catalogOutput(t, "--db", db, "--project", project, "--all")
+	asJSON, _ := catalogOutput(t, "--db", db, "--project", project, "--all", "--json", "--no-sync")
 
 	// Then the tool is listed with the sequence defanged, in both
 	if strings.Contains(text+asJSON, "\x1b") || !strings.Contains(text, "bad?[2Jtool") {
@@ -227,7 +227,7 @@ func catalogWithARefusedSkillCall(t *testing.T) jsonCatalog {
 		t.Fatal(err)
 	}
 	db := filepath.Join(t.TempDir(), "index.db")
-	out, _ := catalogOutput(t, "--db", db, "--project", project, "--json")
+	out, _ := catalogOutput(t, "--db", db, "--project", project, "--all", "--json")
 	var c jsonCatalog
 	if err := json.Unmarshal([]byte(out), &c); err != nil {
 		t.Fatal(err)
