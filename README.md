@@ -17,7 +17,12 @@ go install github.com/Nathandelenclos/agent-stats@latest
 
 Or download a binary from the [Releases](https://github.com/Nathandelenclos/agent-stats/releases) page
 (Linux, macOS and Windows, on amd64 and arm64), check it against `checksums.txt`, and put it on your `PATH`.
-The binaries are static (no cgo): the SQLite driver is pure Go.
+The binaries are static (no cgo): the SQLite driver is pure Go. Each release also carries an SBOM per archive and a
+signed build provenance attestation, which you can check with the GitHub CLI:
+
+```sh
+gh attestation verify agent-stats_<version>_<os>_<arch>.tar.gz --repo Nathandelenclos/agent-stats
+```
 
 To build from a checkout:
 
