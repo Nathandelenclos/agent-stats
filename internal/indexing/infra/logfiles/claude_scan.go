@@ -129,6 +129,7 @@ func (c *claudeContent) scan(raw []byte) bool {
 		c.IsText = true
 		return s.setText(&c.Text) && s.done()
 	}
+	c.Blocks = []claudeBlock{} // an empty list is an empty slice, as encoding/json decodes it
 	ok := s.array(func() bool {
 		var b claudeBlock
 		ok := s.claudeBlock(&b)

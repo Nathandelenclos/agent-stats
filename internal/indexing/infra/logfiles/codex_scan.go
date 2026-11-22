@@ -197,6 +197,7 @@ func (s *scanner) codexItemLog(it *codexItemLog) bool {
 			if !m.first(16) {
 				return false
 			}
+			it.Content = []codexContent{} // an empty list is an empty slice, as encoding/json decodes it
 			return s.array(func() bool {
 				var c codexContent
 				var t seen

@@ -135,7 +135,7 @@ func decodePiBlocks(raw []byte) []piBlock {
 func scanPiBlocks(raw []byte) ([]piBlock, bool) {
 	s := scanner{b: raw}
 	s.ws()
-	var blocks []piBlock
+	blocks := []piBlock{} // an empty list is an empty slice, as encoding/json decodes it
 	ok := s.array(func() bool {
 		var b piBlock
 		var m seen
