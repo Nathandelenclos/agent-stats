@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Install agent-stats, read your first report, and explore your local dashboard.">
+  <title>User guide | agent-stats</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="index.html"><span aria-hidden="true">&gt;_</span> agent-stats</a>
+      <nav aria-label="Main">
+        <ul>
+          <li><a href="index.html">Overview</a></li>
+          <li><a href="guide.html" aria-current="page">User guide</a></li>
+          <li><a href="https://github.com/Nathandelenclos/agent-stats">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="wrap guide" tabindex="-1">
+    <h1>User guide</h1>
+    <p class="intro">Install agent-stats, check usage in your terminal, and open the dashboard on your machine.</p>
+    <div class="guide-layout">
+      <nav class="contents" aria-labelledby="contents-title">
+        <h2 id="contents-title">On this page</h2>
+        <ul>
+          <li><a href="#install">Install</a></li>
+          <li><a href="#first-report">Run your first report</a></li>
+          <li><a href="#dashboard">Open the dashboard</a></li>
+          <li><a href="#privacy">Keep your data local</a></li>
+          <li><a href="#troubleshooting">Troubleshooting</a></li>
+        </ul>
+      </nav>
+
+      <div class="guide-body">
+        <section aria-labelledby="install">
+          <h2 id="install">Install</h2>
+          <p>The published binaries include the local dashboard.</p>
+          <h3>Homebrew on macOS</h3>
+          <pre><code>brew install nathandelenclos/tap/agent-stats</code></pre>
+
+          <h3>Linux packages</h3>
+          <p>Download the <code>.deb</code> for Debian or Ubuntu, <code>.rpm</code> for Fedora, or <code>.apk</code> for Alpine. Each comes in <code>amd64</code> and <code>arm64</code>.</p>
+          <p>Compare the package's SHA-256 hash with <code>checksums.txt</code> from the same release, then install it with your distribution's package manager. <a href="https://github.com/Nathandelenclos/agent-stats/releases">Download a release package</a>.</p>
+
+          <h3>Archives for macOS, Linux, and Windows</h3>
+          <p>Choose the archive for your OS and processor (<code>amd64</code> or <code>arm64</code>) on the <a href="https://github.com/Nathandelenclos/agent-stats/releases">Releases page</a>. The macOS filenames use <code>darwin</code>. Compare the archive's SHA-256 hash with <code>checksums.txt</code> from that release. Extract the archive and put the executable on your <code>PATH</code>.</p>
+
+          <h3>Install with Go</h3>
+          <p>With Go 1.26.11 or later, this command installs the CLI and local JSON API. The dashboard URL shows a build notice.</p>
+          <pre><code>go install github.com/Nathandelenclos/agent-stats@latest</code></pre>
+        </section>
+
+        <section aria-labelledby="first-report">
+          <h2 id="first-report">Run your first report</h2>
+          <p>After a session with a <a href="https://github.com/Nathandelenclos/agent-stats/blob/main/README.md#supported-harnesses">supported coding agent</a>, run a report across all projects for the last seven days. The pager lets you read the report a page at a time.</p>
+          <pre><code>agent-stats --all --since 7d | more</code></pre>
+          <p>Start with the totals, then compare breakdowns by coding agent, model, or folder. Add <code>--harness codex</code> to focus on Codex, <code>--json</code> for machine-readable output, or <code>--no-sync</code> to reuse the index without re-reading logs.</p>
+          <p>From a project folder, agent-stats can select that project automatically. Pass <code>--project DIR</code> to select one explicitly, or <code>--all</code> to include every project regardless of where you run the command.</p>
+        </section>
+
+        <section aria-labelledby="dashboard">
+          <h2 id="dashboard">Open the dashboard</h2>
+          <p>Start the local server across all projects with a release binary.</p>
+          <pre><code>agent-stats serve --all</code></pre>
+          <p>Visit <a href="http://127.0.0.1:7373">http://127.0.0.1:7373</a> on the machine running the command. Indexing runs in the background. Select <strong>Re-index</strong> to pick up new log data, and press <kbd>Ctrl</kbd>+<kbd>C</kbd> in the terminal to stop the server.</p>
+
+          <h3 id="usage">Usage</h3>
+          <p>Start with the totals, then filter by period and coding agent. See estimated cost over time and sort the tables by model, folder, or tool to find what drove a change. If the server detected a project, use the project control to switch scope.</p>
+
+          <h3 id="sessions">Sessions</h3>
+          <p>Sort the sessions or select a row to see the matching session's models, tools, subagents, and prompt signals. The active period and coding agent filters also apply to this list.</p>
+
+          <h3 id="prompts">Prompts</h3>
+          <p>Review prompts flagged for signals such as repetition, negation, or profanity. When the data is available, this view shows repeated requests, counts by folder, and flagged prompts with their source session and coding agent. Treat flags as a starting point for review. Pasted text can trigger them too.</p>
+        </section>
+
+        <section aria-labelledby="privacy">
+          <h2 id="privacy">Keep your data local</h2>
+          <p>agent-stats opens session logs read-only. Its SQLite index contains full prompt text and lives in <code>agent-stats/index.db</code> under your user cache directory by default. Treat the index, exported reports, and screenshots as private. Titles and paths can reveal project or prompt details.</p>
+          <p>By default the web server listens on the local machine. Session details and prompt reviews show excerpts only on a loopback listener without <code>--allow-remote</code>. With <code>--allow-remote</code>, anyone who can reach the server can read reports and session metadata without a login. See the <a href="https://github.com/Nathandelenclos/agent-stats/blob/main/README.md#security">server security notes</a> before changing this setting.</p>
+        </section>
+
+        <section aria-labelledby="troubleshooting">
+          <h2 id="troubleshooting">Troubleshooting</h2>
+          <h3>The report has no requests</h3>
+          <p>Check that your coding agent has written a local session, clear any coding agent filter, and try a longer period with <code>--all</code>. If the dashboard is already open, select <strong>Re-index</strong> after a new session.</p>
+
+          <h3>The browser shows a build notice or an older dashboard</h3>
+          <p>Use a release binary for the packaged dashboard. To build from a checkout, regenerate <code>web/dist</code> and then build the Go binary again. This also replaces any stale frontend bundled in a previous local build. The frontend build needs Node.js 22.12 or later.</p>
+          <pre><code>go generate ./web &amp;&amp; go build -tags web .</code></pre>
+          <p>Start the rebuilt executable from the checkout with <code>./agent-stats serve --all</code>, or <code>.\agent-stats.exe serve --all</code> on Windows. See the <a href="https://github.com/Nathandelenclos/agent-stats/blob/main/README.md#building-the-web-page">build instructions</a> for details.</p>
+
+          <h3>The default port is busy</h3>
+          <p>Choose another loopback port and open the address you pass to <code>--addr</code>.</p>
+          <pre><code>agent-stats serve --all --addr 127.0.0.1:8080</code></pre>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <a href="https://github.com/Nathandelenclos/agent-stats/releases">Release downloads</a>
+    </div>
+  </footer>
+</body>
+</html>

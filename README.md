@@ -7,6 +7,8 @@ local SQLite file and reports requests, tokens, cache hit rate, cost, latency an
 folder and sub-agent type. There is no proxy, no wrapper, no account and no network call: **nothing leaves your
 machine** (see [Privacy](#privacy)).
 
+The [documentation source](docs/) includes the overview and an English user guide for the local dashboard.
+
 ## Install
 
 On macOS with Homebrew:
