@@ -23,6 +23,11 @@ func open(t *testing.T) *SQLiteIndex {
 	return s
 }
 
+// save saves one log on its own.
+func save(s *SQLiteIndex, f application.LogFile, t application.IndexedTranscript) error {
+	return s.Save([]application.IndexedLog{{File: f, Transcript: t}})[0]
+}
+
 // pathOf is the file the index lives in.
 func pathOf(t *testing.T, s *SQLiteIndex) string {
 	t.Helper()
@@ -61,7 +66,7 @@ func TestSaveKeepsValuesAsData(t *testing.T) {
 	s := open(t)
 	at := time.UnixMilli(1767261600000)
 	f := application.LogFile{Path: "/logs/" + hostile + ".jsonl", Harness: kernel.Claude, Size: 10, ModTime: time.Unix(0, 1767261600123456789)}
-	if err := s.Save(f, transcript(t, "s1", at)); err != nil {
+	if err := save(s, f, transcript(t, "s1", at)); err != nil {
 		t.Fatal(err)
 	}
 	var model, file string
@@ -87,7 +92,7 @@ func TestMovedLogIsNotCountedTwice(t *testing.T) {
 	s := open(t)
 	at := time.UnixMilli(1767261600000)
 	for _, path := range []string{"/logs/sessions/s1.jsonl", "/logs/archived/s1.jsonl"} {
-		if err := s.Save(application.LogFile{Path: path, Harness: kernel.Claude}, transcript(t, "s1", at)); err != nil {
+		if err := save(s, application.LogFile{Path: path, Harness: kernel.Claude}, transcript(t, "s1", at)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -105,7 +110,7 @@ func TestIndexIsPrivate(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if err := s.Save(application.LogFile{Path: "/l.jsonl", Harness: kernel.Claude}, transcript(t, "s1", time.UnixMilli(1))); err != nil {
+	if err := save(s, application.LogFile{Path: "/l.jsonl", Harness: kernel.Claude}, transcript(t, "s1", time.UnixMilli(1))); err != nil {
 		t.Fatal(err)
 	}
 	for _, p := range []string{dir, path, path + "-wal", path + "-shm"} {
@@ -189,7 +194,7 @@ func TestASubagentIsListedUnderItsSession(t *testing.T) {
 		{"/logs/main.jsonl", transcript(t, "main", at)},
 		{"/logs/child.jsonl", subagentOf(t, "main", "child", at)},
 	} {
-		if err := s.Save(application.LogFile{Path: f.path, Harness: kernel.Claude}, f.tr); err != nil {
+		if err := save(s, application.LogFile{Path: f.path, Harness: kernel.Claude}, f.tr); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -209,7 +214,7 @@ func TestASubagentIsListedUnderItsSession(t *testing.T) {
 func TestASubagentWhoseSessionWasNeverIndexedIsListedOnItsOwn(t *testing.T) {
 	// Given a subagent whose session log was never indexed
 	s := open(t)
-	if err := s.Save(application.LogFile{Path: "/logs/orphan.jsonl", Harness: kernel.Claude}, subagentOf(t, "gone", "orphan", time.UnixMilli(1767261600000))); err != nil {
+	if err := save(s, application.LogFile{Path: "/logs/orphan.jsonl", Harness: kernel.Claude}, subagentOf(t, "gone", "orphan", time.UnixMilli(1767261600000))); err != nil {
 		t.Fatal(err)
 	}
 
@@ -222,7 +227,7 @@ func TestASubagentWhoseSessionWasNeverIndexedIsListedOnItsOwn(t *testing.T) {
 func saveAll(t *testing.T, s *SQLiteIndex, logs map[string]application.IndexedTranscript) {
 	t.Helper()
 	for path, tr := range logs {
-		if err := s.Save(application.LogFile{Path: path, Harness: kernel.Claude}, tr); err != nil {
+		if err := save(s, application.LogFile{Path: path, Harness: kernel.Claude}, tr); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -294,7 +299,7 @@ func TestPromptsKeepTheOrderTheyWereTypedInAndTheirSignals(t *testing.T) {
 	tr := transcript(t, "s1", at)
 	tr.Prompts = []domain.Prompt{{Key: "z", At: at, Text: "first"}, {Key: "a", At: at, Text: hostile}}
 	tr.Signals = []domain.Signals{{Chars: 5, Words: 1}, {Chars: 9, Words: 2, Yelling: 3, Profanity: 1, Anguish: 2, Negation: 4, Blame: 5, Repeated: true}}
-	if err := s.Save(application.LogFile{Path: "/logs/s1.jsonl", Harness: kernel.Claude}, tr); err != nil {
+	if err := save(s, application.LogFile{Path: "/logs/s1.jsonl", Harness: kernel.Claude}, tr); err != nil {
 		t.Fatal(err)
 	}
 
@@ -327,7 +332,7 @@ func TestPromptsKeepTheOrderTheyWereTypedInAndTheirSignals(t *testing.T) {
 func TestAReaderStillListsTheSessionsWhenTheirListingFailsToUpdate(t *testing.T) {
 	// Given a session listed for a reader on another connection, by an index that is due an update of its listing
 	s := open(t)
-	if err := s.Save(application.LogFile{Path: "/logs/main.jsonl", Harness: kernel.Claude}, transcript(t, "main", time.UnixMilli(1767261600000))); err != nil {
+	if err := save(s, application.LogFile{Path: "/logs/main.jsonl", Harness: kernel.Claude}, transcript(t, "main", time.UnixMilli(1767261600000))); err != nil {
 		t.Fatal(err)
 	}
 	reader, err := sql.Open("sqlite", pathOf(t, s))
@@ -380,7 +385,7 @@ func indexBuiltBeforeTheCodexEndTimeFix(t *testing.T) (path string, codex, claud
 	codex = application.LogFile{Path: "/logs/codex.jsonl", Harness: kernel.Codex, Size: 5, ModTime: time.Unix(0, 1)}
 	claude = application.LogFile{Path: "/logs/claude.jsonl", Harness: kernel.Claude, Size: 7, ModTime: time.Unix(0, 2)}
 	for _, f := range []application.LogFile{codex, claude} {
-		if err := s.Save(f, transcript(t, filepath.Base(f.Path), at)); err != nil {
+		if err := save(s, f, transcript(t, filepath.Base(f.Path), at)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -413,7 +418,7 @@ func TestCodexLogsReadAgainAreNotForgottenASecondTime(t *testing.T) {
 	// Given a Codex log read again after the index was opened by a build with the fix
 	path, codex, _ := indexBuiltBeforeTheCodexEndTimeFix(t)
 	s := reopen(t, path)
-	if err := s.Save(codex, transcript(t, "codex.jsonl", time.UnixMilli(1767261600000))); err != nil {
+	if err := save(s, codex, transcript(t, "codex.jsonl", time.UnixMilli(1767261600000))); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
@@ -527,5 +532,79 @@ func TestASubagentIndexedAsAMainConversationIsStillListedUnderItsSession(t *test
 	// Then it belongs to its session like any subagent, and its requests count for it
 	if listed["claude:main/child"] != "claude:main" || requestsListedUnder(t, s, "claude:main") != 2 {
 		t.Errorf("listed under = %v", listed)
+	}
+}
+
+func TestSaveAppliesABatchInOrderAndUndoesOnlyTheLogThatFails(t *testing.T) {
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	// Given a database that refuses the session "claude:bad"
+	if _, err := s.db.Exec(`CREATE TRIGGER refuse BEFORE INSERT ON sessions WHEN NEW.id = 'claude:bad' BEGIN SELECT RAISE(ABORT, 'refused'); END`); err != nil {
+		t.Fatal(err)
+	}
+	log := func(native string) application.IndexedLog {
+		return application.IndexedLog{File: application.LogFile{Path: "/logs/" + native + ".jsonl", Harness: kernel.Claude, Size: 1}, Transcript: transcript(t, native, at)}
+	}
+
+	// When one batch holds a good log, the bad one, and a good one again
+	errs := s.Save([]application.IndexedLog{log("a"), log("bad"), log("c")})
+
+	// Then only the bad one fails and leaves nothing behind, the others are saved
+	if errs[0] != nil || errs[1] == nil || errs[2] != nil {
+		t.Fatalf("errors = %v", errs)
+	}
+	var sessions, requests, files int
+	if err := s.db.QueryRow(`SELECT (SELECT COUNT(*) FROM sessions), (SELECT COUNT(*) FROM requests), (SELECT COUNT(*) FROM files)`).Scan(&sessions, &requests, &files); err != nil ||
+		sessions != 2 || requests != 2 || files != 2 {
+		t.Errorf("sessions %d, requests %d, files %d, %v; want 2 each", sessions, requests, files, err)
+	}
+}
+
+func TestSaveOfNothingIsHarmless(t *testing.T) {
+	if errs := open(t).Save(nil); len(errs) != 0 {
+		t.Errorf("errors = %v", errs)
+	}
+}
+
+func pageSize(t *testing.T, s *SQLiteIndex) int {
+	t.Helper()
+	var n int
+	if err := s.db.QueryRow(`PRAGMA page_size`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func TestNewIndexUsesLargePagesAndAnOlderOneKeepsItsOwn(t *testing.T) {
+	// Given an index made by an older version, with 4 KiB pages
+	path := filepath.Join(t.TempDir(), "old.db")
+	old, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := old.Exec(`PRAGMA page_size = 4096; PRAGMA journal_mode = WAL; CREATE TABLE files (path TEXT PRIMARY KEY, harness TEXT NOT NULL, size INTEGER NOT NULL, mtime INTEGER NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	old.Close()
+
+	// When both it and a new index are opened and written to
+	older, err := Open(Options{Path: path, User: "me@host"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer older.Close()
+	fresh := open(t)
+	for _, s := range []*SQLiteIndex{older, fresh} {
+		if err := save(s, application.LogFile{Path: "/l.jsonl", Harness: kernel.Claude}, transcript(t, "s1", time.UnixMilli(1))); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Then the new one has 16 KiB pages and the old one is untouched
+	if got := pageSize(t, fresh); got != 16384 {
+		t.Errorf("new index page size = %d, want 16384", got)
+	}
+	if got := pageSize(t, older); got != 4096 {
+		t.Errorf("older index page size = %d, want 4096", got)
 	}
 }
