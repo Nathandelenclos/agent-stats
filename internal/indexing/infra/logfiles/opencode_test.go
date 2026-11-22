@@ -385,6 +385,44 @@ func TestAMessageCopiedIntoAForkIsHistoryEvenWhenItWasStampedWhenTheForkWasMade(
 	}
 }
 
+func TestARowIsBoundedByItsBytesWhateverItsLengthInCharacters(t *testing.T) {
+	// Given a limit of 100 bytes for a row, and a message of 95 characters that weigh 135 bytes
+	defer func(limit int) { maxDBRowBytes = limit }(maxDBRowBytes)
+	maxDBRowBytes = 100
+	logs, db := newOpenCode(t, "messages.sql")
+	wide := strings.Repeat("é", 40)
+	writeDB(t, db,
+		`INSERT INTO session VALUES ('ses_wide', 'prj', NULL, 'wide', '/work/demo-app', 'Wide', '1.0', 1767225700000, 1767225700000)`,
+		`INSERT INTO message VALUES ('msg_wide', 'ses_wide', 1767225701000, 1767225701000, '{"role":"user","time":{"created":1767225701000},"pad":"`+wide+`"}')`,
+		`INSERT INTO message VALUES ('msg_slim', 'ses_wide', 1767225702000, 1767225702000, '{"role":"user","time":{"created":1767225702000}}')`,
+		`INSERT INTO part VALUES ('prt_slim', 'msg_slim', 'ses_wide', 1767225702000, 1767225702000, '{"type":"text","text":"slim"}')`)
+
+	// When the session is read
+	p := transcriptOf(t, logs, "ses_wide")
+
+	// Then the wide message is skipped and counted, and the slim one is read
+	if p.SkippedLines != 1 || len(p.Prompts) != 1 || p.Prompts[0].Text != "slim" {
+		t.Errorf("skipped %d, prompts %+v", p.SkippedLines, p.Prompts)
+	}
+}
+
+func TestATitleOrAFolderLongerThanTheLimitInBytesIsNotRead(t *testing.T) {
+	// Given a session whose title and folder weigh more bytes than they have characters, and are over the limit
+	logs, db := newOpenCode(t, "messages.sql")
+	writeDB(t, db,
+		`INSERT INTO session VALUES ('ses_long', 'prj', NULL, 'long', '/work/`+strings.Repeat("é", 2100)+`', '`+strings.Repeat("é", 2100)+`', '1.0', 1767225700000, 1767225700000)`,
+		`INSERT INTO message VALUES ('msg_1', 'ses_long', 1767225701000, 1767225701000, '{"role":"user","time":{"created":1767225701000}}')`,
+		`INSERT INTO part VALUES ('prt_1', 'msg_1', 'ses_long', 1767225701000, 1767225701000, '{"type":"text","text":"Name me"}')`)
+
+	// When the session is read
+	p := transcriptOf(t, logs, "ses_long")
+
+	// Then it has no folder, and is named after its first prompt
+	if p.Session.Folder != "" || p.Session.Title != "Name me" {
+		t.Errorf("folder %q, title %q", p.Session.Folder, p.Session.Title)
+	}
+}
+
 func TestMessagesThatCannotBeReadAreSkippedAndCounted(t *testing.T) {
 	// Given a session with a message that cannot be read, usage that is negative or beyond any model's window, a negative cost,
 	// an error name with an escape sequence, and a folder that has one

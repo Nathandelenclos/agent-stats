@@ -39,6 +39,21 @@ const DBSessionSep = "#"
 // A row's data over this many bytes is not read: a database is as untrusted as a log file is.
 var maxDBRowBytes = maxLineBytes
 
+// Metadata over these many bytes is not read either: the id of a row, and the title and the folder of a session.
+// Bounds are in bytes, in SQL, so that what is over is not materialised: length() counts the characters of a text.
+const (
+	maxDBKeyBytes  = 256
+	maxDBTextBytes = 4096
+)
+
+// bounded is the SQL that gives the value of expr, or NULL when column holds over n bytes.
+func bounded(column string, n int, expr string) string {
+	return fmt.Sprintf("CASE WHEN length(CAST(%s AS BLOB)) > %d THEN NULL ELSE %s END", column, n, expr)
+}
+
+// boundedData is the SQL of a data column, with the limit as its first parameter.
+const boundedData = "CASE WHEN length(CAST(data AS BLOB)) > ? THEN NULL ELSE data END"
+
 // maxDBSessionBytes bounds what one session may hold in memory, in bytes of data read.
 var maxDBSessionBytes = maxLogBytes
 
@@ -281,19 +296,21 @@ func tableStats(ctx context.Context, db *sql.DB, table string, stamped bool) (ma
 	if stamped {
 		updated = "SUM(MIN(MAX(time_updated, 0), 4102444800000))"
 	}
-	rows, err := db.QueryContext(ctx, `SELECT session_id, COUNT(*), `+updated+`, COALESCE(SUM(length(CAST(data AS BLOB))), 0) FROM `+table+` GROUP BY session_id`) // table is one of the names of the schema, never a value of the database
+	rows, err := db.QueryContext(ctx, `SELECT `+bounded("session_id", 200, "session_id")+` AS sid, COUNT(*), `+updated+`, COALESCE(SUM(length(CAST(data AS BLOB))), 0) FROM `+table+` GROUP BY sid`) // table is one of the names of the schema, never a value of the database
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := map[string]stats{}
 	for rows.Next() {
-		var id string
+		var id sql.NullString
 		var s stats
 		if err := rows.Scan(&id, &s.rows, &s.updated, &s.bytes); err != nil {
 			return nil, err
 		}
-		out[id] = s
+		if id.Valid {
+			out[id.String] = s
+		}
 	}
 	return out, rows.Err()
 }
@@ -366,18 +383,19 @@ func (d *OpenCodeDatabase) list(path string) (sessions []dbSession, problems []e
 	}
 	found, rowsOf := map[string]dbSession{}, map[string]int64{}
 	for _, t := range schema.sessionTables {
-		rows, err := db.QueryContext(ctx, `SELECT id, time_updated FROM `+t) // t is one of the names above
+		rows, err := db.QueryContext(ctx, `SELECT `+bounded("id", 200, "id")+`, time_updated FROM `+t) // t is one of the names above
 		if err != nil {
 			problems = append(problems, unreadable(path, err))
 			continue
 		}
 		for rows.Next() {
-			var id string
+			var nid sql.NullString
 			var updated int64
-			if err := rows.Scan(&id, &updated); err != nil {
+			if err := rows.Scan(&nid, &updated); err != nil {
 				problems = append(problems, unreadable(path, err))
 				break
 			}
+			id := nid.String
 			if !sessionIDPattern.MatchString(id) {
 				problems = append(problems, fmt.Errorf("%s: session with an unusable id", path))
 				continue
@@ -617,7 +635,7 @@ func (d *OpenCodeDatabase) readSession(path string, h kernel.Harness, s dbSessio
 	if schema.forks[s.table] {
 		forkColumn = "fork_session_id"
 	}
-	err = tx.QueryRowContext(ctx, `SELECT parent_id, directory, title, time_created, `+forkColumn+` FROM `+s.table+` WHERE id = ?`, s.id).
+	err = tx.QueryRowContext(ctx, `SELECT `+bounded("parent_id", 200, "parent_id")+`, `+bounded("directory", maxDBTextBytes, "directory")+`, `+bounded("title", maxDBTextBytes, "title")+`, time_created, `+forkColumn+` FROM `+s.table+` WHERE id = ?`, s.id).
 		Scan(&parent, &directory, &title, &created, &forkedFrom)
 	if err != nil {
 		return domain.Transcript{}, err
@@ -642,15 +660,15 @@ func (d *OpenCodeDatabase) readSession(path string, h kernel.Harness, s dbSessio
 		defer rows.Close()
 		for rows.Next() {
 			var r dbRow
-			var typ sql.NullString
+			var key, typ sql.NullString
 			var at int64
-			if err := rows.Scan(&r.id, &typ, &at, &r.data); err != nil {
+			if err := rows.Scan(&key, &typ, &at, &r.data); err != nil {
 				return err
 			}
 			if budget -= int64(len(r.data)); budget < 0 {
 				return fmt.Errorf("%w: over %d bytes", ErrLogTooLarge, maxDBSessionBytes)
 			}
-			r.typ, r.created = typ.String, epochMilli(at)
+			r.id, r.typ, r.created = key.String, typ.String, epochMilli(at)
 			each(r)
 		}
 		return rows.Err()
@@ -666,8 +684,8 @@ func (d *OpenCodeDatabase) readSession(path string, h kernel.Harness, s dbSessio
 	byID := map[string]*message{}
 	decode := func(r dbRow) (*message, bool) {
 		var m message
-		if r.data == nil || json.Unmarshal(r.data, &m.dbMessage) != nil {
-			p.SkippedLines++ // a row that is not read, or not JSON, or not shaped like a message
+		if r.id == "" || r.data == nil || json.Unmarshal(r.data, &m.dbMessage) != nil {
+			p.SkippedLines++ // a row that is not read (over its bounds), or not JSON, or not shaped like a message
 			return nil, false
 		}
 		m.key, m.at = r.id, r.created
@@ -693,7 +711,7 @@ func (d *OpenCodeDatabase) readSession(path string, h kernel.Harness, s dbSessio
 	}
 
 	if s.events {
-		err = query(`SELECT id, type, time_created, CASE WHEN length(data) > ? THEN NULL ELSE data END FROM session_message WHERE session_id = ? ORDER BY time_created, id`,
+		err = query(`SELECT `+bounded("id", maxDBKeyBytes, "id")+`, `+bounded("type", 64, "type")+`, time_created, `+boundedData+` FROM session_message WHERE session_id = ? ORDER BY time_created, id`,
 			func(r dbRow) {
 				if m, ok := decode(r); ok {
 					messages = append(messages, m)
@@ -701,10 +719,10 @@ func (d *OpenCodeDatabase) readSession(path string, h kernel.Harness, s dbSessio
 				}
 			})
 		if err == nil && schema.parts {
-			err = query(`SELECT message_id || ':' || ordinal, type, time_created, CASE WHEN length(data) > ? THEN NULL ELSE data END FROM session_part WHERE session_id = ? ORDER BY message_id, ordinal`,
+			err = query(`SELECT `+bounded("message_id", maxDBKeyBytes, "message_id || ':' || ordinal")+`, `+bounded("type", 64, "type")+`, time_created, `+boundedData+` FROM session_part WHERE session_id = ? ORDER BY message_id, ordinal`,
 				func(r dbRow) {
 					var part dbPart
-					if r.data == nil || json.Unmarshal(r.data, &part) != nil {
+					if r.id == "" || r.data == nil || json.Unmarshal(r.data, &part) != nil {
 						p.SkippedLines++
 						return
 					}
@@ -716,7 +734,7 @@ func (d *OpenCodeDatabase) readSession(path string, h kernel.Harness, s dbSessio
 				})
 		}
 	} else {
-		err = query(`SELECT id, '', time_created, CASE WHEN length(data) > ? THEN NULL ELSE data END FROM message WHERE session_id = ? ORDER BY time_created, id`,
+		err = query(`SELECT `+bounded("id", maxDBKeyBytes, "id")+`, '', time_created, `+boundedData+` FROM message WHERE session_id = ? ORDER BY time_created, id`,
 			func(r dbRow) {
 				if m, ok := decode(r); ok {
 					messages = append(messages, m)
@@ -724,10 +742,10 @@ func (d *OpenCodeDatabase) readSession(path string, h kernel.Harness, s dbSessio
 				}
 			})
 		if err == nil {
-			err = query(`SELECT id || ':' || message_id, '', 0, CASE WHEN length(data) > ? THEN NULL ELSE data END FROM part WHERE session_id = ? ORDER BY message_id, id`,
+			err = query(`SELECT CASE WHEN length(CAST(id AS BLOB)) > `+fmt.Sprint(maxDBKeyBytes)+` THEN NULL ELSE `+bounded("message_id", maxDBKeyBytes, "id || ':' || message_id")+` END, '', 0, `+boundedData+` FROM part WHERE session_id = ? ORDER BY message_id, id`,
 				func(r dbRow) {
 					var part dbPart
-					if r.data == nil || json.Unmarshal(r.data, &part) != nil {
+					if r.id == "" || r.data == nil || json.Unmarshal(r.data, &part) != nil {
 						p.SkippedLines++
 						return
 					}
