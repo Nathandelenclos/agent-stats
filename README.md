@@ -51,6 +51,7 @@ Like the report, it indexes new logs first unless you pass `--no-sync`.
 | oh-my-pi    | `~/.omp/agent/mcp.json`, skills (`~/.omp/agent/skills`, `~/.agents/skills`), agents (`~/.omp/agent/agents`), plugins (`~/.omp/plugins`) |
 | pi          | skills (`~/.pi/agent/skills`, `~/.agents/skills`), packages of `~/.pi/agent/settings.json`                           |
 
+The per-project MCP servers of `~/.claude.json` are listed for every project it names, not only for `--project`.
 Project-level files (`.claude/`, `.agents/skills`, `.codex/`, `.omp/`, `.pi/`, `.mcp.json`) are read under `--project`.
 `CLAUDE_CONFIG_DIR` and `CODEX_HOME` are honoured.
 
