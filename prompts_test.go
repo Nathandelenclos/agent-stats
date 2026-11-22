@@ -153,23 +153,33 @@ func TestPromptsReviewOfAnEmptyRangeSaysSoAndPrintsEmptyLists(t *testing.T) {
 	}
 }
 
-func TestPromptsReviewFollowsTheHarnessAndPeriodFilters(t *testing.T) {
-	// Given the five sessions
+func TestPromptsReviewCanBeLimitedToOneHarness(t *testing.T) {
+	// Given the sessions of three harnesses
 	usage := reviewIndexed(t)
 
-	// When the review is limited to one harness, then to the prompts typed from the third hour on
-	var codex, late bytes.Buffer
+	// When the review is limited to one harness
+	var codex bytes.Buffer
 	if err := runPrompts(&codex, usage.Prompts(), reporting.Query{Harness: kernel.Codex}, false); err != nil {
 		t.Fatal(err)
 	}
+
+	// Then only that harness's prompt is listed
+	if !strings.HasPrefix(codex.String(), "1 flagged prompt in 1 session\n") || strings.Contains(codex.String(), "/work/web") {
+		t.Errorf("codex review:\n%s", codex.String())
+	}
+}
+
+func TestPromptsReviewCanBeLimitedToAPeriod(t *testing.T) {
+	// Given the sessions of the first five hours
+	usage := reviewIndexed(t)
+
+	// When the review is limited to the prompts typed from the fifth hour on
+	var late bytes.Buffer
 	if err := runPrompts(&late, usage.Prompts(), reporting.Query{Since: promptsBase.Add(4 * time.Hour)}, false); err != nil {
 		t.Fatal(err)
 	}
 
-	// Then only that harness's prompt is listed, and only the late sessions' ones
-	if !strings.HasPrefix(codex.String(), "1 flagged prompt in 1 session\n") || strings.Contains(codex.String(), "/work/web") {
-		t.Errorf("codex review:\n%s", codex.String())
-	}
+	// Then only the late sessions' prompts are listed
 	if !strings.HasPrefix(late.String(), "4 flagged prompts in 2 sessions\n") || strings.Contains(late.String(), "/work/api") {
 		t.Errorf("late review:\n%s", late.String())
 	}
@@ -231,21 +241,27 @@ func TestOtherCommandLinesAreNoSubcommand(t *testing.T) {
 	}
 }
 
-func TestPromptsPeriodDefaultsToAWeekAndAcceptsAll(t *testing.T) {
-	now := promptsBase
+func TestPromptsPeriodDefaultsToAWeek(t *testing.T) {
 	// Given no --since, when the review's period is read, then it is the last week
-	if got, err := sinceOf("prompts", "", now); err != nil || !got.Equal(now.AddDate(0, 0, -7)) {
+	if got, err := sinceOf("prompts", "", promptsBase); err != nil || !got.Equal(promptsBase.AddDate(0, 0, -7)) {
 		t.Errorf("default = %v, %v", got, err)
 	}
-	// And "all" is every prompt
-	if got, err := sinceOf("prompts", "all", now); err != nil || !got.IsZero() {
+}
+
+func TestPromptsPeriodAcceptsAll(t *testing.T) {
+	// Given --since all, when the review's period is read, then it is every prompt
+	if got, err := sinceOf("prompts", "all", promptsBase); err != nil || !got.IsZero() {
 		t.Errorf("all = %v, %v", got, err)
 	}
-	// And the default command still reads an empty --since as everything, and refuses "all"
-	if got, err := sinceOf("", "", now); err != nil || !got.IsZero() {
-		t.Errorf("default command = %v, %v", got, err)
+}
+
+func TestTheDefaultCommandKeepsItsOwnSinceRules(t *testing.T) {
+	// Given the default command, an empty --since still reads as everything
+	if got, err := sinceOf("", "", promptsBase); err != nil || !got.IsZero() {
+		t.Errorf("empty = %v, %v", got, err)
 	}
-	if _, err := sinceOf("", "all", now); err == nil {
+	// And "all" is still refused there
+	if _, err := sinceOf("", "all", promptsBase); err == nil {
 		t.Error("the default command accepted all")
 	}
 }
