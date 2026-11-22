@@ -9,7 +9,7 @@ machine** (see [Privacy](#privacy)).
 
 ## Install
 
-With Go 1.26 or later:
+With Go 1.26.11 or later:
 
 ```sh
 go install github.com/Nathandelenclos/agent-stats@latest
