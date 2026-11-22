@@ -9,8 +9,11 @@ on:
 permissions:
   contents: read
 
+# A pull request run is cancelled by the next push to the same pull request. A push run gets a group of its own, so it is
+# never cancelled and never replaced while pending: a shared group keeps a single pending run, and an older re-run
+# joining it would evict a newer run that covers more commits. The release job serializes those runs (release.yml).
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

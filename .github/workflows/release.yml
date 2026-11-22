@@ -6,8 +6,7 @@
 #
 # Catch-up design: the next version and the notes are computed from ALL the Conventional Commits since the last tag
 # (git-cliff, see cliff.toml), up to this run's commit. A run therefore releases everything releasable up to its own
-# commit and depends on no other run: if a run is skipped, replaced while pending (GitHub keeps one pending run per
-# concurrency group) or cancelled, the next green push on main releases what it left. Nothing is versioned or written
+# commit and depends on no other run: if a run is skipped or cancelled, the next green push on main releases what it left. Nothing is versioned or written
 # to the repository by hand: the tag is the only artefact.
 #
 # Idempotent: it does nothing when no commit is releasable, and never moves or re-creates a tag. The release is
@@ -23,12 +22,15 @@ on:
 permissions:
   contents: read
 
-# One release at a time. A run waiting behind another may be replaced by a newer one: that is harmless for new commits,
-# the newer run covers them (see above). It is not for the re-run of a failed run, which alone can finish its tag: start
-# it again if a push replaced it. The run in progress is never cancelled in the middle of a publication.
+# One release at a time, and no waiting run is replaced: by default GitHub keeps a single pending run per group, so an
+# older re-run could evict a newer run that covers more commits. `queue: max` lets up to 100 runs wait and runs them in
+# the order they arrived, never in the middle of a publication. That order is not the commit order: a re-run of an older
+# commit that arrives after newer runs goes after them, and those fail on purpose on the unfinished tag (see above);
+# re-run them once it is published. (actionlint does not know `queue` yet: .github/actionlint.yaml ignores that one error.)
 concurrency:
   group: release
   cancel-in-progress: false
+  queue: max
 
 jobs:
   release:
