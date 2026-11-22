@@ -6,58 +6,63 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 )
 
-// fakeQueries is the usage index: it counts how often a consistent state was asked for, and refuses
-// questions asked outside of one.
-type fakeQueries struct {
-	asked     []domain.Dimension
-	snapshots int
-	inside    bool
+// shiftingIndex is a usage index that indexing keeps changing: one more request is indexed after every answer
+// given outside of a snapshot. Inside a snapshot the state stays what it was when the snapshot began.
+type shiftingIndex struct {
+	requests int64
+	frozen   bool
+	asked    []domain.Dimension
 }
 
-func (q *fakeQueries) Snapshot(fn func(UsageReader) error) error {
-	q.snapshots++
-	q.inside = true
-	defer func() { q.inside = false }()
-	return fn(q)
+func (x *shiftingIndex) Snapshot(fn func(UsageReader) error) error {
+	x.frozen = true
+	defer func() { x.frozen = false }()
+	return fn(x)
 }
 
-func (q *fakeQueries) Total(domain.Filter) (domain.Usage, error) {
-	q.mustBeInside()
-	return domain.Usage{Requests: 3}, nil
-}
-func (q *fakeQueries) UsageBy(_ domain.Filter, d domain.Dimension) ([]domain.UsageGroup, error) {
-	q.mustBeInside()
-	q.asked = append(q.asked, d)
-	return []domain.UsageGroup{{Group: "g"}}, nil
-}
-func (q *fakeQueries) Tools(domain.Filter) ([]domain.ToolUsage, error) {
-	q.mustBeInside()
-	return []domain.ToolUsage{{Name: "t"}}, nil
-}
-
-func (q *fakeQueries) mustBeInside() {
-	if !q.inside {
-		panic("question asked outside of a snapshot")
+// answer is the number of requests indexed when the question is asked.
+func (x *shiftingIndex) answer() int64 {
+	n := x.requests
+	if !x.frozen {
+		x.requests++
 	}
+	return n
 }
 
-func TestBuildReportReadsOneSnapshot(t *testing.T) {
-	// Given an index that can change between two questions
-	q := &fakeQueries{}
+func (x *shiftingIndex) Total(domain.Filter) (domain.Usage, error) {
+	return domain.Usage{Requests: x.answer()}, nil
+}
+
+func (x *shiftingIndex) UsageBy(_ domain.Filter, d domain.Dimension) ([]domain.UsageGroup, error) {
+	x.asked = append(x.asked, d)
+	return []domain.UsageGroup{{Group: "g", Usage: domain.Usage{Requests: x.answer()}}}, nil
+}
+
+func (x *shiftingIndex) Tools(domain.Filter) ([]domain.ToolUsage, error) {
+	return []domain.ToolUsage{{Name: "t", Calls: x.answer()}}, nil
+}
+
+func TestReportDescribesOneStateOfTheIndexBeingWritten(t *testing.T) {
+	// Given an index that indexing changes between any two questions asked outside of a snapshot
+	idx := &shiftingIndex{requests: 1}
 
 	// When a report is built
-	if _, err := (BuildReport{Queries: q}).Run(Query{}); err != nil {
+	r, err := BuildReport{Queries: idx}.Run(Query{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Then every figure of it comes from a single consistent state
-	if q.snapshots != 1 {
-		t.Errorf("report read %d snapshots, want 1", q.snapshots)
+	// Then every figure of it describes the same state: the total, each grouping and the tool calls agree
+	got := []int64{r.Total.Requests, r.ByHarness[0].Requests, r.ByModel[0].Requests, r.ByFolder[0].Requests, r.ByAgent[0].Requests, r.Tools[0].Calls}
+	for _, n := range got {
+		if n != 1 {
+			t.Fatalf("the report mixes states of the index: %v, want 1 everywhere", got)
+		}
 	}
 }
 
 func TestBuildReportAsksEveryDimension(t *testing.T) {
-	q := &fakeQueries{}
+	q := &shiftingIndex{requests: 3}
 	r, err := BuildReport{Queries: q}.Run(Query{})
 	if err != nil || r.Total.Requests != 3 || len(r.ByAgent) != 1 || len(r.Tools) != 1 {
 		t.Fatalf("report = %+v %v", r, err)
