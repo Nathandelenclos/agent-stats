@@ -65,31 +65,35 @@ func (c *collector) piPackages(path string, scope domain.Scope) {
 	}
 }
 
-// userinfo matches "user@" or "user:secret@" at the start of a string; scpLike matches such a prefix of "user@host:path".
-var (
-	userinfo = regexp.MustCompile(`^[^\s/@:]+(?::[^\s/@]*)?@`)
-	scpLike  = regexp.MustCompile(`^[^\s/@:]+(?::[^\s/@]*)?@[^\s/@:]+:`)
-)
+// userinfo matches "user@" or "user:secret@" at the start of a source that has no "://".
+var userinfo = regexp.MustCompile(`^[^\s/@:]+(?::[^\s/@]*)?@`)
 
-// withoutCredentials drops what a package source may carry that is secret: the user and password of a URL after any
-// "://" (also in an opaque form such as "git:https://user:token@host/repo"), of "git:user:token@host/path" and of
-// "user@host:path", and everything from the first "?" or "#" of a remote source (query and fragment). An npm name
-// or a path is kept as is. A token written inside a path is not a credential form and is not recognised.
+// withoutCredentials drops what a package source may carry that is secret. A source string may hold several, so each
+// blank-separated one is cleaned alone: a remote one (it has "://" or "@", or starts with "git:") loses everything from its first "?" or "#",
+// then the user and password of every "scheme://user:secret@host" and of the forms without "://" that pi accepts
+// ("git:user:token@host/path", "user:token@host:path", "user@host:path"). An npm name ("pkg@1.2", "@org/pkg") and a
+// path are kept as is. A token written inside a path is not a credential form and is not recognised.
 func withoutCredentials(src string) string {
-	switch rest, isGit := strings.CutPrefix(src, "git:"); {
-	case strings.Contains(src, "://"):
-		src = stripURLUserinfo(src)
-	case isGit:
-		src = "git:" + userinfo.ReplaceAllString(rest, "")
-	case scpLike.MatchString(src):
-		src = userinfo.ReplaceAllString(src, "")
-	default:
-		return src
+	words := strings.Fields(src)
+	for i, w := range words {
+		isGit := strings.HasPrefix(strings.ToLower(w), "git:")
+		if !isGit && !strings.Contains(w, "://") && !strings.Contains(w, "@") {
+			continue
+		}
+		if j := strings.IndexAny(w, "?#"); j >= 0 {
+			w = w[:j]
+		}
+		switch {
+		case strings.Contains(w, "://"):
+			w = stripURLUserinfo(w)
+		case isGit:
+			w = w[:len("git:")] + userinfo.ReplaceAllString(w[len("git:"):], "")
+		case strings.Contains(w, ":") && !strings.HasPrefix(strings.ToLower(w), "npm:"):
+			w = userinfo.ReplaceAllString(w, "")
+		}
+		words[i] = w
 	}
-	if i := strings.IndexAny(src, "?#"); i >= 0 {
-		src = src[:i]
-	}
-	return src
+	return strings.Join(words, " ")
 }
 
 // stripURLUserinfo removes the user and password of every "scheme://user:secret@host" in src.
