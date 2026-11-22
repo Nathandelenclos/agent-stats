@@ -28,16 +28,32 @@ jobs:
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
+      # The front is not versioned: it is built here, as in the release (web/doc.go). `go generate ./web` runs
+      # `npm ci` (the lockfile, install scripts off through web/.npmrc) then `npm run build`, which type-checks
+      # the sources with tsc before bundling them.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build the web front
+        run: go generate ./web
+      # Both flavours of the binary: the plain build embeds the notice that says how to build the front, the web tag
+      # embeds the front just built.
       - name: Vet
-        run: go vet ./...
+        run: |
+          go vet ./...
+          go vet -tags web ./...
       # Known vulnerabilities in the code the module actually calls, in its dependencies and in the standard library.
       # Run from a pinned version with `go run`: nothing is installed.
       - name: Vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
       - name: Test (race detector)
-        run: go test -race ./...
+        run: go test -race -tags web ./...
       - name: Build
-        run: go build -o /dev/null .
+        run: |
+          go build -o /dev/null .
+          go build -tags web -o /dev/null .
       # The release ships these six targets; a cross-compilation failure must show up here,
       # not at release time. The SQLite driver is pure Go, so no cgo is needed.
       - name: Cross-compile the release targets
@@ -46,11 +62,11 @@ jobs:
         run: |
           for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
             echo "build $target"
-            GOOS=${target%/*} GOARCH=${target#*/} go build -o /dev/null .
+            GOOS=${target%/*} GOARCH=${target#*/} go build -tags web -o /dev/null .
           done
 
   # Releases what these checks just validated: the release workflow tags, builds and attests this very commit.
-  # It never runs on a pull request. When the web job below is enabled, add it to `needs`.
+  # It never runs on a pull request. It builds the front itself (see release.yml) rather than reusing this job's.
   release:
     name: Release
     needs: go
@@ -60,26 +76,3 @@ jobs:
       id-token: write # sign the build provenance attestation
       attestations: write
     uses: ./.github/workflows/release.yml
-
-  # Placeholder for the future web front (web/). Its dist/ is NOT versioned: it is built on demand,
-  # here and in the release workflow. Enable this job when web/package.json exists, then add it
-  # to the build that embeds the front in the binary. Nothing runs today, so nothing can fail.
-  #
-  # web:
-  #   name: Web front
-  #   runs-on: ubuntu-latest
-  #   timeout-minutes: 10
-  #   defaults:
-  #     run:
-  #       working-directory: web
-  #   steps:
-  #     - uses: actions/checkout@<full-sha> # vX.Y.Z
-  #       with:
-  #         persist-credentials: false
-  #     - uses: actions/setup-node@<full-sha> # vX.Y.Z
-  #       with:
-  #         node-version-file: web/.nvmrc
-  #         cache: npm
-  #         cache-dependency-path: web/package-lock.json
-  #     - run: npm ci
-  #     - run: npm run build

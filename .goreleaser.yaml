@@ -5,10 +5,11 @@ version: 2
 
 project_name: agent-stats
 
-# Future web front: dist/ is not versioned, build it here before compiling (and embed it in the binary).
-# before:
-#   hooks:
-#     - sh -c 'cd web && npm ci && npm run build'
+# The web front is not versioned: build it before compiling. `go generate ./web` runs `npm ci` then `npm run build`
+# (web/doc.go); the `web` build tag below embeds web/dist in every binary.
+before:
+  hooks:
+    - go generate ./web
 
 builds:
   - id: agent-stats
@@ -19,6 +20,7 @@ builds:
       - CGO_ENABLED=0
     flags:
       - -trimpath
+      - -tags=web
     ldflags:
       - -s -w
     goos: [linux, darwin, windows]
