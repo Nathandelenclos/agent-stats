@@ -477,21 +477,84 @@ func TestHeadIsAnswered(t *testing.T) {
 	}
 }
 
+// refusedWithoutData checks the API answered a refusal and that no figure was read to answer it.
+func refusedWithoutData(t *testing.T, r *rig, rec *httptest.ResponseRecorder) {
+	t.Helper()
+	wantProblem(t, rec, http.StatusForbidden, problemCrossSite)
+	if len(r.idx.filters) != 0 || strings.Contains(rec.Body.String(), "total") || strings.Contains(rec.Body.String(), "Bash") {
+		t.Errorf("a refused request got data: %s (index asked %d times)", rec.Body.String(), len(r.idx.filters))
+	}
+}
+
 func TestACrossSiteRequestForTheAPIIsRefused(t *testing.T) {
 	// Given a browser that says the request comes from another site
 	r := newRig(t)
 
-	// When it asks for the API, or for the page it navigates to
-	api := r.get("/api/report", "Sec-Fetch-Site", "cross-site")
-	page := r.get("/", "Sec-Fetch-Site", "cross-site")
+	// When it asks for the report
+	rec := r.get("/api/report", "Sec-Fetch-Site", "cross-site")
 
-	// Then the API refuses, and the page, which holds no figure, is still served
-	wantProblem(t, api, http.StatusForbidden, problemCrossSite)
-	if page.Code != http.StatusOK {
-		t.Errorf("page = %d", page.Code)
+	// Then the API refuses and gives no figure
+	refusedWithoutData(t, r, rec)
+}
+
+func TestASameSiteRequestForTheAPIIsRefused(t *testing.T) {
+	// Given a browser that says the request comes from another port of this machine, which is still the same site
+	r := newRig(t)
+
+	// When it asks for the report
+	rec := r.get("/api/report", "Sec-Fetch-Site", "same-site")
+
+	// Then the API refuses and gives no figure: another local application must not read the prompts
+	refusedWithoutData(t, r, rec)
+}
+
+func TestARequestOfAnUnknownKindForTheAPIIsRefused(t *testing.T) {
+	// Given a request whose Sec-Fetch-Site says something no browser sends today
+	r := newRig(t)
+
+	// When it asks for the report
+	rec := r.get("/api/report", "Sec-Fetch-Site", "somewhere-else")
+
+	// Then the API refuses: only the page itself, or the user typing the address, may read it
+	refusedWithoutData(t, r, rec)
+}
+
+func TestThePageCallsTheAPIFromItsOwnOrigin(t *testing.T) {
+	// Given a browser that says the request comes from the page this server served
+	r := newRig(t)
+
+	// When it asks for the report
+	rec := r.get("/api/report", "Sec-Fetch-Site", "same-origin")
+
+	// Then it gets the figures
+	if rec.Code != http.StatusOK || decode[reportJSON](t, rec).Total.Requests != 3 {
+		t.Errorf("same-origin API = %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := r.get("/api/meta", "Sec-Fetch-Site", "same-origin"); rec.Code != http.StatusOK {
-		t.Errorf("same-origin API = %d", rec.Code)
+}
+
+func TestTheUserTypingTheAPIAddressGetsTheFigures(t *testing.T) {
+	// Given a browser that says the request comes from the address bar
+	r := newRig(t)
+
+	// When it asks for the report
+	rec := r.get("/api/report", "Sec-Fetch-Site", "none")
+
+	// Then it gets the figures
+	if rec.Code != http.StatusOK || decode[reportJSON](t, rec).Total.Requests != 3 {
+		t.Errorf("address bar API = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestACrossSiteNavigationStillGetsThePage(t *testing.T) {
+	// Given a browser that says the request comes from another site
+	r := newRig(t)
+
+	// When it navigates to the page
+	rec := r.get("/", "Sec-Fetch-Site", "cross-site")
+
+	// Then the page, which holds no figure, is served
+	if rec.Code != http.StatusOK {
+		t.Errorf("page = %d", rec.Code)
 	}
 }
 

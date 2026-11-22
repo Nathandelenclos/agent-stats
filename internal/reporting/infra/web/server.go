@@ -100,12 +100,19 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasPrefix(r.URL.Path, "/api/") {
 		h.Set("Cache-Control", "no-store")
-		if r.Header.Get("Sec-Fetch-Site") == "cross-site" { // the API is for the page this server serves
-			problem{Type: problemCrossSite, Title: "Cross-site request refused", Status: http.StatusForbidden}.write(w)
+		if !fromOwnPage(r.Header.Get("Sec-Fetch-Site")) {
+			problem{Type: problemCrossSite, Title: "Request from another origin refused", Status: http.StatusForbidden}.write(w)
 			return
 		}
 	}
 	s.mux.ServeHTTP(w, r)
+}
+
+// fromOwnPage reports whether a Sec-Fetch-Site value is one the API answers: the page this server served (same-origin),
+// the user typing the address (none), or a client that sends no such header, like curl. "same-site" is refused: another
+// port of this machine is the same site, and no other local application may read the prompts.
+func fromOwnPage(secFetchSite string) bool {
+	return secFetchSite == "" || secFetchSite == "same-origin" || secFetchSite == "none"
 }
 
 // hostAllowed reports whether a Host header names a loopback host on the port the server listens on. A request that

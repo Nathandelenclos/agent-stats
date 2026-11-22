@@ -164,7 +164,8 @@ page open in your browser, so `serve` is restrictive by default:
   page that makes your browser reach the server under another name (DNS rebinding) gets `403`. `--allow-remote` lifts
   this check, since the server is then meant to be reached by other names.
 - Only `GET` and `HEAD` are answered; nothing the API does changes the index. Requests that a browser marks
-  `Sec-Fetch-Site: cross-site` are refused on `/api`.
+  `Sec-Fetch-Site` other than `same-origin` or `none` (so `cross-site` and `same-site`, which includes another local
+  application on another port) are refused on `/api`. Clients that send no such header, like curl, are answered.
 - No CORS header is ever sent, so other origins cannot read the API from a browser.
 - Every response carries `Content-Security-Policy` (own scripts and styles only, no inline script, no framing,
   `base-uri` and `form-action` none), `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and
