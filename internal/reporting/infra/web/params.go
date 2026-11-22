@@ -21,18 +21,14 @@ const (
 	maxLimit      = 1000
 )
 
-// earliestSince is the oldest period start accepted: no agent log is older, and it keeps date arithmetic far from overflow.
-var earliestSince = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
-
-// ValidateSince reads a period start with parse and checks it is one a report can cover: not older than the logs of any
-// agent, not in the future. The API applies it to every request and the command line to --since, so that a period the
+// ValidateSince reads a period start with parse and checks it is one a report can cover (reporting.CheckSince). The API applies it to every request and the command line to --since, so that a period the
 // server opens on is a period the API answers.
 func ValidateSince(v string, now time.Time, parse func(string, time.Time) (time.Time, error)) (time.Time, error) {
 	if v == "" {
 		return time.Time{}, nil
 	}
 	since, err := parse(v, now)
-	if len(v) > maxSinceChars || err != nil || since.Before(earliestSince) || since.After(now) {
+	if len(v) > maxSinceChars || err != nil || reporting.CheckSince(since, now) != nil {
 		return time.Time{}, errors.New("use 24h, 7d, 30d, another duration such as 12h, or a date such as 2006-01-02, not in the future")
 	}
 	return since, nil
