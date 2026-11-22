@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -47,6 +48,24 @@ var maxDBSessionBytes = maxLogBytes
 
 // ErrUnknownSchema reports a database whose tables are none of the schemas this reader knows.
 var ErrUnknownSchema = errors.New("unrecognised database schema")
+
+// ErrDatabaseUnreadable reports a database, or a session in it, that could not be read: what the SQLite driver says
+// is kept as text, so that nothing above this reader depends on the driver's errors.
+var ErrDatabaseUnreadable = errors.New("session database unreadable")
+
+// ErrSessionGone reports a session that was listed and is not in its database any more.
+var ErrSessionGone = errors.New("session no longer in its database")
+
+// unreadable turns what the driver reports into ErrDatabaseUnreadable, and keeps the errors that are this reader's own.
+func unreadable(subject string, err error) error {
+	switch {
+	case errors.Is(err, ErrUnknownSchema), errors.Is(err, ErrNotRegular), errors.Is(err, ErrLogTooLarge):
+		return fmt.Errorf("%s: %w", subject, err)
+	case errors.Is(err, sql.ErrNoRows):
+		return fmt.Errorf("%s: %w", subject, ErrSessionGone)
+	}
+	return fmt.Errorf("%s: %w: %v", subject, ErrDatabaseUnreadable, err)
+}
 
 // OpenCodeDatabase is the reader of the databases of one harness of the OpenCode family.
 // Prefix names the database files in the data directory ("opencode" for opencode.db and opencode-<channel>.db),
@@ -258,12 +277,15 @@ const listMessages = `SELECT s.id, MAX(s.time_updated, COALESCE(MAX(m.time_updat
 func (d *OpenCodeDatabase) list(path string) (sessions []dbSession, problems []error) {
 	ctx := context.Background()
 	db, err := d.connect(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil // the harness is not installed, or has not created its database yet
+	}
 	if err != nil {
-		return nil, []error{fmt.Errorf("%s: %w", path, err)}
+		return nil, []error{unreadable(path, err)}
 	}
 	schema, err := d.detect(ctx, db)
 	if err != nil {
-		return nil, []error{fmt.Errorf("%s: %w", path, err)}
+		return nil, []error{unreadable(path, err)}
 	}
 	d.mu.Lock()
 	d.schemas[path] = schema
@@ -272,7 +294,7 @@ func (d *OpenCodeDatabase) list(path string) (sessions []dbSession, problems []e
 	add := func(table, messages string, events bool) {
 		rows, err := db.QueryContext(ctx, fmt.Sprintf(listMessages, table, messages))
 		if err != nil {
-			problems = append(problems, fmt.Errorf("%s: %w", path, err))
+			problems = append(problems, unreadable(path, err))
 			return
 		}
 		defer rows.Close()
@@ -280,7 +302,7 @@ func (d *OpenCodeDatabase) list(path string) (sessions []dbSession, problems []e
 			var id string
 			var updated, count int64
 			if err := rows.Scan(&id, &updated, &count); err != nil {
-				problems = append(problems, fmt.Errorf("%s: %w", path, err))
+				problems = append(problems, unreadable(path, err))
 				return
 			}
 			if !sessionIDPattern.MatchString(id) {
@@ -293,7 +315,7 @@ func (d *OpenCodeDatabase) list(path string) (sessions []dbSession, problems []e
 			found[id] = dbSession{id: id, table: table, events: events, size: count, mod: epochMilli(updated)}
 		}
 		if err := rows.Err(); err != nil {
-			problems = append(problems, fmt.Errorf("%s: %w", path, err))
+			problems = append(problems, unreadable(path, err))
 		}
 	}
 	for _, t := range schema.sessionTables {
@@ -329,7 +351,7 @@ type dbTokens struct {
 	} `json:"cache"`
 }
 
-// dbRequest is the assistant message of the two generations: the fields that differ are told apart by name.
+// dbMessage is a message of either generation: the fields that differ are told apart by name.
 type dbMessage struct {
 	Role       string                                    `json:"role"`
 	Type       string                                    `json:"type"`
@@ -492,6 +514,14 @@ type dbRow struct {
 // read parses one session of a database into a transcript. It reads in one read transaction, so that the
 // messages and the parts it joins are those of one moment.
 func (d *OpenCodeDatabase) read(path string, h kernel.Harness, s dbSession) (domain.Transcript, error) {
+	t, err := d.readSession(path, h, s)
+	if err != nil {
+		return domain.Transcript{}, unreadable(path+DBSessionSep+s.id, err)
+	}
+	return t, nil
+}
+
+func (d *OpenCodeDatabase) readSession(path string, h kernel.Harness, s dbSession) (domain.Transcript, error) {
 	ctx := context.Background()
 	db, err := d.handle(path)
 	if err != nil {

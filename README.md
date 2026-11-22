@@ -209,7 +209,8 @@ own, named `<database>#<session id>`, and it is read again when its message coun
 not do, as they change whenever any session is written and every session would be read again. Databases are opened
 read-only and never written; when nobody has one open (no `-wal` or `-shm` file beside it) it is opened immutable,
 which leaves no file behind, otherwise through SQLite, which reads the `-wal` file too. A session deleted from a
-database keeps its indexed rows, as for any other log.
+database keeps its indexed rows, as for any other log. If a harness starts while an idle database is being read (immutable), that
+read may fail or see the earlier state; the session is reported and read again by the next run.
 
 ## Pricing
 

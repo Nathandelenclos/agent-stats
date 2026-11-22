@@ -9,6 +9,8 @@ import (
 )
 
 // LogFile is one session log as found on disk. Size and ModTime tell whether it changed since it was indexed.
+// A log is a file, or one session of a database that holds many: Path is then "<database path>#<session id>", and
+// Size counts the session's messages instead of bytes (Weight, an estimate in bytes, then says what reading it holds).
 type LogFile struct {
 	Path    string
 	Harness kernel.Harness

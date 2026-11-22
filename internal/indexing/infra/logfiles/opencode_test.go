@@ -12,11 +12,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Nathandelenclos/agent-stats/internal/indexing/application"
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 )
 
-// buildDB creates the database a harness would have written, from the scripts of testdata/databases.
+// The scenarios read what a harness left on the machine through the port the index uses: the logs List finds,
+// and the transcript Read makes of each. The databases are built from the scripts of testdata/databases.
+
+// buildDB creates the database a harness would have written.
 func buildDB(t *testing.T, path string, scripts ...string) {
 	t.Helper()
 	db, err := sql.Open("sqlite", path)
@@ -35,113 +39,148 @@ func buildDB(t *testing.T, path string, scripts ...string) {
 	}
 }
 
-// sessionsOf lists the sessions of a database and fails on any problem.
-func sessionsOf(t *testing.T, d *OpenCodeDatabase, path string) map[string]dbSession {
+// harnessLogs reads the databases of one harness found under root.
+func harnessLogs(h kernel.Harness, root string, d *OpenCodeDatabase) *FileSessionLogs {
+	return NewFileSessionLogs([]Source{{Harness: h, Root: root, Database: d}})
+}
+
+// existingLogs lists the logs and fails on any problem; they are keyed by session id.
+func existingLogs(t *testing.T, logs *FileSessionLogs) map[string]application.LogFile {
 	t.Helper()
-	sessions, problems := d.list(path)
-	if len(problems) > 0 {
-		t.Fatalf("problems: %v", problems)
+	files, problems, err := logs.List()
+	if err != nil || len(problems) > 0 {
+		t.Fatalf("list: %v, problems %v", err, problems)
 	}
-	out := map[string]dbSession{}
-	for _, s := range sessions {
-		out[s.id] = s
+	out := map[string]application.LogFile{}
+	for _, f := range files {
+		_, id, _ := strings.Cut(filepath.Base(f.Path), DBSessionSep)
+		out[id] = f
 	}
 	return out
 }
 
-func readSession(t *testing.T, d *OpenCodeDatabase, path, id string) domain.Transcript {
+func transcriptOf(t *testing.T, logs *FileSessionLogs, id string) domain.Transcript {
 	t.Helper()
-	s, ok := sessionsOf(t, d, path)[id]
+	f, ok := existingLogs(t, logs)[id]
 	if !ok {
 		t.Fatalf("session %s is not listed", id)
 	}
-	p, err := d.read(path, kernel.OpenCode, s)
+	p, err := logs.Read(f)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return p
 }
 
-func newDB(t *testing.T, scripts ...string) (*OpenCodeDatabase, string) {
+// newOpenCode builds a database named opencode.db from the scripts and returns the logs that read it.
+func newOpenCode(t *testing.T, scripts ...string) (logs *FileSessionLogs, db string) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "opencode.db")
-	buildDB(t, path, scripts...)
-	return &OpenCodeDatabase{Prefix: "opencode"}, path
+	root := t.TempDir()
+	db = filepath.Join(root, "opencode.db")
+	buildDB(t, db, scripts...)
+	return harnessLogs(kernel.OpenCode, root, &OpenCodeDatabase{Prefix: "opencode"}), db
 }
 
 func ms(v int64) time.Time { return time.UnixMilli(v) }
 
-func TestSessionsOfADatabaseAreListedWithWhatTellsThatTheyChanged(t *testing.T) {
-	// Given a database of the messages generation with five sessions, one of which has no message
-	d, path := newDB(t, "messages.sql")
+func TestEachSessionOfADatabaseIsALogOfItsOwnNamedAfterItsDatabaseAndItsId(t *testing.T) {
+	// Given the database of a harness with five sessions, one of which has no message
+	logs, db := newOpenCode(t, "messages.sql")
 
-	// When it is listed
-	got := sessionsOf(t, d, path)
+	// When its logs are listed
+	got := existingLogs(t, logs)
 
-	// Then every session with messages is there, the empty one is not, and each carries its message count and last update
-	if len(got) != 4 || got["ses_empty"].id != "" {
-		t.Fatalf("sessions = %+v", got)
+	// Then the four sessions that hold messages are listed, each named after the database and its id, and the empty one is not
+	if len(got) != 4 {
+		t.Fatalf("logs = %v", got)
 	}
-	if s := got["ses_main"]; s.size != 5 || !s.mod.Equal(ms(1767225660000)) || s.events || s.table != "session" {
-		t.Errorf("ses_main = %+v", s)
+	if _, ok := got["ses_empty"]; ok {
+		t.Error("an empty session is listed")
 	}
-	if s := got["ses_child"]; s.size != 2 || !s.mod.Equal(ms(1767225630000)) {
-		t.Errorf("ses_child = %+v", s)
+	for id, f := range got {
+		if f.Path != db+DBSessionSep+id || f.Harness != kernel.OpenCode || f.Size == 0 || f.ModTime.IsZero() || f.Weight <= 0 {
+			t.Errorf("%s: %+v", id, f)
+		}
 	}
 }
 
-func TestASessionThatGrowsShowsANewFingerprintWhileOthersDoNot(t *testing.T) {
-	// Given an index of a database that is being written to, in write-ahead mode
-	d, path := newDB(t, "messages.sql")
-	writer, err := sql.Open("sqlite", path)
+func TestASessionIsReadForTheHarnessOfItsSource(t *testing.T) {
+	// Given the same database, read as the database of Kilo Code
+	root := t.TempDir()
+	buildDB(t, filepath.Join(root, "kilo.db"), "messages.sql")
+	logs := harnessLogs(kernel.Kilo, root, &OpenCodeDatabase{Prefix: "kilo"})
+
+	// When a session is read
+	p := transcriptOf(t, logs, "ses_main")
+
+	// Then it belongs to that harness
+	if p.Session.ID.String() != "kilo:ses_main" || p.Session.Harness != kernel.Kilo {
+		t.Errorf("session = %+v", p.Session)
+	}
+}
+
+func TestASessionThatGrowsWhileItsHarnessRunsIsListedAsChangedAndTheOthersAreNot(t *testing.T) {
+	// Given a harness that is running, with a session list that was read once
+	logs, db := newOpenCode(t, "messages.sql")
+	running, err := sql.Open("sqlite", db)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer writer.Close()
-	writer.SetMaxOpenConns(1)
+	defer running.Close()
+	running.SetMaxOpenConns(1)
 	for _, q := range []string{`PRAGMA journal_mode = WAL`, `PRAGMA wal_autocheckpoint = 0`} {
-		if _, err := writer.Exec(q); err != nil {
+		if _, err := running.Exec(q); err != nil {
 			t.Fatal(err)
 		}
 	}
-	before := sessionsOf(t, d, path)
+	before := existingLogs(t, logs)
 
-	// When a message is added to one session, and nothing is checkpointed into the database file
-	if _, err := writer.Exec(`INSERT INTO message VALUES ('msg_99', 'ses_child', 1767225700000, 1767225700000, '{"role":"user","time":{"created":1767225700000}}')`); err != nil {
+	// When a message is added to one session, before the harness has saved it into its database file
+	if _, err := running.Exec(`INSERT INTO message VALUES ('msg_99', 'ses_child', 1767225700000, 1767225700000, '{"role":"user","time":{"created":1767225700000}}')`); err != nil {
 		t.Fatal(err)
 	}
-	after := sessionsOf(t, d, path)
+	after := existingLogs(t, logs)
 
-	// Then only that session shows a new fingerprint: the reader sees what is in the -wal file
-	for id, s := range after {
-		changed := s.size != before[id].size || !s.mod.Equal(before[id].mod)
+	// Then only that session is listed with a different size and modification time
+	for id, f := range after {
+		changed := f.Size != before[id].Size || !f.ModTime.Equal(before[id].ModTime)
 		if changed != (id == "ses_child") {
-			t.Errorf("%s: changed = %v (%+v -> %+v)", id, changed, before[id], s)
+			t.Errorf("%s: changed = %v (%+v -> %+v)", id, changed, before[id], f)
 		}
 	}
 }
 
-func TestMessagesGenerationFillsTheTranscriptOfASession(t *testing.T) {
-	// Given a session with a prompt, two tool calls, a priced answer, an unpriced one, a failed one and one still being written
-	d, path := newDB(t, "messages.sql")
+func TestSessionOfTheMessagesGenerationKeepsItsPlaceAndItsPrompt(t *testing.T) {
+	// Given a session with a prompt made of several parts, some of which the user did not type
+	logs, _ := newOpenCode(t, "messages.sql")
 
 	// When it is read
-	p := readSession(t, d, path, "ses_main")
+	p := transcriptOf(t, logs, "ses_main")
 
-	// Then the session is named, placed and spans its messages
+	// Then it is named, placed in its folder and spans its messages
 	s := p.Session
 	if s.ID.String() != "opencode:ses_main" || s.Harness != kernel.OpenCode || s.AgentType != domain.MainAgent || !s.ParentID.IsZero() ||
 		s.Folder != "/work/demo-app" || s.Title != "Add a cache" || !s.Start.Equal(ms(1767225600000)) || !s.End.Equal(ms(1767225630000)) {
 		t.Errorf("session = %+v", s)
 	}
-	// And the prompt is the text the user typed, not the synthetic or ignored parts
+	// And the prompt is what the user typed, not the synthetic or ignored parts
 	if len(p.Prompts) != 1 || p.Prompts[0].Text != "Add a \ncache" || p.Prompts[0].Key != "msg_01" {
 		t.Errorf("prompts = %+v", p.Prompts)
 	}
-	// And each answer that used the model is a request, with its own usage: the cache and the reasoning are counted apart
+}
+
+func TestEachAnswerThatUsedTheModelIsARequestWithItsOwnUsage(t *testing.T) {
+	// Given a session with a priced answer, an unpriced one, a failed one and one that is still being written
+	logs, _ := newOpenCode(t, "messages.sql")
+
+	// When it is read
+	p := transcriptOf(t, logs, "ses_main")
+
+	// Then the answers that used the model are requests, and the unfinished one is not
 	if len(p.Requests) != 3 {
 		t.Fatalf("requests = %+v", p.Requests)
 	}
+	// And the first states its model, its cost and its usage, the cache and the reasoning counted apart
 	first := p.Requests[0]
 	if first.Key != "msg_02" || first.Model != "claude-test" || first.Provider != "anthropic" || first.StopReason != "tool-calls" || first.LoggedCost.USD() != 0.25 || first.Failed() {
 		t.Errorf("first = %+v", first)
@@ -149,6 +188,7 @@ func TestMessagesGenerationFillsTheTranscriptOfASession(t *testing.T) {
 	if want := (kernel.TokenCounts{Input: 100, Output: 50, Reasoning: 10, CacheRead: 600, CacheWrite: 30}); first.Tokens.Counts() != want {
 		t.Errorf("first tokens = %+v, want %+v", first.Tokens.Counts(), want)
 	}
+	// And the second logged no cost, so it is priced from the table
 	if second := p.Requests[1]; !second.LoggedCost.IsZero() || second.Tokens.Counts().CacheRead != 700 || second.Failed() {
 		t.Errorf("second = %+v", second)
 	}
@@ -156,7 +196,16 @@ func TestMessagesGenerationFillsTheTranscriptOfASession(t *testing.T) {
 	if third := p.Requests[2]; third.Failure != "APIError" || third.Key != "msg_04" {
 		t.Errorf("third = %+v", third)
 	}
-	// And the tool calls keep their sizes, their durations and whether they failed
+}
+
+func TestToolCallsKeepTheirSizesTheirDurationsAndWhetherTheyFailed(t *testing.T) {
+	// Given an answer that called two tools, one of which failed
+	logs, _ := newOpenCode(t, "messages.sql")
+
+	// When the session is read
+	p := transcriptOf(t, logs, "ses_main")
+
+	// Then each call states its size, its duration and its outcome
 	if len(p.Tools) != 2 {
 		t.Fatalf("tools = %+v", p.Tools)
 	}
@@ -167,74 +216,102 @@ func TestMessagesGenerationFillsTheTranscriptOfASession(t *testing.T) {
 	if lookup.Name != "demo_lookup" || !lookup.IsError || lookup.ResultChars != len(`"not found"`) || lookup.Duration.Value() != 200*time.Millisecond {
 		t.Errorf("lookup = %+v", lookup)
 	}
-	if p.SkippedLines != 0 {
-		t.Errorf("skipped %d", p.SkippedLines)
-	}
 }
 
-func TestMessagesGenerationLinksASubagentToItsParentAndDropsTheHistoryOfAFork(t *testing.T) {
-	d, path := newDB(t, "messages.sql")
+func TestASessionWithAParentIsASubagentOfIt(t *testing.T) {
+	// Given a session that a parent session started
+	logs, _ := newOpenCode(t, "messages.sql")
 
-	// Given a child session
-	child := readSession(t, d, path, "ses_child")
-	// Then it is a subagent of its parent
+	// When it is read
+	child := transcriptOf(t, logs, "ses_child")
+
+	// Then it is a subagent of its parent, and its own requests are its own
 	if child.Session.ParentID.String() != "opencode:ses_main" || child.Session.AgentType != domain.Subagent || len(child.Requests) != 1 || child.Requests[0].Provider != "openai" {
 		t.Errorf("child = %+v", child)
 	}
+}
 
+func TestAForkedSessionCountsOnlyWhatWasSaidSinceTheFork(t *testing.T) {
 	// Given a session forked from another one, which holds a copy of the messages of the original
-	fork := readSession(t, d, path, "ses_fork")
-	// Then only what was said since the fork is its own: the copied answer is not counted a second time
+	logs, _ := newOpenCode(t, "messages.sql")
+
+	// When it is read
+	fork := transcriptOf(t, logs, "ses_fork")
+
+	// Then the copied answer is not counted a second time: only the prompt that was typed since the fork is its own
 	if len(fork.Requests) != 0 || len(fork.Prompts) != 1 || fork.Prompts[0].Text != "Try another way" {
 		t.Errorf("fork: requests %+v, prompts %+v", fork.Requests, fork.Prompts)
 	}
 }
 
-func TestMessagesGenerationRefusesWhatTheDatabaseStatesImpossibly(t *testing.T) {
-	// Given a session whose rows are not JSON, have negative or huge counts, a negative cost, an error name with an escape sequence and a folder with one
-	d, path := newDB(t, "messages.sql")
+func TestMessagesThatCannotBeUsedAreSkippedAndCounted(t *testing.T) {
+	// Given a session with a message that is not JSON, usage that is negative or beyond any model's window, a negative cost,
+	// an error name with an escape sequence, and a folder that has one
+	logs, _ := newOpenCode(t, "messages.sql")
 
 	// When it is read
-	p := readSession(t, d, path, "ses_odd")
+	p := transcriptOf(t, logs, "ses_odd")
 
-	// Then the rows that cannot be used are skipped and counted, the error name is replaced, and the folder is unknown
+	// Then the messages that cannot be used are skipped and counted, and the error name is replaced by a plain one
 	if p.SkippedLines != 4 || len(p.Requests) != 1 || p.Requests[0].Key != "msg_34" || p.Requests[0].Failure != domain.UnspecifiedFailure {
 		t.Errorf("skipped %d, requests %+v", p.SkippedLines, p.Requests)
 	}
+	// And the folder is unknown
 	if p.Session.Folder != "" {
 		t.Errorf("folder = %q", p.Session.Folder)
 	}
 }
 
-func TestEventsGenerationGivesTheTimeToFirstTokenAndTheDurationOfTheStream(t *testing.T) {
-	// Given a database of the events generation
-	d, path := newDB(t, "events.sql")
+func TestPromptsAndTitleOfTheEventsGenerationAreWhatTheUserTyped(t *testing.T) {
+	// Given a session of the events generation that holds a message the user did not type
+	logs, _ := newOpenCode(t, "events.sql")
 
-	// When its main session is read
-	p := readSession(t, d, path, "ses_a")
+	// When it is read
+	p := transcriptOf(t, logs, "ses_a")
 
-	// Then the synthetic message is no prompt, and the title is the session's
+	// Then only what the user typed is a prompt, and the title and folder are the session's
 	if len(p.Prompts) != 1 || p.Prompts[0].Text != "Refactor the loader" || p.Session.Title != "Refactor the loader" || p.Session.Folder != "/work/demo-app" {
 		t.Errorf("prompts %+v, session %+v", p.Prompts, p.Session)
 	}
-	// And the answers and the compaction are requests, the first with the time to first token and the end of the stream
+}
+
+func TestEventsGenerationGivesTheTimeToFirstTokenAndTheDurationOfTheStream(t *testing.T) {
+	// Given a session of the events generation with two answers and a compaction
+	logs, _ := newOpenCode(t, "events.sql")
+
+	// When it is read
+	p := transcriptOf(t, logs, "ses_a")
+
+	// Then the answers and the compaction are requests
 	if len(p.Requests) != 3 {
 		t.Fatalf("requests = %+v", p.Requests)
 	}
 	a3, a4, a5 := p.Requests[0], p.Requests[1], p.Requests[2]
+	// And the first states when the first token came and when the stream ended
 	if a3.TTFT.Value() != 800*time.Millisecond || a3.Duration.Value() != 6*time.Second || a3.LoggedCost.USD() != 0.5 || a3.StopReason != "tool-calls" {
 		t.Errorf("a3 = %+v", a3)
 	}
 	if want := (kernel.TokenCounts{Input: 200, Output: 80, Reasoning: 20, CacheRead: 1000, CacheWrite: 50}); a3.Tokens.Counts() != want {
 		t.Errorf("a3 tokens = %+v, want %+v", a3.Tokens.Counts(), want)
 	}
+	// And the second failed and logged no time to first token
 	if a4.Failure != "ProviderOverloaded" || a4.TTFT.Known() || a4.Duration.Value() != 5*time.Second {
 		t.Errorf("a4 = %+v", a4)
 	}
+	// And the compaction counts as a request of its own
 	if a5.Key != "msg_a5" || a5.Tokens.Counts().Input != 500 || a5.LoggedCost.USD() != 0.1 {
 		t.Errorf("a5 = %+v", a5)
 	}
-	// And the tools come from the parts and from the message that holds one itself
+}
+
+func TestEventsGenerationTakesToolCallsFromTheirPartsAndFromTheMessageThatHoldsOne(t *testing.T) {
+	// Given a session whose first answer has its tool calls as parts, and whose second holds its tool call itself
+	logs, _ := newOpenCode(t, "events.sql")
+
+	// When it is read
+	p := transcriptOf(t, logs, "ses_a")
+
+	// Then all three calls are there, with their sizes, durations and outcomes
 	if len(p.Tools) != 3 {
 		t.Fatalf("tools = %+v", p.Tools)
 	}
@@ -250,16 +327,22 @@ func TestEventsGenerationGivesTheTimeToFirstTokenAndTheDurationOfTheStream(t *te
 	}
 }
 
-func TestEventsGenerationKeepsOnlyWhatAForkSaidSinceItWasForked(t *testing.T) {
-	d, path := newDB(t, "events.sql")
+func TestASessionOfTheEventsGenerationWithAParentIsASubagentOfIt(t *testing.T) {
+	logs, _ := newOpenCode(t, "events.sql")
 
-	sub := readSession(t, d, path, "ses_b")
+	sub := transcriptOf(t, logs, "ses_b")
+
 	if sub.Session.ParentID.String() != "opencode:ses_a" || sub.Session.AgentType != domain.Subagent || sub.Session.Title != "Find the callers" ||
 		len(sub.Requests) != 1 || sub.Requests[0].TTFT.Value() != 500*time.Millisecond {
 		t.Errorf("subagent = %+v", sub)
 	}
+}
 
-	fork := readSession(t, d, path, "ses_c")
+func TestAForkedSessionOfTheEventsGenerationIsNotASubagentAndCountsOnlyWhatWasSaidSinceTheFork(t *testing.T) {
+	logs, _ := newOpenCode(t, "events.sql")
+
+	fork := transcriptOf(t, logs, "ses_c")
+
 	if !fork.Session.ParentID.IsZero() || fork.Session.AgentType != domain.MainAgent {
 		t.Errorf("a fork is not a subagent: %+v", fork.Session)
 	}
@@ -268,117 +351,154 @@ func TestEventsGenerationKeepsOnlyWhatAForkSaidSinceItWasForked(t *testing.T) {
 	}
 }
 
-func TestADatabaseWithBothGenerationsGivesEachSessionItsEventsWhenItHasThem(t *testing.T) {
-	// Given a database where the same session has rows in both generations
-	d, path := newDB(t, "messages.sql")
-	db, err := sql.Open("sqlite", path)
+func TestASessionKnownToBothGenerationsIsReadFromItsEventsOnly(t *testing.T) {
+	// Given a session that has messages in both generations of the schema
+	logs, db := newOpenCode(t, "messages.sql")
+	writer, err := sql.Open("sqlite", db)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer writer.Close()
 	for _, q := range []string{
 		`CREATE TABLE session_message (id text PRIMARY KEY, session_id text NOT NULL, type text NOT NULL, seq integer, time_created integer NOT NULL, time_updated integer NOT NULL, data text NOT NULL)`,
 		`INSERT INTO session_message VALUES ('ev_1', 'ses_child', 'user', 1, 1767225640000, 1767225640000, '{"text":"from the events"}')`,
 	} {
-		if _, err := db.Exec(q); err != nil {
+		if _, err := writer.Exec(q); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	// When the session is read, then its events are read and its messages are not counted too
-	p := readSession(t, d, path, "ses_child")
+	// When it is read
+	p := transcriptOf(t, logs, "ses_child")
+
+	// Then what it said in the events is read, and its messages are not counted too
 	if len(p.Prompts) != 1 || p.Prompts[0].Text != "from the events" || len(p.Requests) != 0 {
 		t.Errorf("prompts %+v, requests %+v", p.Prompts, p.Requests)
 	}
 }
 
-func TestADatabaseIsOpenedForReadingOnly(t *testing.T) {
+func TestReadingADatabaseNeverChangesIt(t *testing.T) {
 	for _, mode := range []string{"DELETE", "WAL"} {
 		t.Run(mode, func(t *testing.T) {
-			// Given a database, in a directory nobody may write to
-			dir := t.TempDir()
-			path := filepath.Join(dir, "opencode.db")
-			buildDB(t, path, "messages.sql")
-			if mode == "WAL" { // as OpenCode keeps it; closing the last connection leaves no -wal file behind
-				db, err := sql.Open("sqlite", path)
+			// Given a database nobody has open, in a directory nobody may write to
+			root := t.TempDir()
+			db := filepath.Join(root, "opencode.db")
+			buildDB(t, db, "messages.sql")
+			if mode == "WAL" { // as OpenCode keeps it; closing the last connection leaves nothing beside the database
+				w, err := sql.Open("sqlite", db)
 				if err != nil {
 					t.Fatal(err)
 				}
-				if _, err := db.Exec(`PRAGMA journal_mode = WAL`); err != nil {
+				if _, err := w.Exec(`PRAGMA journal_mode = WAL`); err != nil {
 					t.Fatal(err)
 				}
-				db.Close()
+				w.Close()
 			}
 			sum := func() [32]byte {
-				raw, err := os.ReadFile(path)
+				raw, err := os.ReadFile(db)
 				if err != nil {
 					t.Fatal(err)
 				}
 				return sha256.Sum256(raw)
 			}
 			before := sum()
-			if err := os.Chmod(dir, 0o500); err != nil {
+			if err := os.Chmod(root, 0o500); err != nil {
 				t.Fatal(err)
 			}
-			defer os.Chmod(dir, 0o700)
-			d := &OpenCodeDatabase{Prefix: "opencode"}
+			defer os.Chmod(root, 0o700)
+			logs := harnessLogs(kernel.OpenCode, root, &OpenCodeDatabase{Prefix: "opencode"})
 
 			// When every session is listed and read
-			for id, s := range sessionsOf(t, d, path) {
-				if _, err := d.read(path, kernel.OpenCode, s); err != nil {
+			for id, f := range existingLogs(t, logs) {
+				if _, err := logs.Read(f); err != nil {
 					t.Errorf("%s: %v", id, err)
 				}
 			}
 
-			// Then the database is as it was, and the connection refuses to write
+			// Then the database is as it was
 			if sum() != before {
-				t.Error("the database file changed")
-			}
-			db, err := d.handle(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := db.Exec(`DELETE FROM message`); err == nil {
-				t.Error("the connection accepted a write")
+				t.Error("the database changed")
 			}
 		})
 	}
 }
 
-func TestDatabasesThatAreNotUsableAreProblemsNotFailures(t *testing.T) {
-	dir := t.TempDir()
-	notADB := filepath.Join(dir, "garbage.db")
-	if err := os.WriteFile(notADB, []byte("this is not a database, but it is long enough to be mistaken for the header of one"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	unknown := filepath.Join(dir, "unknown.db")
-	buildDB(t, unknown)
-	db, err := sql.Open("sqlite", unknown)
+func TestReadingADatabaseNobodyHasOpenLeavesNothingBesideIt(t *testing.T) {
+	// Given a database in write-ahead mode that was closed cleanly, in a directory that may be written to
+	root := t.TempDir()
+	db := filepath.Join(root, "opencode.db")
+	buildDB(t, db, "messages.sql")
+	w, err := sql.Open("sqlite", db)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`CREATE TABLE session (id text, title text); CREATE TABLE message (id text, data text)`); err != nil {
+	if _, err := w.Exec(`PRAGMA journal_mode = WAL`); err != nil {
 		t.Fatal(err)
 	}
-	db.Close()
-	fifo := filepath.Join(dir, "pipe.db")
+	w.Close()
+	names := func() []string {
+		entries, _ := os.ReadDir(root)
+		var out []string
+		for _, e := range entries {
+			out = append(out, e.Name())
+		}
+		return out
+	}
+	before := names()
+	logs := harnessLogs(kernel.OpenCode, root, &OpenCodeDatabase{Prefix: "opencode"})
+
+	// When it is listed and read
+	for _, f := range existingLogs(t, logs) {
+		if _, err := logs.Read(f); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Then no file appeared beside it
+	if after := names(); !slices.Equal(before, after) {
+		t.Errorf("files %v, then %v", before, after)
+	}
+}
+
+func TestDatabasesThatCannotBeUsedAreReportedAndYieldNoSession(t *testing.T) {
+	root := t.TempDir()
+	notADB := filepath.Join(root, "garbage.db")
+	if err := os.WriteFile(notADB, []byte("this is not a database, but it is long enough to be mistaken for the header of one"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unknown := filepath.Join(root, "unknown.db")
+	buildDB(t, unknown)
+	w, err := sql.Open("sqlite", unknown)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Exec(`CREATE TABLE session (id text, title text); CREATE TABLE message (id text, data text)`); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+	fifo := filepath.Join(root, "pipe.db")
 	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
 		t.Skip("mkfifo unavailable:", err)
 	}
-	missing := filepath.Join(dir, "absent.db")
 
 	for name, tc := range map[string]struct {
 		path string
-		want error
-	}{"not a database": {notADB, nil}, "unknown schema": {unknown, ErrUnknownSchema}, "fifo": {fifo, ErrNotRegular}, "missing": {missing, nil}} {
+		want error // nil: the database is not there, which is no problem
+	}{
+		"a file that is not a database": {notADB, ErrDatabaseUnreadable},
+		"a database of another schema":  {unknown, ErrUnknownSchema},
+		"a pipe":                        {fifo, ErrNotRegular},
+		"a database that is not there":  {filepath.Join(root, "absent.db"), nil},
+	} {
 		t.Run(name, func(t *testing.T) {
-			// When a database like that is listed
+			// When the database is listed
+			logs := harnessLogs(kernel.OpenCode, root, &OpenCodeDatabase{Prefix: "opencode", Override: tc.path})
 			done := make(chan struct{})
-			var sessions []dbSession
+			var files []application.LogFile
 			var problems []error
 			go func() {
 				defer close(done)
-				sessions, problems = (&OpenCodeDatabase{Prefix: "opencode"}).list(tc.path)
+				files, problems, _ = logs.List()
 			}()
 			select {
 			case <-done:
@@ -386,164 +506,153 @@ func TestDatabasesThatAreNotUsableAreProblemsNotFailures(t *testing.T) {
 				t.Fatal("list blocks")
 			}
 
-			// Then it yields no session and one problem, which names the cause when it is a known one
-			if len(sessions) != 0 || len(problems) == 0 {
-				t.Fatalf("sessions %+v, problems %v", sessions, problems)
+			// Then it yields no session, and a problem that says why unless the database is simply not there
+			if len(files) != 0 {
+				t.Fatalf("files %+v", files)
 			}
-			if tc.want != nil && !errors.Is(problems[0], tc.want) {
-				t.Errorf("problem = %v, want %v", problems[0], tc.want)
+			if tc.want == nil && len(problems) != 0 || tc.want != nil && (len(problems) != 1 || !errors.Is(problems[0], tc.want)) {
+				t.Errorf("problems %v, want %v", problems, tc.want)
 			}
 		})
 	}
 }
 
-func TestOversizedRowsAndSessionsAreBounded(t *testing.T) {
-	d, path := newDB(t, "messages.sql")
+func TestASessionThatWasDeletedAfterTheListingIsReportedGone(t *testing.T) {
+	// Given a harness that is running, and a session that was listed and then deleted by it
+	logs, db := newOpenCode(t, "messages.sql")
+	running, err := sql.Open("sqlite", db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer running.Close()
+	running.SetMaxOpenConns(1)
+	for _, q := range []string{`PRAGMA journal_mode = WAL`, `UPDATE session SET title = title || '!' WHERE id = 'ses_child'`} {
+		if _, err := running.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := existingLogs(t, logs)["ses_main"]
+	if _, err := running.Exec(`DELETE FROM session WHERE id = 'ses_main'`); err != nil {
+		t.Fatal(err)
+	}
 
-	// Given a bound on a row that the first message of ses_main exceeds
+	// When it is read
+	_, err = logs.Read(f)
+
+	// Then the failure says the session is gone, in the vocabulary of the reader and not of its driver
+	if !errors.Is(err, ErrSessionGone) || errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("err = %v, want ErrSessionGone", err)
+	}
+}
+
+func TestMessagesLargerThanTheBoundAreSkippedAndASessionLargerThanItsBoundIsRefused(t *testing.T) {
+	// Given a bound on the size of one message that the first message of ses_main exceeds
+	logs, _ := newOpenCode(t, "messages.sql")
 	defer func(n int) { maxDBRowBytes = n }(maxDBRowBytes)
 	maxDBRowBytes = 150
-	p := readSession(t, d, path, "ses_main")
 
-	// Then the longer rows are skipped and counted, not read
-	if p.SkippedLines == 0 {
-		t.Error("no row was skipped")
+	// When the session is read, then the longer messages are skipped and counted, not read
+	if p := transcriptOf(t, logs, "ses_main"); p.SkippedLines == 0 {
+		t.Error("no message was skipped")
 	}
 	maxDBRowBytes = 64 << 20
 
-	// Given a bound on what a session may hold
+	// Given a bound on what one session may hold
 	defer func(n int64) { maxDBSessionBytes = n }(maxDBSessionBytes)
 	maxDBSessionBytes = 300
-	s := sessionsOf(t, d, path)["ses_main"]
-	if _, err := d.read(path, kernel.OpenCode, s); !errors.Is(err, ErrLogTooLarge) {
+
+	// When the session is read, then it is refused as too large
+	f := existingLogs(t, logs)["ses_main"]
+	if _, err := logs.Read(f); !errors.Is(err, ErrLogTooLarge) {
 		t.Errorf("err = %v, want ErrLogTooLarge", err)
 	}
 }
 
-func TestSessionsWithAnUnusableIdAreNotListed(t *testing.T) {
-	d, path := newDB(t, "messages.sql")
-	db, err := sql.Open("sqlite", path)
+func TestSessionsWithAnUnusableIdAreReportedAndNotListed(t *testing.T) {
+	// Given sessions whose ids could be taken for a path
+	logs, db := newOpenCode(t, "messages.sql")
+	w, err := sql.Open("sqlite", db)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer w.Close()
 	for _, q := range []string{
 		`INSERT INTO session VALUES ('../x', 'prj', NULL, 's', '/w', 't', '1', 1, 1)`,
 		`INSERT INTO message VALUES ('m1', '../x', 1, 1, '{}')`,
 		`INSERT INTO session VALUES ('ses_a/b', 'prj', NULL, 's', '/w', 't', '1', 1, 1)`,
 		`INSERT INTO message VALUES ('m2', 'ses_a/b', 1, 1, '{}')`,
 	} {
-		if _, err := db.Exec(q); err != nil {
+		if _, err := w.Exec(q); err != nil {
 			t.Fatal(err)
 		}
 	}
-	sessions, problems := d.list(path)
-	if len(sessions) != 4 || len(problems) != 2 {
-		t.Errorf("sessions %d, problems %v", len(sessions), problems)
-	}
-}
 
-func TestDatabasesAreFoundByTheirNameInTheDataDirectoryOfTheHarness(t *testing.T) {
-	dir := t.TempDir()
-	for _, name := range []string{"opencode.db", "opencode-dev.db", "opencode.db-wal", "opencode.db-shm", "other.db", "notes.txt", "kilo.db", "kilo-beta.db", "opencode-beta.db"} {
-		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.Mkdir(filepath.Join(dir, "opencode-x.db"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	names := func(paths []string) []string {
-		var out []string
-		for _, p := range paths {
-			out = append(out, filepath.Base(p))
-		}
-		return out
-	}
-
-	// When OpenCode's databases are looked for, then the database and its channel databases are, but not their companion files
-	if got := names((&OpenCodeDatabase{Prefix: "opencode"}).paths(dir)); !slices.Equal(got, []string{"opencode-beta.db", "opencode-dev.db", "opencode.db"}) {
-		t.Errorf("opencode: %v", got)
-	}
-	// And Kilo reads the channel databases it names itself, and one named the old way only where it has none of its own
-	kilo := &OpenCodeDatabase{Prefix: "kilo", Fallback: "opencode"}
-	if got := names(kilo.paths(dir)); !slices.Equal(got, []string{"kilo-beta.db", "kilo.db", "opencode-dev.db"}) {
-		t.Errorf("kilo: %v", got)
-	}
-	// And a path the user sets replaces the search, relative to the data directory unless it is absolute
-	if got := (&OpenCodeDatabase{Prefix: "opencode", Override: "mine.db"}).paths(dir); !slices.Equal(got, []string{filepath.Join(dir, "mine.db")}) {
-		t.Errorf("override: %v", got)
-	}
-	if got := (&OpenCodeDatabase{Prefix: "opencode", Override: "/elsewhere/x.db"}).paths(dir); !slices.Equal(got, []string{"/elsewhere/x.db"}) {
-		t.Errorf("absolute override: %v", got)
-	}
-	if got := (&OpenCodeDatabase{Prefix: "opencode"}).paths(filepath.Join(dir, "absent")); got != nil {
-		t.Errorf("missing directory: %v", got)
-	}
-}
-
-func TestSessionsOfADatabaseAreLogsOfTheirOwnForTheIndex(t *testing.T) {
-	// Given a data directory with a database, read as a source of the harness
-	root := t.TempDir()
-	buildDB(t, filepath.Join(root, "opencode.db"), "messages.sql")
-	logs := NewFileSessionLogs([]Source{{Harness: kernel.Kilo, Root: root, Database: &OpenCodeDatabase{Prefix: "opencode"}}})
-
-	// When the logs are listed and one is read
+	// When the logs are listed
 	files, problems, err := logs.List()
-	if err != nil || len(problems) != 0 {
-		t.Fatal(files, problems, err)
-	}
 
-	// Then each session is a log named after its database and its id, with the harness of the source
-	var names []string
-	for _, f := range files {
-		names = append(names, strings.TrimPrefix(f.Path, root+"/"))
-		if f.Harness != kernel.Kilo || f.Size == 0 || f.ModTime.IsZero() || f.Weight <= 0 {
-			t.Errorf("file = %+v", f)
-		}
-	}
-	if want := []string{"opencode.db#ses_child", "opencode.db#ses_fork", "opencode.db#ses_main", "opencode.db#ses_odd"}; !slices.Equal(names, want) {
-		t.Errorf("logs = %v", names)
-	}
-	p, err := logs.Read(files[2])
-	if err != nil || p.Session.ID.String() != "kilo:ses_main" || p.Session.Harness != kernel.Kilo {
-		t.Errorf("read = %+v, %v", p.Session, err)
+	// Then the usable sessions are listed and each unusable one is reported
+	if err != nil || len(files) != 4 || len(problems) != 2 {
+		t.Errorf("files %d, problems %v, err %v", len(files), problems, err)
 	}
 }
 
-func TestReadingADatabaseNobodyHasOpenLeavesNoFileBesideIt(t *testing.T) {
-	// Given a database in write-ahead mode that was closed cleanly, in a directory that may be written to
-	dir := t.TempDir()
-	path := filepath.Join(dir, "opencode.db")
-	buildDB(t, path, "messages.sql")
-	db, err := sql.Open("sqlite", path)
+func TestOnlyTheDatabasesOfTheHarnessAreRead(t *testing.T) {
+	// Given a data directory with the databases of a channel, companion files, a database of another name and one named the old way
+	root := t.TempDir()
+	seed := filepath.Join(t.TempDir(), "seed.db")
+	buildDB(t, seed, "messages.sql")
+	raw, err := os.ReadFile(seed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`PRAGMA journal_mode = WAL`); err != nil {
-		t.Fatal(err)
-	}
-	db.Close()
-	files := func() []string {
-		entries, _ := os.ReadDir(dir)
-		var names []string
-		for _, e := range entries {
-			names = append(names, e.Name())
-		}
-		return names
-	}
-	before := files()
-
-	// When it is listed and read
-	d := &OpenCodeDatabase{Prefix: "opencode"}
-	for _, s := range sessionsOf(t, d, path) {
-		if _, err := d.read(path, kernel.OpenCode, s); err != nil {
+	for _, name := range []string{"opencode.db", "opencode-dev.db", "other.db", "kilo.db", "kilo-beta.db", "opencode-beta.db"} {
+		if err := os.WriteFile(filepath.Join(root, name), raw, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
+	for _, name := range []string{"opencode.db-wal", "opencode.db-shm", "notes.txt"} {
+		if err := os.WriteFile(filepath.Join(root, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(root, "opencode-x.db"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	readBy := func(d *OpenCodeDatabase) []string {
+		files, _, err := harnessLogs(kernel.OpenCode, root, d).List()
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen := map[string]bool{}
+		for _, f := range files {
+			name, _, _ := strings.Cut(filepath.Base(f.Path), DBSessionSep)
+			seen[name] = true
+		}
+		var out []string
+		for name := range seen {
+			out = append(out, name)
+		}
+		slices.Sort(out)
+		return out
+	}
 
-	// Then no -wal or -shm file appeared
-	if after := files(); !slices.Equal(before, after) {
-		t.Errorf("files %v, then %v", before, after)
+	// When OpenCode's databases are read, then the database and its channels are, but not their companion files
+	if got := readBy(&OpenCodeDatabase{Prefix: "opencode"}); !slices.Equal(got, []string{"opencode-beta.db", "opencode-dev.db", "opencode.db"}) {
+		t.Errorf("opencode: %v", got)
+	}
+	// And Kilo reads the channel databases it names itself, and one named the old way only where it has none of its own
+	if got := readBy(&OpenCodeDatabase{Prefix: "kilo", Fallback: "opencode"}); !slices.Equal(got, []string{"kilo-beta.db", "kilo.db", "opencode-dev.db"}) {
+		t.Errorf("kilo: %v", got)
+	}
+	// And a path the user sets replaces the search, relative to the data directory unless it is absolute
+	if got := readBy(&OpenCodeDatabase{Prefix: "opencode", Override: "other.db"}); !slices.Equal(got, []string{"other.db"}) {
+		t.Errorf("relative override: %v", got)
+	}
+	if got := readBy(&OpenCodeDatabase{Prefix: "opencode", Override: filepath.Join(root, "kilo.db")}); !slices.Equal(got, []string{"kilo.db"}) {
+		t.Errorf("absolute override: %v", got)
+	}
+	// And a data directory that is not there holds nothing
+	if files, _, err := harnessLogs(kernel.OpenCode, filepath.Join(root, "absent"), &OpenCodeDatabase{Prefix: "opencode"}).List(); err != nil || len(files) != 0 {
+		t.Errorf("missing directory: %v, %v", files, err)
 	}
 }

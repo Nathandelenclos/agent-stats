@@ -114,7 +114,7 @@ func TestNewHarnessesReportApproved(t *testing.T) {
 	os.Remove("testdata/report-more.received.json")
 }
 
-func TestOnlyTheSessionThatChangedInADatabaseIsReadAgain(t *testing.T) {
+func TestNothingIsReadAgainWhenNothingChangedInTheDatabases(t *testing.T) {
 	// Given a home that was indexed once
 	home := moreHome(t)
 	dbPath := filepath.Join(t.TempDir(), "index.db")
@@ -127,42 +127,48 @@ func TestOnlyTheSessionThatChangedInADatabaseIsReadAgain(t *testing.T) {
 	if rep.Indexed != 0 || len(rep.Errors) > 0 {
 		t.Fatalf("second run: %+v", rep)
 	}
+}
 
-	// When a message is added to one session of Kilo Code's database, which stays open for writing as it does while Kilo runs
+func TestOnlyTheSessionThatGainedAMessageIsReadAgain(t *testing.T) {
+	// Given a home that was indexed once, and Kilo Code running with its database open for writing
+	home := moreHome(t)
+	dbPath := filepath.Join(t.TempDir(), "index.db")
+	moreIndex(t, home, dbPath)
 	writer, err := sql.Open("sqlite", filepath.Join(home, ".local/share/kilo/kilo.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer writer.Close()
 	writer.SetMaxOpenConns(1)
+
+	// When the user types one more prompt in one session, and the logs are indexed again
 	for _, q := range []string{
 		`PRAGMA journal_mode = WAL`,
-		`INSERT INTO message VALUES ('msg_90', 'ses_child', 1767226500000, 1767226500000, '{"role":"user","time":{"created":1767226500000}}')`,
-		`INSERT INTO part VALUES ('prt_90', 'msg_90', 'ses_child', 1767226500000, 1767226500000, '{"type":"text","text":"One more thing"}')`,
+		`INSERT INTO message VALUES ('msg_90', 'ses_fork', 1767226500000, 1767226500000, '{"role":"user","time":{"created":1767226500000}}')`,
+		`INSERT INTO part VALUES ('prt_90', 'msg_90', 'ses_fork', 1767226500000, 1767226500000, '{"type":"text","text":"One more thing"}')`,
 	} {
 		if _, err := writer.Exec(q); err != nil {
 			t.Fatal(err)
 		}
 	}
-	rep, index := moreIndex(t, home, dbPath)
+	rep, _ := moreIndex(t, home, dbPath)
 
-	// Then that session alone is read again, and it now has the new prompt
+	// Then that session alone is read again
 	if rep.Indexed != 1 || len(rep.Errors) > 0 {
 		t.Fatalf("third run: %+v", rep)
 	}
+	// And its report lists the new prompt after the first
 	usage, err := usagedb.OpenReadOnly(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer usage.Close()
-	_ = index
-	var prompts int
-	db, err := sql.Open("sqlite", dbPath)
+	id, err := reporting.NewSessionID("kilo:ses_fork")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
-	if err := db.QueryRow(`SELECT COUNT(*) FROM prompts WHERE session_id = 'kilo:ses_child'`).Scan(&prompts); err != nil || prompts != 2 {
-		t.Errorf("prompts of the session = %d, %v", prompts, err)
+	detail, err := reporting.ShowSession{Queries: usage.Sessions()}.Run(id)
+	if err != nil || len(detail.Prompts) != 2 || detail.Prompts[1].Text != "One more thing" {
+		t.Errorf("prompts of the session = %+v, %v", detail.Prompts, err)
 	}
 }
