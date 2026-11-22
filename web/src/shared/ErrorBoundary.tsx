@@ -3,6 +3,8 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 interface Props {
   /** What to show in place of the zone that failed to render, with a way to try it again. */
   fallback: (retry: () => void) => ReactNode;
+  /** What the zone draws, by identity: when it changes while the zone is in error, the zone is tried again. */
+  resetKey?: unknown;
   children: ReactNode;
 }
 
@@ -12,6 +14,10 @@ export class ErrorBoundary extends Component<Props, { failed: boolean }> {
 
   static getDerivedStateFromError() {
     return { failed: true };
+  }
+
+  componentDidUpdate(prev: Props) {
+    if (this.state.failed && prev.resetKey !== this.props.resetKey) this.setState({ failed: false });
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {

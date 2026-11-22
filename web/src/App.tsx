@@ -84,11 +84,14 @@ function Section({ id, title, children }: { id: string; title: string; children:
   );
 }
 
-/** One zone of the report. A failure while drawing it stays in it, and changing the filters tries it again. */
-function Zone({ name, resetKey, children }: { name: string; resetKey: string; children: ReactNode }) {
+/**
+ * One zone of the report. A failure while drawing it stays in it, and the arrival of other data tries it again. The zone
+ * is not remounted when the filters change, so a table keeps its sort and its expansion while the previous report stays on screen.
+ */
+function Zone({ name, data, children }: { name: string; data: ReportData; children: ReactNode }) {
   return (
     <ErrorBoundary
-      key={resetKey}
+      resetKey={data}
       fallback={(retry) => <Failure title={`${name} could not be drawn.`} message="The rest of the page is not affected." retry={retry} />}
     >
       {children}
@@ -123,8 +126,7 @@ function Report({ filters, syncState }: { filters: Filters; syncState: SyncStatu
     return <Failure title="The report could not be loaded." message={describe(report.error)} retry={() => void report.refetch()} />;
   }
   const r = report.data;
-  const resetKey = `${filters.since}\u0000${filters.harness}`;
-  const zone = (name: string, children: ReactNode) => <Zone name={name} resetKey={resetKey}>{children}</Zone>;
+  const zone = (name: string, children: ReactNode) => <Zone name={name} data={r}>{children}</Zone>;
   // Each zone is shown according to its own data: a period can hold tool calls and no model request (the last request was
   // before it, a tool call after). The totals tell when there is no request; a zone with nothing to list is left out.
   const hasCharts = r.daily.length > 0 || r.byHarness.length > 0 || r.byModel.length > 0;
