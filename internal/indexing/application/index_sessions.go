@@ -24,6 +24,8 @@ type IndexSessions struct {
 	Workers int
 	// ReadAhead is how many bytes of logs may be read ahead of the writer; zero means 512 MiB.
 	ReadAhead int64
+	// SaveBatch is how many logs are saved at once, in one transaction; zero means 64.
+	SaveBatch int
 }
 
 // IndexReport says what an IndexSessions run did.
@@ -54,24 +56,41 @@ func (uc IndexSessions) Run(progress func(IndexReport)) (IndexReport, error) {
 			changed = append(changed, f)
 		}
 	}
+	batch := uc.SaveBatch
+	if batch <= 0 {
+		batch = defaultSaveBatch
+	}
+	var pending []IndexedLog
+	flush := func() {
+		for i, err := range uc.Store.Save(pending) {
+			if err != nil {
+				rep.Errors = append(rep.Errors, fmt.Sprintf("%s: %v", pending[i].File.Path, err))
+				continue
+			}
+			rep.Indexed++
+			rep.SkippedLines += pending[i].Transcript.SkippedLines
+			if progress != nil && rep.Indexed%50 == 0 {
+				progress(rep)
+			}
+		}
+		pending = pending[:0]
+	}
 	take := uc.readAhead(changed)
 	for _, f := range changed {
 		r := take()
-		if r.err == nil {
-			r.err = uc.Store.Save(f, r.indexed)
-		}
 		if r.err != nil {
 			rep.Errors = append(rep.Errors, fmt.Sprintf("%s: %v", f.Path, r.err))
 			continue
 		}
-		rep.Indexed++
-		rep.SkippedLines += r.indexed.SkippedLines
-		if progress != nil && rep.Indexed%50 == 0 {
-			progress(rep)
+		if pending = append(pending, IndexedLog{File: f, Transcript: r.indexed}); len(pending) == batch {
+			flush()
 		}
 	}
+	flush()
 	return rep, nil
 }
+
+const defaultSaveBatch = 64
 
 // readResult is what reading one log gave: its indexed transcript, or why that failed.
 type readResult struct {

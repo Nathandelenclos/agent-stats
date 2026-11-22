@@ -28,14 +28,14 @@ func TestIndexReadModelContract(t *testing.T) {
 	id, _ := domain.NewSessionID(kernel.Claude, "s1")
 	tokens, _ := kernel.NewTokens(kernel.TokenCounts{Input: 1000, Output: 100, CacheRead: 300})
 	cost, _ := kernel.NewCost(2)
-	err = w.Save(indexing.LogFile{Path: "/logs/s1.jsonl", Harness: kernel.Claude}, indexing.IndexedTranscript{
+	err = w.Save([]indexing.IndexedLog{{File: indexing.LogFile{Path: "/logs/s1.jsonl", Harness: kernel.Claude}, Transcript: indexing.IndexedTranscript{
 		Transcript: domain.Transcript{
 			Session:  domain.Session{ID: id, Harness: kernel.Claude, AgentType: domain.MainAgent, Folder: hostile, Start: at, End: at},
 			Requests: []domain.Request{{Key: "m1", At: at, Model: hostile, Tokens: tokens, Duration: domain.NewDuration(1500 * time.Millisecond), Failure: "boom"}},
 			Tools:    []domain.ToolCall{{Key: "t1", At: at, Name: hostile, Server: "grace", IsError: true}},
 		},
 		Costs: []indexing.PricedCost{{Cost: cost, Priced: true}},
-	})
+	}}})[0]
 	w.Close()
 	if err != nil {
 		t.Fatal(err)

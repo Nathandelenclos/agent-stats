@@ -39,17 +39,27 @@ type fakeStore struct {
 	known  map[string]LogFile
 	saved  map[string]IndexedTranscript
 	order  []string     // paths in the order they were saved
-	onSave func(string) // runs inside Save
+	onSave func(string) // runs inside Save, once per log
+	failOn string       // the log whose save fails
+	sizes  []int        // the size of each batch
 }
 
 func (s *fakeStore) IndexedFiles() (map[string]LogFile, error) { return s.known, nil }
-func (s *fakeStore) Save(f LogFile, t IndexedTranscript) error {
-	if s.onSave != nil {
-		s.onSave(f.Path)
+func (s *fakeStore) Save(batch []IndexedLog) []error {
+	s.sizes = append(s.sizes, len(batch))
+	errs := make([]error, len(batch))
+	for i, l := range batch {
+		if s.onSave != nil {
+			s.onSave(l.File.Path)
+		}
+		if l.File.Path == s.failOn {
+			errs[i] = errors.New("disk full")
+			continue
+		}
+		s.saved[l.File.Path] = l.Transcript
+		s.order = append(s.order, l.File.Path)
 	}
-	s.saved[f.Path] = t
-	s.order = append(s.order, f.Path)
-	return nil
+	return errs
 }
 
 // flatPrices charges 1 USD per input token for model "m".
@@ -132,7 +142,7 @@ func TestIndexSessionsSavesInTheOrderOfTheListWhateverTheOrderOfReading(t *testi
 	store := &fakeStore{known: map[string]LogFile{}, saved: map[string]IndexedTranscript{}}
 
 	// When they are indexed by several workers
-	rep, err := IndexSessions{Logs: logs, Store: store, Prices: flatPrices{}, Workers: 4, ReadAhead: 80}.Run(nil)
+	rep, err := IndexSessions{Logs: logs, Store: store, Prices: flatPrices{}, Workers: 4, ReadAhead: 80, SaveBatch: 1}.Run(nil)
 
 	// Then they are saved and reported in the order of the list, as a sequential run would
 	if err != nil {
@@ -169,7 +179,7 @@ func TestIndexSessionsReadsOnlyAFewBytesOfLogsAheadOfTheWriter(t *testing.T) {
 	}
 
 	// When 3 workers index 40 logs of 10 bytes with room for 50 bytes
-	if _, err := (IndexSessions{Logs: logs, Store: store, Prices: flatPrices{}, Workers: 3, ReadAhead: 50}).Run(nil); err != nil {
+	if _, err := (IndexSessions{Logs: logs, Store: store, Prices: flatPrices{}, Workers: 3, ReadAhead: 50, SaveBatch: 1}).Run(nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -181,5 +191,44 @@ func TestIndexSessionsReadsOnlyAFewBytesOfLogsAheadOfTheWriter(t *testing.T) {
 	}
 	if len(store.saved) != 40 {
 		t.Errorf("saved %d logs, want 40", len(store.saved))
+	}
+}
+
+func TestIndexSessionsSavesLogsInBatchesAndReportsTheOnesThatFailed(t *testing.T) {
+	// Given 150 logs, one of which the store cannot save
+	logs := manyLogs(150)
+	store := &fakeStore{known: map[string]LogFile{}, saved: map[string]IndexedTranscript{}, failOn: "log-70"}
+
+	// When they are indexed with the default batch
+	rep, err := IndexSessions{Logs: logs, Store: store, Prices: flatPrices{}}.Run(nil)
+
+	// Then they were saved in transactions of 64, in order, the failure is reported and the others are kept
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(store.sizes, []int{64, 64, 22}) {
+		t.Errorf("batches of %v, want 64, 64, 22", store.sizes)
+	}
+	var want []string
+	for _, f := range logs.files {
+		if f.Path != "log-70" {
+			want = append(want, f.Path)
+		}
+	}
+	if !slices.Equal(store.order, want) {
+		t.Errorf("saved %d logs, not the 149 of the list in order", len(store.order))
+	}
+	if rep.Indexed != 149 || len(rep.Errors) != 1 || rep.Errors[0] != "log-70: disk full" {
+		t.Errorf("report = %+v", rep)
+	}
+}
+
+func TestProgressIsReportedEveryFiftyLogsWhateverTheBatch(t *testing.T) {
+	logs := manyLogs(120)
+	store := &fakeStore{known: map[string]LogFile{}, saved: map[string]IndexedTranscript{}}
+	var seen []int
+	_, err := IndexSessions{Logs: logs, Store: store, Prices: flatPrices{}}.Run(func(r IndexReport) { seen = append(seen, r.Indexed) })
+	if err != nil || !slices.Equal(seen, []int{50, 100}) {
+		t.Errorf("progress at %v, %v; want 50, 100", seen, err)
 	}
 }
