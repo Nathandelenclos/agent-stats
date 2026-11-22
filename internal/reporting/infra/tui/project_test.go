@@ -23,7 +23,7 @@ func appProject(t *testing.T) kernel.Project {
 func TestTheInterfaceOpensOnTheProjectItIsGiven(t *testing.T) {
 	// Given the interface opened on a project
 	reports := &fakeReports{report: sampleReport()}
-	m := startWith(t, reports, Options{Project: appProject(t), Scoped: true})
+	m := startWith(t, reports, Options{Project: appProject(t), Restricted: true})
 
 	// Then the first report is about that project, and the title says so
 	if got := reports.queries[0].Project; got != appProject(t) {
@@ -34,20 +34,26 @@ func TestTheInterfaceOpensOnTheProjectItIsGiven(t *testing.T) {
 	}
 }
 
-func TestTheKeyAShowsEveryProjectWhenTheInterfaceIsOnAProject(t *testing.T) {
+func TestTheTitleStillNamesTheProjectWhileTheReportOfEveryProjectLoads(t *testing.T) {
 	// Given the interface on a project
-	reports := &fakeReports{report: sampleReport()}
-	m := startWith(t, reports, Options{Project: appProject(t), Scoped: true})
+	m := startWith(t, &fakeReports{report: sampleReport()}, Options{Project: appProject(t), Restricted: true})
 
-	// When the user presses a
-	m, cmd := pressCmd(t, m, "a")
+	// When the user presses a, before the new report arrives
+	m, _ = pressCmd(t, m, "a")
 
-	// Then the title still names the report on screen until the new one arrives
+	// Then the title still names the report on screen
 	if view := m.View(); !strings.Contains(view, "project: app") {
 		t.Errorf("title changed before the new report:\n%s", view)
 	}
+}
 
-	// When the report for every project arrives
+func TestTheKeyAShowsEveryProjectWhenTheInterfaceIsOnAProject(t *testing.T) {
+	// Given the interface on a project
+	reports := &fakeReports{report: sampleReport()}
+	m := startWith(t, reports, Options{Project: appProject(t), Restricted: true})
+
+	// When the user presses a and the report for every project arrives
+	m, cmd := pressCmd(t, m, "a")
 	m = answer(t, m, cmd)
 
 	// Then it was asked for no project in particular, and the title says so
@@ -62,7 +68,7 @@ func TestTheKeyAShowsEveryProjectWhenTheInterfaceIsOnAProject(t *testing.T) {
 func TestTheKeyAGoesBackToTheProjectFromEveryProject(t *testing.T) {
 	// Given the interface that showed every project after a first press of a
 	reports := &fakeReports{report: sampleReport()}
-	m := startWith(t, reports, Options{Project: appProject(t), Scoped: true})
+	m := startWith(t, reports, Options{Project: appProject(t), Restricted: true})
 	m, cmd := pressCmd(t, m, "a")
 	m = answer(t, m, cmd)
 
@@ -97,7 +103,7 @@ func TestAnInterfaceOpenedOnEveryProjectCanSwitchToTheProjectOfTheFolder(t *test
 func TestWithoutAProjectTheKeyADoesNothingAndIsNotOffered(t *testing.T) {
 	// Given the interface of a folder no session worked in: no project to switch to, even if asked to start on one
 	reports := &fakeReports{report: sampleReport()}
-	m := startWith(t, reports, Options{Scoped: true})
+	m := startWith(t, reports, Options{Restricted: true})
 	m = send(t, m, tea.WindowSizeMsg{Width: 200, Height: 30})
 
 	// When the user presses a
@@ -113,7 +119,7 @@ func TestWithoutAProjectTheKeyADoesNothingAndIsNotOffered(t *testing.T) {
 }
 
 func TestTheHelpSaysWhatTheKeyAWouldSwitchTo(t *testing.T) {
-	m := startWith(t, &fakeReports{report: sampleReport()}, Options{Project: appProject(t), Scoped: true})
+	m := startWith(t, &fakeReports{report: sampleReport()}, Options{Project: appProject(t), Restricted: true})
 	m = send(t, m, tea.WindowSizeMsg{Width: 200, Height: 30})
 	if !strings.Contains(m.help(), "a all projects") {
 		t.Errorf("help = %q", m.help())
@@ -130,7 +136,7 @@ func TestAProjectNameIsShownWithoutItsControlCharacters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := startWith(t, &fakeReports{report: sampleReport()}, Options{Project: p, Scoped: true})
+	m := startWith(t, &fakeReports{report: sampleReport()}, Options{Project: p, Restricted: true})
 	if view := m.View(); strings.Contains(view, "\x1b[2J") {
 		t.Errorf("title holds a control sequence: %q", view)
 	}
@@ -140,7 +146,7 @@ func TestAProjectNameIsShownWithoutItsControlCharacters(t *testing.T) {
 func onTheSessionsOfTheProject(t *testing.T) (Model, *fakeSessions) {
 	t.Helper()
 	sessions := sampleSessions()
-	m := New(Options{Reports: build(&fakeReports{report: sampleReport()}), Project: appProject(t), Scoped: true,
+	m := New(Options{Reports: build(&fakeReports{report: sampleReport()}), Project: appProject(t), Restricted: true,
 		Sessions: reporting.ListSessions{Queries: sessions}, Session: reporting.ShowSession{Queries: sessions}})
 	m.now = func() time.Time { return noon }
 	m = send(t, m, m.Init()())

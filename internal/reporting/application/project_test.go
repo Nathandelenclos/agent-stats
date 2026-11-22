@@ -1,6 +1,7 @@
 package application
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
@@ -76,5 +77,39 @@ func TestTheSessionsOfAProjectAreThoseOfTheProject(t *testing.T) {
 	// Then only its session is listed
 	if err != nil || len(list.Sessions) != 1 {
 		t.Errorf("sessions = %d, %v", len(list.Sessions), err)
+	}
+}
+
+// sessionsIn is an index that holds sessions of the projects it is given.
+type sessionsIn []kernel.Project
+
+func (s sessionsIn) HasSessions(p kernel.Project) (bool, error) { return slices.Contains(s, p), nil }
+
+func TestTheProjectOfTheWorkingFolderIsTheViewWhenSessionsWorkedInIt(t *testing.T) {
+	// Given an index with sessions of the app
+	app := appProject(t)
+
+	// When the project of the app is detected
+	got, err := DetectProject{Queries: sessionsIn{app}}.Run(app)
+
+	// Then the view is about that project
+	if err != nil || got != app {
+		t.Errorf("project = %v, %v", got, err)
+	}
+}
+
+func TestTheHomeFolderIsNotTheViewEvenWhenSessionsWorkedInIt(t *testing.T) {
+	// Given an index with sessions of the home folder
+	home, err := kernel.NewProject("/home/me")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// When the project of the home folder is detected
+	got, err := DetectProject{Queries: sessionsIn{home}, Home: home}.Run(home)
+
+	// Then the view is about every project
+	if err != nil || !got.IsZero() {
+		t.Errorf("project = %v, %v", got, err)
 	}
 }

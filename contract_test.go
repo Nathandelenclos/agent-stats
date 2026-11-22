@@ -11,7 +11,7 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/infra/sqlite"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
-	"github.com/Nathandelenclos/agent-stats/internal/platform/projectscope"
+	"github.com/Nathandelenclos/agent-stats/internal/platform/projectfolders"
 	report "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 	usagedb "github.com/Nathandelenclos/agent-stats/internal/reporting/infra/sqlite"
 )
@@ -240,9 +240,10 @@ func TestReadModelHidesPromptTexts(t *testing.T) {
 	}
 }
 
-// TestAProjectNarrowsWhatTheIndexPublishes writes sessions of two folders through the indexing adapter and narrows the
-// reporting adapter's questions to one of them: the folders the two contexts speak of are the index's published ones.
-func TestAProjectNarrowsWhatTheIndexPublishes(t *testing.T) {
+// projectIndexed writes sessions of two folders through the indexing adapter, the app's sub-folder and a sibling that shares
+// the app's name as a prefix, and returns the reporting adapter over the index and the app as a project.
+func projectIndexed(t *testing.T) (*usagedb.SQLiteUsage, kernel.Project) {
+	t.Helper()
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -275,24 +276,53 @@ func TestAProjectNarrowsWhatTheIndexPublishes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer usage.Close()
-	project, err := projectscope.Of(app)
+	t.Cleanup(func() { usage.Close() })
+	project, err := projectfolders.Of(app)
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := report.Filter{Project: project}
+	return usage, project
+}
 
-	// When usage, tools and sessions are asked for the app, and whether sessions worked in it
-	total, errTotal := usage.Total(f)
-	tools, errTools := usage.Tools(f)
-	sessions, errSessions := usage.Sessions().Sessions(f)
-	found, errFound := usage.HasSessions(project)
+func TestTheRequestsOfAProjectAreThoseOfTheSessionsThatWorkedBelowIt(t *testing.T) {
+	// Given sessions of the index in the app and in a sibling sharing its name as a prefix
+	usage, app := projectIndexed(t)
 
-	// Then only the session that worked below it is counted, and it is found
-	if errTotal != nil || errTools != nil || errSessions != nil || errFound != nil {
-		t.Fatal(errTotal, errTools, errSessions, errFound)
+	// When the usage of the app is asked for
+	total, err := usage.Total(report.Filter{Project: app})
+
+	// Then only the session below it is counted
+	if err != nil || total.Requests != 1 {
+		t.Errorf("total = %+v, %v", total, err)
 	}
-	if total.Requests != 1 || len(tools) != 1 || tools[0].Name != "in-app" || len(sessions) != 1 || sessions[0].ID.String() != "claude:in-app" || !found {
-		t.Errorf("total = %+v, tools = %+v, sessions = %+v, found = %v", total, tools, sessions, found)
+}
+
+func TestTheToolCallsOfAProjectAreThoseOfTheSessionsThatWorkedBelowIt(t *testing.T) {
+	usage, app := projectIndexed(t)
+
+	tools, err := usage.Tools(report.Filter{Project: app})
+
+	if err != nil || len(tools) != 1 || tools[0].Name != "in-app" {
+		t.Errorf("tools = %+v, %v", tools, err)
+	}
+}
+
+func TestTheSessionsOfAProjectAreThoseThatWorkedBelowIt(t *testing.T) {
+	usage, app := projectIndexed(t)
+
+	sessions, err := usage.Sessions().Sessions(report.Filter{Project: app})
+
+	if err != nil || len(sessions) != 1 || sessions[0].ID.String() != "claude:in-app" {
+		t.Errorf("sessions = %+v, %v", sessions, err)
+	}
+}
+
+func TestSessionsAreFoundInAProjectTheyWorkedBelow(t *testing.T) {
+	usage, app := projectIndexed(t)
+
+	found, err := usage.HasSessions(app)
+
+	if err != nil || !found {
+		t.Errorf("found = %v, %v", found, err)
 	}
 }

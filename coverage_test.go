@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 )
 
 // A workplace is a home folder and, next to it, an app in a Git repository (with a sub-folder), a sibling whose name
@@ -215,17 +216,17 @@ func TestTheFlagAllWinsOverTheFlagProject(t *testing.T) {
 	}
 }
 
-func TestTheJSONOfAProjectKeepsItsFormatAndNamesTheProjectOnStderr(t *testing.T) {
+func TestTheJSONOfAProjectKeepsItsFormatAndCountsTheProjectOnly(t *testing.T) {
 	// Given the same sessions
 	w := newScopedWorkplace(t)
 
 	// When the JSON report is printed from the repository
-	out, errOut, err := w.report(t, w.app, "--json")
+	out, _, err := w.report(t, w.app, "--json")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Then stdout holds nothing but the JSON with its usual fields, counting the project's sessions, and stderr names the project
+	// Then it has its usual fields and counts the project's sessions
 	var report map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(out), &report); err != nil {
 		t.Fatalf("stdout is not JSON: %v\n%s", err, out)
@@ -237,22 +238,22 @@ func TestTheJSONOfAProjectKeepsItsFormatAndNamesTheProjectOnStderr(t *testing.T)
 	}
 	var total struct{ Requests int }
 	_ = json.Unmarshal(report["total"], &total)
-	if len(report) != 6 || total.Requests != 3 || !strings.Contains(errOut, "Project: app ("+w.app+")") {
-		t.Errorf("%d fields, %d requests, stderr %q", len(report), total.Requests, errOut)
+	if len(report) != 6 || total.Requests != 3 {
+		t.Errorf("%d fields, %d requests", len(report), total.Requests)
 	}
 }
 
-func TestTheJSONOfEveryProjectCountsThemAllAndIsSilentOnStderr(t *testing.T) {
+func TestTheJSONOfEveryProjectCountsThemAll(t *testing.T) {
 	// Given the same sessions
 	w := newScopedWorkplace(t)
 
 	// When the JSON report is printed from the home folder
-	out, errOut, err := w.report(t, w.home, "--json")
+	out, _, err := w.report(t, w.home, "--json")
 
-	// Then every session is counted and stderr names no project
+	// Then every session is counted
 	var report struct{ Total struct{ Requests int } }
-	if jsonErr := json.Unmarshal([]byte(out), &report); err != nil || jsonErr != nil || report.Total.Requests != 7 || strings.Contains(errOut, "Project:") {
-		t.Errorf("requests = %d (%v, %v), stderr %q", report.Total.Requests, err, jsonErr, errOut)
+	if jsonErr := json.Unmarshal([]byte(out), &report); err != nil || jsonErr != nil || report.Total.Requests != 7 {
+		t.Errorf("requests = %d (%v, %v)", report.Total.Requests, err, jsonErr)
 	}
 }
 
@@ -326,16 +327,20 @@ func TestTheCatalogWithAnEmptyProjectReadsNoProjectLevelConfigurationAndCountsEv
 	}
 }
 
-// workedIn answers like an index that holds sessions of the projects it is given.
-func workedIn(projects ...kernel.Project) func(kernel.Project) (bool, error) {
-	return func(p kernel.Project) (bool, error) { return slices.Contains(projects, p), nil }
+// detectedIn is the DetectProject use case of an index that holds sessions of the projects it is given, with the home folder.
+func detectedIn(home kernel.Project, projects ...kernel.Project) func(kernel.Project) (kernel.Project, error) {
+	return reporting.DetectProject{Queries: sessionsIn(projects), Home: home}.Run
 }
+
+type sessionsIn []kernel.Project
+
+func (s sessionsIn) HasSessions(p kernel.Project) (bool, error) { return slices.Contains(s, p), nil }
 
 func TestTheCoverageFollowsWhereSessionsWorkedAndWhatTheUserAskedFor(t *testing.T) {
 	app, _ := kernel.NewProject("/work/app")
 	home, _ := kernel.NewProject("/home/me")
 	other, _ := kernel.NewProject("/work/other")
-	index := workedIn(app, home)
+	detect := detectedIn(home, app, home)
 	for name, c := range map[string]struct {
 		all            bool
 		given, working kernel.Project
@@ -350,7 +355,7 @@ func TestTheCoverageFollowsWhereSessionsWorkedAndWhatTheUserAskedFor(t *testing.
 		"--project with --all, which wins":                 {true, other, app, coverage{other, false}},
 		"no working folder":                                {false, kernel.Project{}, kernel.Project{}, coverage{}},
 	} {
-		got, err := chooseCoverage(c.all, c.given, c.working, home, index)
+		got, err := chooseCoverage(c.all, c.given, c.working, detect)
 		if err != nil || got != c.want {
 			t.Errorf("%s: coverage = %+v, %v, want %+v", name, got, err, c.want)
 		}
@@ -360,7 +365,7 @@ func TestTheCoverageFollowsWhereSessionsWorkedAndWhatTheUserAskedFor(t *testing.
 func TestTheCoverageOfAnIndexThatCannotBeReadIsAnError(t *testing.T) {
 	boom := errors.New("boom")
 	app, _ := kernel.NewProject("/work/app")
-	_, err := chooseCoverage(false, kernel.Project{}, app, kernel.Project{}, func(kernel.Project) (bool, error) { return false, boom })
+	_, err := chooseCoverage(false, kernel.Project{}, app, func(kernel.Project) (kernel.Project, error) { return kernel.Project{}, boom })
 	if !errors.Is(err, boom) {
 		t.Errorf("err = %v", err)
 	}

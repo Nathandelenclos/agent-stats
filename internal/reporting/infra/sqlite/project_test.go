@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
-	"github.com/Nathandelenclos/agent-stats/internal/platform/projectscope"
+	"github.com/Nathandelenclos/agent-stats/internal/platform/projectfolders"
 	report "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 )
 
@@ -84,7 +84,7 @@ func newWorkplace(t *testing.T) workplace {
 
 func projectAt(t *testing.T, dir string) kernel.Project {
 	t.Helper()
-	p, err := projectscope.Of(dir)
+	p, err := projectfolders.Of(dir)
 	if err != nil {
 		t.Fatal(err)
 	}

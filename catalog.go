@@ -14,7 +14,7 @@ import (
 	catalogdb "github.com/Nathandelenclos/agent-stats/internal/catalog/infra/sqlite"
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/infra/sqlite"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
-	"github.com/Nathandelenclos/agent-stats/internal/platform/projectscope"
+	"github.com/Nathandelenclos/agent-stats/internal/platform/projectfolders"
 	"github.com/Nathandelenclos/agent-stats/internal/pricing/infra/pricetable"
 )
 
@@ -70,7 +70,7 @@ func runCatalog(args []string, stdout, stderr io.Writer) error {
 		if configDir, err = filepath.Abs(*project); err != nil {
 			return err
 		}
-		if given, err = projectscope.Of(configDir); err != nil {
+		if given, err = projectfolders.Of(configDir); err != nil {
 			return err
 		}
 	default:
@@ -101,7 +101,7 @@ func runCatalog(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	defer activity.Close()
-	cov, err := chooseCoverage(*all, given, working, homeProject(), activity.HasSessions)
+	cov, err := chooseCoverage(*all, given, working, catalog.DetectProject{Queries: activity, Home: homeProject()}.Run)
 	if err != nil {
 		return err
 	}
@@ -114,9 +114,6 @@ func runCatalog(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	if *asJSON {
-		if cov.restricted { // the JSON has no field for it, and its numbers differ from those of the whole
-			fmt.Fprintln(stderr, cov.label())
-		}
 		return writeCatalogJSON(stdout, c)
 	}
 	for _, note := range c.Skipped {

@@ -35,10 +35,10 @@ type Options struct {
 	// Any other label stands for a custom period starting at Since.
 	SinceLabel string
 	Since      time.Time
-	// Project is the project key a switches the views to, and Scoped whether the views start restricted to it. The zero
+	// Project is the project key a switches the views to, and Restricted whether the views start restricted to it. The zero
 	// Project means there is none to switch to: the views cover every project and the key does nothing.
-	Project kernel.Project
-	Scoped  bool
+	Project    kernel.Project
+	Restricted bool
 }
 
 // Run shows the interface until the user quits, then waits for a sync still running to stop.

@@ -57,7 +57,7 @@ agent-stats --all                    # every project, even from inside one
 agent-stats --project ~/work/app     # one project, from anywhere
 ```
 
-### Project scope
+### Per-project view
 
 Run from a project, `agent-stats` reports on that project only: the report, the interactive view (usage and sessions)
 and `agent-stats catalog`. The project is the top-level folder of the Git repository the current folder is in (found by
@@ -71,10 +71,11 @@ resolved, so a project reached through a link is the same project. A linked Git 
 - A session belongs to a project when its working folder is the project's folder or lies below it. Folders are compared
   element by element, so `/work/app-2` is not in `/work/app`. A session with no folder, or a folder that is not an
   absolute path, belongs to no project and shows only in the view of every project.
-- The plain-text report states the scope on its first line (`Project: app (/work/app)` or `All projects`). The interactive
-  view puts it in the title (`project: app` or `all projects`), and `a` switches between the project and every project.
-- `--json` keeps its format, and has no field for the scope: its content is the project's when one applies, and the
-  scope is then written on stderr (`Project: app (/work/app)`). Pass `--all` for scripts that expect every project.
+- The plain-text report says what it covers on its first line (`Project: app (/work/app)` or `All projects`). The
+  interactive view puts it in the title (`project: app` or `all projects`), and `a` switches between the project and
+  every project.
+- `--json` keeps its format and has no field for the project: its content is the project's when one applies. Pass `--all`
+  in scripts that expect every project.
 
 `m` switches between the **Usage** report and the **Sessions** view; the title shows which one is open (`[Usage] Sessions` or `Usage [Sessions]`).
 Sessions lists one row per session (a subagent whose parent log was not indexed, or a conversation forked from another, has its own row): title, cost,
@@ -87,14 +88,14 @@ The period and harness filters apply as in Usage: a session is listed when its l
 `Enter` opens the selected session: its requests by model, the tools it called, its subagents, and its prompts in order, each with the frustration signals
 found in it (yelling, profanity, anguish, negation, blame, repeated). Prompt text is shown cut to a line, with control characters replaced.
 `↑↓`, `PgUp`/`PgDn`, `Home`/`End` scroll, `Esc` goes back to the list.
-The sessions are not part of `--json` or the plain-text report. Both modes follow the project scope.
+The sessions are not part of `--json` or the plain-text report. Both modes follow the per-project view.
 
 | Flag | Meaning |
 |------|---------|
 | `--since` | Only count activity after this point: `24h`, `7d` (days), any Go duration, or a `2006-01-02` date. |
 | `--harness` | Restrict the report to `claude`, `codex`, `omp` or `pi`. |
-| `--all` | Count every project, not only the one of the current folder, see [Project scope](#project-scope). |
-| `--project DIR` | Count only the project at `DIR` (folder or below), see [Project scope](#project-scope). |
+| `--all` | Count every project, not only the one of the current folder, see [Per-project view](#per-project-view). |
+| `--project DIR` | Count only the project at `DIR` (folder or below), see [Per-project view](#per-project-view). |
 | `--json` | Print the report as JSON instead of tables. |
 | `--no-sync` | Skip the indexing step and read the index as it is. |
 | `--prices file.json` | Override or add model prices, see [Pricing](#pricing). |
@@ -149,7 +150,7 @@ It takes `--harness`, `--since`, `--db`, `--no-sync`, `--prices`, `--all` and `-
 output keeps its format), plus `--project DIR` for the project. Like the report, it indexes new logs first unless you pass
 `--no-sync`.
 
-The project is that of the current folder (see [Project scope](#project-scope)) unless `--project DIR` names another. It
+The project is that of the current folder (see [Per-project view](#per-project-view)) unless `--project DIR` names another. It
 does two things: its project-level configuration is read, and usage is counted from its sessions only, when sessions
 worked in it. With `--all` the usage of every project is counted, and the project-level configuration is still read.
 `--project ""` reads no project-level configuration and counts every project. The first line of the text output says
@@ -271,7 +272,7 @@ The code is split in vertical slices, each in clean-architecture layers where de
 | `internal/catalog` | What harnesses have installed (`infra/configfiles`) linked to the usage read from the index's published `usage_*` views (`infra/sqlite`); `agent-stats catalog`. |
 | `internal/pricing` | Rates and price list; `infra/pricetable` loads the embedded LiteLLM table and the `--prices` override. |
 | `internal/kernel` | What every slice shares: harnesses, token counts, request cost. No I/O. |
-| `internal/platform` | Small technical helpers: safe file opening, and `projectscope` (the project of a folder, and narrowing the index's views to a project). |
+| `internal/platform` | Small technical helpers: safe file opening, and `projectfolders` (the project of a folder, and narrowing the index's views to a project). |
 
 Both `usage_requests` and `usage_tool_calls` carry the working `folder` of their session, and `usage_folders` lists each
 folder a session worked in. A project is a folder: the adapters read that list, resolve each folder (links, `..`), keep the

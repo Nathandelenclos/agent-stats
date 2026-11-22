@@ -1,8 +1,8 @@
-// Package projectscope finds the project a folder belongs to and narrows the index's published views to a project.
+// Package projectfolders finds the project a folder belongs to and narrows the index's published views to a project.
 // Paths are compared after their symbolic links are resolved, so a project reached through a link and the same
 // project reached directly are one. Working folders come from session logs, which nobody vouches for: they are cleaned
 // and resolved here, at the time of the question, and a folder that names no place is in no project.
-package projectscope
+package projectfolders
 
 import (
 	"path/filepath"

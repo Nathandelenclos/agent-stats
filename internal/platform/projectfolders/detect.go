@@ -1,4 +1,4 @@
-package projectscope
+package projectfolders
 
 import (
 	"os"

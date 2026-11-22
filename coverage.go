@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
-	"github.com/Nathandelenclos/agent-stats/internal/platform/projectscope"
+	"github.com/Nathandelenclos/agent-stats/internal/platform/projectfolders"
 	"github.com/Nathandelenclos/agent-stats/internal/platform/textfmt"
 )
 
@@ -33,13 +33,13 @@ func (c coverage) label() string {
 }
 
 // workingProject is the project of the folder agent-stats runs in: the Git top-level, or the folder itself. It is the
-// zero Project when that folder cannot be told.
+// zero Project when that folder cannot be told. Reading the working folder is the composition root's job.
 func workingProject() kernel.Project {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return kernel.Project{}
 	}
-	p, err := projectscope.Detect(cwd)
+	p, err := projectfolders.Detect(cwd)
 	if err != nil {
 		return kernel.Project{}
 	}
@@ -52,7 +52,7 @@ func homeProject() kernel.Project {
 	if err != nil {
 		return kernel.Project{}
 	}
-	p, err := projectscope.Of(home)
+	p, err := projectfolders.Of(home)
 	if err != nil {
 		return kernel.Project{}
 	}
@@ -60,24 +60,31 @@ func homeProject() kernel.Project {
 }
 
 // chooseCoverage decides what a run covers. A project the user gave (--project) is the one the views are restricted to.
-// Otherwise it is the working folder's project, when sessions worked in it, see kernel.WorkingProject. Whichever the
-// project, --all asks for every project, and the project stays available to switch to.
-func chooseCoverage(all bool, given, working, home kernel.Project, workedIn func(kernel.Project) (bool, error)) (coverage, error) {
+// Otherwise it is what detect makes of the working folder's project: that project when sessions worked in it, none
+// otherwise (the DetectProject use case of the command's context). Whichever the project, --all asks for every project,
+// and the project stays available to switch to.
+func chooseCoverage(all bool, given, working kernel.Project, detect func(kernel.Project) (kernel.Project, error)) (coverage, error) {
 	if !given.IsZero() {
 		return coverage{project: given, restricted: !all}, nil
 	}
-	found, err := kernel.WorkingProject(working, home, workedIn)
+	found, err := detect(working)
 	return coverage{project: found, restricted: !all && !found.IsZero()}, err
 }
 
-// coverageOf decides what a run covers from the flags --all and --project (dir, empty when absent) and the index.
-func coverageOf(all bool, dir string, workedIn func(kernel.Project) (bool, error)) (coverage, error) {
-	var given kernel.Project
-	if dir != "" {
-		var err error
-		if given, err = projectscope.Of(dir); err != nil {
-			return coverage{}, err
-		}
+// givenProject is the project --project names, the zero Project when the flag is absent. Like workingProject, it reads
+// the process's environment, which is the composition root's job: nothing below main knows folders or flags.
+func givenProject(dir string) (kernel.Project, error) {
+	if dir == "" {
+		return kernel.Project{}, nil
 	}
-	return chooseCoverage(all, given, workingProject(), homeProject(), workedIn)
+	return projectfolders.Of(dir)
+}
+
+// coverageOf decides what a run covers from the flags --all and --project (dir, empty when absent).
+func coverageOf(all bool, dir string, detect func(kernel.Project) (kernel.Project, error)) (coverage, error) {
+	given, err := givenProject(dir)
+	if err != nil {
+		return coverage{}, err
+	}
+	return chooseCoverage(all, given, workingProject(), detect)
 }

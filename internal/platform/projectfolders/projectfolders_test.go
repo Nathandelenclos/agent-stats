@@ -1,6 +1,6 @@
 //go:build unix
 
-package projectscope
+package projectfolders
 
 import (
 	"database/sql"
@@ -199,7 +199,7 @@ func TestOnlyTheFoldersOfTheProjectAreKept(t *testing.T) {
 	}
 }
 
-func TestTheConditionBindsTheFoldersOfTheProjectAsOneValue(t *testing.T) {
+func TestAProjectFolderNamedLikeSQLIsJustAFolder(t *testing.T) {
 	// Given an index whose folders hold SQL metacharacters, and a project that holds one of them
 	dir := tree(t)
 	hostile := mkdir(t, dir, `app'"; DROP TABLE usage_folders; --`)

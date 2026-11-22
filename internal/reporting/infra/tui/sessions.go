@@ -27,7 +27,7 @@ var modeNames = [...]string{"Usage", "Sessions"}
 type sessionsMsg struct {
 	seq             int
 	period, harness int  // the filters the list was asked for
-	scoped          bool // and whether it was restricted to the project
+	restricted      bool // and whether it was restricted to the project
 	list            reporting.SessionList
 	err             error
 }
@@ -74,10 +74,10 @@ func (m Model) sessionsEnabled() bool { return m.lister.Queries != nil && m.show
 
 // loadSessions asks the use case for the sessions of the current filters, off the UI loop.
 func (m Model) loadSessions() tea.Cmd {
-	lister, q, seq, period, harness, scoped := m.lister, m.query(), m.seq, m.period, m.harness, m.scoped
+	lister, q, seq, period, harness, restricted := m.lister, m.query(), m.seq, m.period, m.harness, m.restricted
 	return func() tea.Msg {
 		list, err := lister.Run(q)
-		return sessionsMsg{seq, period, harness, scoped, list, err}
+		return sessionsMsg{seq, period, harness, restricted, list, err}
 	}
 }
 
@@ -139,7 +139,7 @@ func (m Model) sessionsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.harness = (m.harness + 1) % len(harnessChoices)
 		return m.reload()
 	case "a":
-		return m.toggleScope()
+		return m.toggleRestriction()
 	case "s":
 		m.sessions.sort = m.sessions.sort.next(m.sessionsGrid())
 		m.layout()

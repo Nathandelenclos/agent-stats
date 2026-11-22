@@ -15,7 +15,7 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/catalog/application"
 	"github.com/Nathandelenclos/agent-stats/internal/catalog/domain"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
-	"github.com/Nathandelenclos/agent-stats/internal/platform/projectscope"
+	"github.com/Nathandelenclos/agent-stats/internal/platform/projectfolders"
 )
 
 // Usage reads activity from the SQLite index.
@@ -44,9 +44,11 @@ func OpenReadOnly(path string) (*Usage, error) {
 // Close closes the database.
 func (u *Usage) Close() error { return u.db.Close() }
 
+var _ application.ProjectQueries = (*Usage)(nil)
+
 // HasSessions reports whether a session of the index worked in the project's folder or below it.
 func (u *Usage) HasSessions(p kernel.Project) (bool, error) {
-	folders, err := projectscope.Folders(u.db, p)
+	folders, err := projectfolders.Folders(u.db, p)
 	return len(folders) > 0, err
 }
 
@@ -60,7 +62,7 @@ func where(q querier, f domain.Filter, extra ...string) (string, []any, error) {
 	if !f.Harness.IsZero() {
 		conds, args = append(conds, "harness = ?"), append(args, f.Harness.String())
 	}
-	cond, projectArgs, err := projectscope.Condition(q, f.Project, "folder")
+	cond, projectArgs, err := projectfolders.Condition(q, f.Project, "folder")
 	if err != nil {
 		return "", nil, err
 	}

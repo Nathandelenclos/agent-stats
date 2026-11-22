@@ -13,7 +13,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
-	"github.com/Nathandelenclos/agent-stats/internal/platform/projectscope"
+	"github.com/Nathandelenclos/agent-stats/internal/platform/projectfolders"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 	report "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 )
@@ -71,9 +71,11 @@ func (s *SQLiteUsage) Snapshot(fn func(reporting.UsageReader) error) error {
 // Close closes the database.
 func (s *SQLiteUsage) Close() error { return s.db.Close() }
 
+var _ reporting.ProjectQueries = (*SQLiteUsage)(nil)
+
 // HasSessions reports whether a session of the index worked in the project's folder or below it.
 func (s *SQLiteUsage) HasSessions(p kernel.Project) (bool, error) {
-	folders, err := projectscope.Folders(s.db, p)
+	folders, err := projectfolders.Folders(s.db, p)
 	return len(folders) > 0, err
 }
 
@@ -87,7 +89,7 @@ func where(q querier, f report.Filter, alias string) (string, []any, error) {
 	if !f.Harness.IsZero() {
 		conds, args = append(conds, "harness = ?"), append(args, f.Harness.String())
 	}
-	cond, projectArgs, err := projectscope.Condition(q, f.Project, alias+".folder")
+	cond, projectArgs, err := projectfolders.Condition(q, f.Project, alias+".folder")
 	if err != nil {
 		return "", nil, err
 	}

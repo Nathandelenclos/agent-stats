@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
-	"github.com/Nathandelenclos/agent-stats/internal/platform/projectscope"
+	"github.com/Nathandelenclos/agent-stats/internal/platform/projectfolders"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 	report "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 )
@@ -65,7 +65,7 @@ func rootsCondition(q querier, f report.Filter) (cond string, args []any, err er
 	if !f.Harness.IsZero() {
 		cond, args = cond+" AND s.harness = ?", append(args, f.Harness.String())
 	}
-	inProject, projectArgs, err := projectscope.Condition(q, f.Project, "s.folder")
+	inProject, projectArgs, err := projectfolders.Condition(q, f.Project, "s.folder")
 	if err != nil {
 		return "", nil, err
 	}

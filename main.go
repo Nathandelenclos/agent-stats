@@ -133,7 +133,7 @@ func run() error {
 		return err
 	}
 	defer usage.Close()
-	cov, err := coverageOf(*all, *projectDir, usage.HasSessions)
+	cov, err := coverageOf(*all, *projectDir, reporting.DetectProject{Queries: usage, Home: homeProject()}.Run)
 	if err != nil {
 		return err
 	}
@@ -141,7 +141,7 @@ func run() error {
 		sessions := usage.Sessions()
 		o := tui.Options{Reports: reporting.BuildReport{Queries: usage}, Harness: only, SinceLabel: *since, Since: from,
 			Sessions: reporting.ListSessions{Queries: sessions}, Session: reporting.ShowSession{Queries: sessions},
-			Project: cov.project, Scoped: cov.restricted}
+			Project: cov.project, Restricted: cov.restricted}
 		if indexLogs != nil {
 			o.Sync = tuiSync(indexLogs)
 		}
@@ -152,9 +152,6 @@ func run() error {
 		return err
 	}
 	if *asJSON {
-		if cov.restricted { // the JSON has no field for it, and its numbers differ from those of the whole
-			fmt.Fprintln(os.Stderr, cov.label())
-		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(toJSON(rep))

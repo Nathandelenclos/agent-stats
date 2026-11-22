@@ -12,7 +12,7 @@ import (
 
 	"github.com/Nathandelenclos/agent-stats/internal/catalog/domain"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
-	"github.com/Nathandelenclos/agent-stats/internal/platform/projectscope"
+	"github.com/Nathandelenclos/agent-stats/internal/platform/projectfolders"
 )
 
 // workplace is a disk with an app, a sub-folder of it, a sibling sharing the app's name as a prefix, and a link to the
@@ -142,7 +142,7 @@ func TestTheActivityOfNoProjectIsEveryonesAndThatOfAFolderHoldingSeveralIsTheirs
 	}
 }
 
-func TestTheCatalogAdapterTellsWhetherSessionsWorkedInAProject(t *testing.T) {
+func TestTheCatalogKnowsWhetherSessionsWorkedInAProject(t *testing.T) {
 	// Given the workplace and a folder next to it that no session worked in
 	w := newWorkplace(t)
 	u, err := OpenReadOnly(w.path)
@@ -154,7 +154,7 @@ func TestTheCatalogAdapterTellsWhetherSessionsWorkedInAProject(t *testing.T) {
 
 	for dir, want := range map[string]bool{w.app: true, w.link: true, w.sibling: true, elsewhere: false} {
 		// When asking whether sessions worked in each folder
-		project, err := projectscope.Of(dir)
+		project, err := projectfolders.Of(dir)
 		if err != nil {
 			t.Fatal(err)
 		}
