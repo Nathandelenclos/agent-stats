@@ -19,10 +19,10 @@ const (
 	costLegend = "  ? unknown"
 )
 
-// overview puts the totals and the recent daily series on the same rows.
+// overview reserves at most two lines for totals, leaving the rest of Usage to the table.
 func (m Model) overview() []string {
 	if !m.loaded {
-		return []string{"loading…"}
+		return []string{"Loading usage…"}
 	}
 	total := m.report.Total
 	if total.Requests == 0 {
@@ -31,72 +31,66 @@ func (m Model) overview() []string {
 		}
 		return []string{noRequests}
 	}
+	if m.expanded {
+		return nil
+	}
 
-	requests := textfmt.Number(total.Requests)
+	requests := "Requests " + textfmt.Number(total.Requests)
 	if total.Failed > 0 {
 		requests += " (" + textfmt.Number(total.Failed) + " failed)"
 	}
-
-	metrics := []struct {
-		label string
-		total string
-		value func(reporting.Usage) float64
-	}{
-		{"Requests", requests, func(u reporting.Usage) float64 { return float64(u.Requests) }},
-		{"Tokens", textfmt.Number(total.InputWithCache() + total.Output), func(u reporting.Usage) float64 {
-			return float64(u.InputWithCache()) + float64(u.Output)
-		}},
-		{"Known cost", displayCost(total), knownCost},
+	known := "Known cost " + displayCost(total)
+	tokens := "Tokens " + textfmt.Number(total.InputWithCache()+total.Output)
+	cache := fmt.Sprintf("Input from cache %.0f%%", total.CacheRate()*100)
+	totals := requests + " · " + known
+	if lipgloss.Width(totals) > m.width {
+		return []string{requests + " · " + tokens, known + fmt.Sprintf(" · Cache %.0f%%", total.CacheRate()*100)}
 	}
-	valueWidth := len("Total")
-	for _, metric := range metrics {
-		valueWidth = max(valueWidth, lipgloss.Width(metric.total))
+	mix := tokens + fmt.Sprintf(" · Input %s · Output %s · %s",
+		textfmt.Number(total.InputWithCache()), textfmt.Number(total.Output), cache)
+	if lipgloss.Width(mix) > m.width {
+		mix = tokens + " · " + cache
 	}
+	return []string{totals, mix}
+}
 
+// chartLines shares the same trends and cost breakdown between the sidebar and the charts view.
+func (m Model) chartLines(width int) []string {
 	const labelWidth = 12
-	const heading = "Daily usage · "
-	chartColumn := labelWidth + valueWidth + 4
-	chartWidth := m.width - chartColumn
-	available := m.height - m.extraTitleLines() - chromeLines + 2 - 4 // reserve the footer and table
-	var from, to string
-	var days []reporting.Usage
-	if len(m.daily) > 0 && chartWidth >= lipgloss.Width(heading+"2006-01-02 to 2006-01-02") && available >= 4 {
-		from, to, days = recentDays(m.daily, min(trendDays, chartWidth-lipgloss.Width(costLegend)))
-	}
-
-	title := titleStyle.Render(fmt.Sprintf("%-*s%s", labelWidth, "Overview", pad("Total", valueWidth, true)))
-	if len(days) > 0 {
-		title += strings.Repeat(" ", chartColumn-lipgloss.Width(title)) + heading + from + " to " + to
-	}
-	lines := []string{title}
-	for _, metric := range metrics {
-		line := fmt.Sprintf("%-*s%s", labelWidth, metric.label, pad(metric.total, valueWidth, true))
+	var lines []string
+	if len(m.daily) > 0 && width > labelWidth+lipgloss.Width(costLegend) {
+		from, to, days := recentDays(m.daily, min(trendDays, width-labelWidth-lipgloss.Width(costLegend)))
 		if len(days) > 0 {
-			graph := sparkline(days, metric.value)
-			line += strings.Repeat(" ", chartColumn-lipgloss.Width(line)) + chartStyle.Render(graph)
-			if strings.Contains(graph, "?") {
-				line += costLegend
+			lines = append(lines, titleStyle.Render("Daily trends"), from+" to "+to)
+			for _, metric := range []struct {
+				label string
+				value func(reporting.Usage) float64
+			}{
+				{"Requests", func(u reporting.Usage) float64 { return float64(u.Requests) }},
+				{"Tokens", func(u reporting.Usage) float64 { return float64(u.InputWithCache()) + float64(u.Output) }},
+				{"Known cost", knownCost},
+			} {
+				graph := sparkline(days, metric.value)
+				line := pad(metric.label, labelWidth, false) + chartStyle.Render(graph)
+				if strings.Contains(graph, "?") {
+					line += costLegend
+				}
+				lines = append(lines, line)
 			}
 		}
-		lines = append(lines, line)
 	}
-
-	if available >= 5 {
-		mix := fmt.Sprintf("Input %s · Output %s · Input from cache %.0f%%",
-			textfmt.Number(total.InputWithCache()), textfmt.Number(total.Output), total.CacheRate()*100)
-		if lipgloss.Width(mix) > m.width {
-			mix = fmt.Sprintf("Input from cache %.0f%%", total.CacheRate()*100)
-		}
-		lines = append(lines, mix)
+	bars := m.costByHarness(width)
+	if len(lines) > 0 && len(bars) > 0 {
+		lines = append(lines, "")
 	}
-	return append(lines, m.costByHarness(available-len(lines))...)
+	return append(lines, bars...)
 }
 
 // costByHarness shows the leading rows of the report's cost-ordered harness breakdown.
-func (m Model) costByHarness(available int) []string {
+func (m Model) costByHarness(width int) []string {
 	const title = "Estimated cost by coding agent"
-	count := min(len(m.report.ByHarness), 3, available-1)
-	if count < 1 || m.width < lipgloss.Width(title) {
+	count := min(len(m.report.ByHarness), 3)
+	if count < 1 || width < lipgloss.Width(title) {
 		return nil
 	}
 	groups := m.report.ByHarness[:count]
@@ -117,7 +111,7 @@ func (m Model) costByHarness(available int) []string {
 		amountWidth = max(amountWidth, lipgloss.Width(amounts[i]))
 		peak = max(peak, group.Cost)
 	}
-	barWidth := min(34, m.width-labelWidth-amountWidth-4)
+	barWidth := min(34, width-labelWidth-amountWidth-4)
 	if barWidth < 4 {
 		return nil
 	}
@@ -125,7 +119,7 @@ func (m Model) costByHarness(available int) []string {
 	heading := title
 	if count < len(m.report.ByHarness) {
 		limited := fmt.Sprintf("%s · top %d", title, count)
-		if lipgloss.Width(limited) <= m.width {
+		if lipgloss.Width(limited) <= width {
 			heading = limited
 		}
 	}
@@ -226,9 +220,24 @@ func dailyLines(daily []reporting.UsageGroup) []string {
 	return lines
 }
 
+func (m Model) dailyContent() []string {
+	if !m.loaded {
+		return []string{"Loading daily usage…"}
+	}
+	lines := m.chartLines(m.width)
+	if len(lines) > 0 {
+		lines = append(lines, "", titleStyle.Render("Daily values"))
+	}
+	return append(lines, dailyLines(m.daily)...)
+}
+
 func (m Model) dailyView() string {
+	title := "Daily usage"
+	if p := m.dailyPager; len(p.lines) > p.display {
+		title += fmt.Sprintf(" · %d–%d of %d lines", p.scroll+1, p.scroll+p.display, len(p.lines))
+	}
 	return lipgloss.NewStyle().MaxWidth(m.width).Render(strings.Join([]string{
-		m.titleBar(), titleStyle.Render("Daily usage"), m.dailyPager.visible(), m.status(), m.help(),
+		m.titleBar(), titleStyle.Render(title), m.dailyPager.visible(), m.status(), m.help(),
 	}, "\n"))
 }
 
@@ -236,7 +245,8 @@ func (m Model) dailyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k := msg.String(); k {
 	case "esc":
 		m.dailyOpen = false
-	case "m", "q", "ctrl+c", "r", "p", "h", "a":
+		m.layout()
+	case "m", "r", "p", "h", "a":
 		return m.usageKey(msg)
 	default:
 		m.dailyPager.scrollKey(k)

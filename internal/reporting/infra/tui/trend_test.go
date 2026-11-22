@@ -28,11 +28,19 @@ func TestDailyGraphsAndValuesFitTheTerminal(t *testing.T) {
 	}
 	m := start(t, &fakeReports{report: r, daily: sampleDaily()})
 	m = send(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
-	for _, want := range []string{"Daily usage", "2026-11-01 to 2026-11-03", "Requests", "Tokens", "Known cost", "▄·█", "█·?", "? unknown", "[1 Harness]", "g daily values", "q quit"} {
-		if !strings.Contains(m.View(), want) {
-			t.Errorf("overview lacks %q:\n%s", want, m.View())
+	view := m.View()
+	for _, want := range []string{"Requests", "Tokens", "Known cost", "[1 Harness]", "g charts", "? help", "q quit"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("overview lacks %q:\n%s", want, view)
 		}
 	}
+	if count := strings.Count(view, "fixture-"); count < 12 {
+		t.Errorf("only %d detail rows visible on an 80-by-24 terminal:\n%s", count, view)
+	}
+	if strings.Contains(view, "Daily trends") {
+		t.Errorf("the compact view puts graphs above the table:\n%s", view)
+	}
+	assertTrendSize(t, view, 80, 24)
 
 	m = send(t, m, tea.KeyMsg{Type: tea.KeyDown})
 	if !strings.Contains(m.View(), ">codex") {
@@ -52,18 +60,20 @@ func TestDailyGraphsAndValuesFitTheTerminal(t *testing.T) {
 	assertTrendSize(t, m.View(), 40, 15)
 
 	m = press(t, m, "g")
-	for _, want := range []string{"Daily usage", "2026-11-01", "2026-11-03", "1 500 tokens", "esc back", "q quit"} {
+	for _, want := range []string{"Daily usage", "Daily trends", "2026-11-01 to 2026-11-03", "▄·█", "█·?", "? unknown", "esc back", "q quit"} {
 		if !strings.Contains(m.View(), want) {
-			t.Errorf("daily values lack %q:\n%s", want, m.View())
+			t.Errorf("charts lack %q:\n%s", want, m.View())
 		}
 	}
 	assertTrendSize(t, m.View(), 40, 15)
 	m = send(t, m, tea.KeyMsg{Type: tea.KeyEnd})
-	if !strings.Contains(m.View(), "Cost unavailable") {
-		t.Errorf("the cost of unpriced requests appeared as zero:\n%s", m.View())
+	for _, want := range []string{"2026-11-01", "2026-11-03", "1 500 tokens", "Cost unavailable"} {
+		if !strings.Contains(m.View(), want) {
+			t.Errorf("daily values lack %q:\n%s", want, m.View())
+		}
 	}
 	m = send(t, m, tea.KeyMsg{Type: tea.KeyEsc})
-	if !strings.Contains(m.View(), selected) || !strings.Contains(m.View(), "g daily") {
+	if !strings.Contains(m.View(), selected) || !strings.Contains(m.View(), "g charts") {
 		t.Errorf("return from daily values lost the selected row:\n%s", m.View())
 	}
 }
@@ -80,21 +90,23 @@ func TestOverviewKeepsTotalsWhenTheSelectedBreakdownIsEmpty(t *testing.T) {
 	m = press(t, m, "5")
 
 	view := m.View()
-	for _, want := range []string{"Overview", "Known cost", "Unavailable", "No tool calls in this range.", "q quit"} {
+	for _, want := range []string{"Known cost Unavailable", "No tool calls in this range.", "q quit"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("overview lacks %q:\n%s", want, view)
 		}
 	}
-	if !slices.ContainsFunc(strings.Split(view, "\n"), func(line string) bool {
-		return strings.HasPrefix(line, "Known cost") && strings.Contains(line, "Unavailable") && strings.Contains(line, "?·?")
-	}) {
-		t.Errorf("unknown cost should be marked on the same row as its trend:\n%s", view)
-	}
 	assertTrendSize(t, view, 80, 24)
+
+	charts := press(t, m, "g").View()
+	if !slices.ContainsFunc(strings.Split(charts, "\n"), func(line string) bool {
+		return strings.HasPrefix(line, "Known cost") && strings.Contains(line, "?·?")
+	}) {
+		t.Errorf("the trend did not mark unpriced days as unknown:\n%s", charts)
+	}
 
 	m = send(t, m, tea.WindowSizeMsg{Width: 40, Height: 15})
 	view = m.View()
-	if !strings.Contains(view, "Unavailable") || !strings.Contains(view, "g daily") || strings.Contains(view, "?·?") {
+	if !strings.Contains(view, "Unavailable") || !strings.Contains(view, "g charts") || strings.Contains(view, "?·?") {
 		t.Errorf("narrow view should keep the total and access to daily values:\n%s", view)
 	}
 	assertTrendSize(t, view, 40, 15)
@@ -106,8 +118,8 @@ func TestCostByCodingAgentShowsValuesAndRelativeBars(t *testing.T) {
 		group("codex", usage(20, 0, 1, 1, 0, 9.20)),
 		group("claude", usage(10, 0, 1, 1, 0, 5.60)),
 	}
-	m := send(t, start(t, &fakeReports{report: r}), tea.WindowSizeMsg{Width: 80, Height: 24})
-	view := m.View()
+	m := start(t, &fakeReports{report: r})
+	view := press(t, m, "g").View()
 	section := strings.SplitN(view, "Estimated cost by coding agent", 2)
 	if len(section) != 2 {
 		t.Fatalf("missing bar chart:\n%s", view)
@@ -131,6 +143,7 @@ func TestDailyValuesScrollAndIgnoreOlderReportAnswers(t *testing.T) {
 	}
 	m := send(t, start(t, f), tea.WindowSizeMsg{Width: 40, Height: 15})
 	m = press(t, m, "g")
+	m = send(t, m, tea.KeyMsg{Type: tea.KeyPgDown})
 	if !strings.Contains(m.View(), "2026-11-01") {
 		t.Fatalf("missing first day:\n%s", m.View())
 	}
@@ -154,10 +167,86 @@ func TestDailyGraphsRemainReadableWithoutColor(t *testing.T) {
 	if os.Getenv("NO_COLOR") == "" {
 		t.Skip("run with NO_COLOR=1 to exercise the monochrome renderer")
 	}
-	m := start(t, &fakeReports{report: sampleReport(), daily: sampleDaily()})
+	m := send(t, start(t, &fakeReports{report: sampleReport(), daily: sampleDaily()}), tea.WindowSizeMsg{Width: 120, Height: 32})
 	view := m.View()
 	if strings.Contains(view, "\x1b[") || !strings.Contains(view, "Requests") || !strings.Contains(view, "▄·█") || !strings.Contains(view, ">claude") {
 		t.Errorf("without colour, the chart or selection is unreadable:\n%s", view)
+	}
+}
+
+func TestWideUsageKeepsChartsBesideTheTableAndExpandsInPlace(t *testing.T) {
+	r := sampleReport()
+	r.ByHarness = nil
+	for i := 0; i < 30; i++ {
+		r.ByHarness = append(r.ByHarness, group(fmt.Sprintf("fixture-%02d", i), usage(1, 0, 1, 1, 0, 0)))
+	}
+	m := start(t, &fakeReports{report: r, daily: sampleDaily()})
+	m = send(t, m, tea.WindowSizeMsg{Width: 120, Height: 32})
+	chartOnHeader := slices.ContainsFunc(strings.Split(m.View(), "\n"), func(line string) bool {
+		return strings.Contains(line, "HARNESS") && strings.Contains(line, "Daily trends")
+	})
+	if !chartOnHeader || !strings.Contains(m.View(), "Estimated cost by coding agent") {
+		t.Fatalf("wide layout lacks graphs beside the table:\n%s", m.View())
+	}
+	assertTrendSize(t, m.View(), 120, 32)
+	m = send(t, m, tea.KeyMsg{Type: tea.KeyPgDown})
+	selected := strings.TrimSpace(m.table.SelectedRow()[0])
+	tableHeight := m.table.Height()
+	m = press(t, m, "e")
+	expanded := m.View()
+	if strings.Contains(expanded, "Daily trends") || !strings.Contains(expanded, "Expanded") ||
+		!strings.Contains(expanded, ">"+selected) || m.table.Height() <= tableHeight {
+		t.Errorf("expansion lost the selection or did not free space:\n%s", expanded)
+	}
+	assertTrendSize(t, expanded, 120, 32)
+	m = send(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if view := m.View(); !strings.Contains(view, "Daily trends") || !strings.Contains(view, ">"+selected) {
+		t.Errorf("restoring the layout lost the charts or selected row:\n%s", view)
+	}
+}
+
+func TestHelpIsContextualAndClosesToTheSameView(t *testing.T) {
+	m := start(t, &fakeReports{report: sampleReport(), daily: sampleDaily()})
+	m = press(t, m, "g", "e")
+	m = send(t, m, tea.WindowSizeMsg{Width: 40, Height: 15})
+	m = press(t, m, "?")
+	view := m.View()
+	for _, want := range []string{"Keyboard shortcuts", "Expand current view", "Restore layout", "q quit"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("help lacks %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "Select a usage table") {
+		t.Errorf("chart help shows an unavailable command:\n%s", view)
+	}
+	assertTrendSize(t, view, 40, 15)
+	m = send(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if !m.dailyOpen || !m.expanded || m.helpOpen {
+		t.Fatal("closing help changed the underlying expanded view")
+	}
+	m = send(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if !m.dailyOpen || m.expanded {
+		t.Fatal("Esc should restore the size before returning to the table")
+	}
+	m = send(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.dailyOpen {
+		t.Fatal("Esc should return to the table after restoring")
+	}
+}
+
+func TestResizeKeepsSelectionWhenItsSortColumnIsHidden(t *testing.T) {
+	m := send(t, start(t, &fakeReports{report: sampleReport()}), tea.WindowSizeMsg{Width: 120, Height: 24})
+	for i := 0; i < 7; i++ {
+		m = press(t, m, "s")
+	}
+	if m.sorts[m.tab].col != 6 {
+		t.Fatal("precondition: expected the cost column to determine the order")
+	}
+	m = press(t, m, "o")
+	before := m.table.SelectedRow()[0]
+	m = send(t, m, tea.WindowSizeMsg{Width: 40, Height: 15})
+	if selected := m.table.SelectedRow()[0]; strings.TrimSpace(selected) != strings.TrimSpace(before) {
+		t.Errorf("selected %q before resize and %q after", before, selected)
 	}
 }
 

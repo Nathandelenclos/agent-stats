@@ -118,7 +118,7 @@ func TestFirstReportShowsTotalsAndHarnesses(t *testing.T) {
 	// Then the overview shows totals before the harness table
 	view := m.View()
 	for _, want := range []string{
-		"Overview", "Requests    30 (2 failed)", "Tokens              1 300", "Known cost         $12.50",
+		"Requests 30 (2 failed)", "Tokens 1 300", "Known cost $12.50",
 		"Input 1 000 · Output 300 · Input from cache 40%",
 		"HARNESS", "claude", "codex", "$9.00", "$3.50",
 	} {

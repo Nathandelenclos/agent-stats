@@ -161,9 +161,13 @@ before pasting it anywhere.
 On a terminal, `agent-stats` opens an interactive view: `tab`/`←→` or `1`–`5` switch between harness, model,
 folder, agent and tools tables, `↑↓` scroll, `s` sorts by the next column and `o` reverses it, `p` cycles the period
 (24h, 7d, 30d, all), `h` cycles the harness, `a` switches between the project and every project, `r` indexes the logs
-again and `q` quits. Usage shows recent daily trends for requests, tokens and known costs. Press `g` for the exact daily
-values and `Esc` to return to the table. Set `NO_COLOR=1` for a monochrome interface, or run `agent-stats --plain` for a
-static report with the daily values. `--json` and redirected output use the report formats below.
+again and `q` quits. Press `?` for shortcuts in the current view or `e` to expand it. `Esc` closes the shortcuts,
+restores the layout or returns to the previous view.
+
+Usage leaves most of the screen for the table. On terminals at least 120 columns wide and 28 lines tall, the
+daily trends and estimated costs by coding agent sit beside the table. At any size, press `g` to open the
+charts and scroll down for exact daily values. Set `NO_COLOR=1` for a monochrome interface, or run
+`agent-stats --plain` for a static report with the daily values. `--json` and redirected output use the report formats below.
 
 The report has a one-line total (requests, failures, cost, tokens in and out, cache rate, date range), then one table
 per harness, model, folder and agent type, then the most used tools with their MCP server, call count, errors and

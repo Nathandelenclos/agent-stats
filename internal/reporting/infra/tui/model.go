@@ -51,7 +51,7 @@ var (
 // chromeLines is the baseline outside the table, with two lines reserved for the summary.
 const chromeLines = 7
 
-// detailChromeLines is what a session's detail draws besides its body: title, heading, status and help, and a spare line.
+// detailChromeLines reserves the title, heading, status, help and a spare line for paged views.
 const detailChromeLines = 5
 
 // period is a span of activity to report, ending now.
@@ -142,6 +142,9 @@ type Model struct {
 	daily         []reporting.UsageGroup
 	dailyOpen     bool
 	dailyPager    pager
+	expanded      bool
+	helpOpen      bool
+	helpPager     pager
 	loaded        bool
 	err           error
 	table         table.Model
@@ -435,7 +438,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
+	k := msg.String()
+	if k == "q" || k == "ctrl+c" {
+		m.syncs.cancel()
+		return m, tea.Quit
+	}
+	if m.helpOpen {
+		switch k {
+		case "?", "esc":
+			m.helpOpen = false
+		default:
+			m.helpPager.scrollKey(k)
+		}
+		return m, nil
+	}
+	switch k {
+	case "?":
+		m.helpOpen = true
+		m.helpPager.scroll = 0
+		m.layoutHelp()
+		return m, nil
+	case "e":
+		m.expanded = true
+		m.layout()
+		return m, nil
+	case "esc":
+		if m.expanded {
+			m.expanded = false
+			m.layout()
+			return m, nil
+		}
 	case "c":
 		if m.modeEnabled(catalogMode) {
 			return m.selectMode(catalogMode)
@@ -465,9 +497,6 @@ func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) usageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k := msg.String(); k {
-	case "q", "ctrl+c":
-		m.syncs.cancel() // Run waits for the sync to stop once the program has
-		return m, tea.Quit
 	case "tab", "right":
 		m.selectTab((m.tab + 1) % tabCount)
 	case "shift+tab", "left":
@@ -492,7 +521,7 @@ func (m Model) usageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "a":
 		return m.toggleRestriction()
 	case "s":
-		m.sorts[m.tab] = m.sorts[m.tab].next(m.grid())
+		m.sorts[m.tab] = m.sorts[m.tab].next(m.grid().narrowedTo(m.usageTableWidth()))
 		m.layout()
 		m.table.SetCursor(0)
 	case "o":
@@ -557,25 +586,33 @@ func (m Model) grid() grid {
 	default:
 		g = usageGrid("HARNESS", r.ByHarness)
 	}
-	return g.narrowedTo(m.width)
+	return g
+}
+
+const (
+	chartWidth = 40
+	chartGap   = 2
+)
+
+func (m Model) usageTableWidth() int {
+	if m.width >= 120 && m.height >= 28 && m.loaded && m.report.Total.Requests > 0 && !m.expanded && !m.dailyOpen {
+		return m.width - chartWidth - chartGap
+	}
+	return m.width
 }
 
 // layout fills the tables with the current report and fits them to the terminal.
 func (m *Model) layout() {
 	m.layoutLocalData()
+	m.layoutHelp()
 	height := m.height - m.extraTitleLines()
-	g := m.grid()
-	if m.sorts[m.tab].col >= len(g.headers) {
-		m.sorts[m.tab] = reportOrder
-	}
-	fit(&m.table, g, m.sorts[m.tab], m.width, height-(len(m.overview())-2))
+	width := m.usageTableWidth()
+	g, s := m.grid(), m.sorts[m.tab]
+	g.rows = g.sorted(s)
+	fit(&m.table, g.narrowedTo(width), s, width, height-(len(m.overview())-2))
 	if m.dailyOpen {
 		m.dailyPager.display = max(1, height-detailChromeLines)
-		if m.loaded {
-			m.dailyPager.lines = dailyLines(m.daily)
-		} else {
-			m.dailyPager.lines = []string{"Loading daily usage…"}
-		}
+		m.dailyPager.lines = m.dailyContent()
 		m.dailyPager.scrollBy(0)
 	}
 	sg := m.sessionsGrid()
@@ -584,9 +621,13 @@ func (m *Model) layout() {
 	}
 	selected := m.selectedSession()
 	m.sessions.shown = nil
-	for _, i := range sg.order(m.sessions.sort) {
+	order := sg.order(m.sessions.sort)
+	rows := make([][]cell, len(order))
+	for j, i := range order {
 		m.sessions.shown = append(m.sessions.shown, m.sessions.list.Sessions[i])
+		rows[j] = sg.rows[i]
 	}
+	sg.rows = rows
 	fit(&m.sessions.table, sg, m.sessions.sort, m.width, height)
 	for i, s := range m.sessions.shown { // the selection follows its session, not its row: fit may have put the cursor back at the top
 		if s.ID == selected {
@@ -594,7 +635,7 @@ func (m *Model) layout() {
 		}
 	}
 	if d := &m.sessions.detail; d.open {
-		d.display = max(4, height-detailChromeLines)
+		d.display = max(1, height-4)
 		if d.loaded {
 			d.lines = detailLines(d.data, m.width)
 		}
@@ -608,9 +649,8 @@ func (m *Model) layout() {
 	p.scrollBy(0)
 }
 
-// fit fills t with the rows of g ordered by s and fits it to a terminal of the given size.
+// fit fills t with the prepared rows of g and marks its sorted column when visible.
 func fit(t *table.Model, g grid, s sortState, width, height int) {
-	g.rows = g.sorted(s)
 	widths := columnWidths(g)
 	// The first column takes what the others leave; each column also pays two cells of padding.
 	rest := width
@@ -623,7 +663,7 @@ func fit(t *table.Model, g grid, s sortState, width, height int) {
 	for i, h := range g.headers {
 		cols[i] = table.Column{Title: pad(h, widths[i], g.numeric[i]), Width: widths[i]}
 	}
-	if s.col >= 0 {
+	if s.col >= 0 && s.col < len(g.headers) {
 		cols[s.col].Title = pad(g.headers[s.col]+arrow(s.desc), widths[s.col], g.numeric[s.col])
 	}
 	rows := make([]table.Row, len(g.rows))
@@ -677,6 +717,9 @@ func pad(s string, w int, right bool) string {
 
 // View draws the interface.
 func (m Model) View() string {
+	if m.helpOpen {
+		return m.helpView()
+	}
 	if m.mode == catalogMode || m.mode == quotasMode {
 		return m.localDataView()
 	}
@@ -697,7 +740,13 @@ func (m Model) View() string {
 	}
 	b.WriteString(m.tabBar() + "\n")
 	if m.loaded && !m.empty() {
-		b.WriteString(m.table.View() + "\n")
+		body := m.table.View()
+		if width := m.usageTableWidth(); width < m.width {
+			body = lipgloss.JoinHorizontal(lipgloss.Top,
+				lipgloss.NewStyle().Width(width).Render(body), strings.Repeat(" ", chartGap),
+				strings.Join(m.chartLines(chartWidth), "\n"))
+		}
+		b.WriteString(body + "\n")
 	} else {
 		if m.loaded && m.report.Total.Requests > 0 {
 			message := "No rows in this view."
@@ -721,24 +770,26 @@ func (m Model) titleBar() string {
 		harness = h.String()
 	}
 	bar := titleStyle.Render("agent-stats") + m.modeLabel()
+	if m.expanded {
+		bar = titleStyle.Render("agent-stats") + "  [" + modeNames[m.mode] + "] · Expanded"
+	}
 	if m.mode == quotasMode {
 		return bar
 	}
 	filters := fmt.Sprintf("period: %s · harness: %s", m.periods[m.shown.period].label, harness)
 	scope := m.coverageLabel()
+	if m.expanded && lipgloss.Width(bar+"  "+filters+" · "+scope) > m.width {
+		return bar
+	}
 	switch {
-	case (m.mode != usageMode && m.mode != catalogMode) || lipgloss.Width(bar+"  "+filters+" · "+scope) <= m.width:
+	case lipgloss.Width(bar+"  "+filters+" · "+scope) <= m.width:
 		bar += "  " + filters + " · " + scope
 	case lipgloss.Width(filters+" · "+scope) <= m.width:
 		bar += "\n" + filters + " · " + scope
+	case lipgloss.Width(bar+" · "+scope) <= m.width:
+		bar += " · " + scope + "\n" + filters
 	default:
 		bar += "\n" + filters + "\n" + scope
-	}
-	if m.syncing {
-		bar += "  " + m.spinner.View() + " indexing…"
-		if m.indexed > 0 {
-			bar += fmt.Sprintf(" %s files", textfmt.Number(int64(m.indexed)))
-		}
 	}
 	return bar
 }
@@ -759,15 +810,22 @@ func (m Model) modeLabel() string {
 	if len(parts) < 2 {
 		return ""
 	}
-	return "  " + strings.Join(parts, " ")
+	label := "  " + strings.Join(parts, " ")
+	if m.width < 50 || lipgloss.Width("agent-stats"+label) > m.width {
+		return "  " + activeTab.UnsetPadding().Render("["+modeNames[m.mode]+"]")
+	}
+	return label
 }
 
-// help lists the keys, most useful first: on a narrow terminal the last ones are left out, never "q quit".
-func (m Model) help() string {
+// shortcuts lists the keys for the underlying view in order of importance.
+func (m Model) shortcuts() []string {
 	var keys, filters []string
 	switch {
 	case m.mode == sessionsMode && m.sessions.detail.open:
-		keys = []string{"↑↓ pgup/pgdn scroll", "esc back to sessions"}
+		keys = []string{"↑↓ pgup/pgdn scroll"}
+		if !m.expanded {
+			keys = append(keys, "esc back to sessions")
+		}
 	case m.mode == sessionsMode:
 		keys, filters = []string{"↑↓ scroll", "enter open"}, []string{"s sort", "o reverse", "p period", "h harness"}
 	case m.mode == catalogMode:
@@ -777,19 +835,16 @@ func (m Model) help() string {
 	case m.mode == promptsMode:
 		keys, filters = []string{"↑↓ pgup/pgdn scroll"}, []string{"p period", "h harness"}
 	case m.dailyOpen:
-		keys, filters = []string{"esc back", "↑↓ scroll"}, []string{"p period", "h harness"}
+		keys, filters = []string{"↑↓ scroll"}, []string{"p period", "h harness"}
+		if !m.expanded {
+			keys = append([]string{"esc back"}, keys...)
+		}
 	default:
-		keys = []string{"tab/←→ tabs", "↑↓ scroll", "g daily values"}
+		keys = []string{"g charts", "tab/←→ tabs", "↑↓ scroll"}
 		if m.width < 50 {
-			keys = []string{"g daily", "tab tabs", "↑↓ scroll"}
+			keys = []string{"g charts", "tab tabs", "↑↓ scroll"}
 		}
 		filters = []string{"s sort", "o reverse", "p period", "h harness"}
-	}
-	if m.mode == usageMode && m.modeEnabled(catalogMode) {
-		keys = append(keys, "c catalog")
-	}
-	if m.mode == usageMode && m.modeEnabled(quotasMode) {
-		keys = append(keys, "l quotas")
 	}
 	if next := m.nextMode(); next != m.mode {
 		switchHint := "m " + strings.ToLower(modeNames[next])
@@ -799,14 +854,35 @@ func (m Model) help() string {
 			keys = append(keys, switchHint)
 		}
 	}
+	if m.mode == usageMode && m.modeEnabled(catalogMode) {
+		keys = append(keys, "c catalog")
+	}
+	if m.mode == usageMode && m.modeEnabled(quotasMode) {
+		keys = append(keys, "l quotas")
+	}
 	if m.sync != nil && m.mode != quotasMode {
 		keys = append(keys, "r re-index")
 	}
 	if m.mode != quotasMode && !m.project.IsZero() && !(m.mode == sessionsMode && m.sessions.detail.open) {
 		filters = append(filters, "a "+m.coverageSwitch())
 	}
-	keys = append(keys, filters...)
-	line := func(k []string) string { return strings.Join(append(k[:len(k):len(k)], "q quit"), " · ") }
+	return append(keys, filters...)
+}
+
+// help keeps the help and quit commands visible on small terminals.
+func (m Model) help() string {
+	keys := m.shortcuts()
+	first := "? help"
+	if m.expanded {
+		first = "esc restore"
+	}
+	line := func(k []string) string {
+		items := append([]string{first}, k...)
+		if m.expanded {
+			items = append(items, "? help")
+		}
+		return strings.Join(append(items, "q quit"), " · ")
+	}
 	for m.width > 0 && len(keys) > 0 && lipgloss.Width(line(keys)) > m.width {
 		keys = keys[:len(keys)-1]
 	}
@@ -861,6 +937,13 @@ func (m Model) status() string {
 	}
 	if m.pending {
 		parts = append(parts, "updating…")
+	}
+	if m.syncing {
+		progress := m.spinner.View() + " indexing…"
+		if m.indexed > 0 {
+			progress += fmt.Sprintf(" %s files", textfmt.Number(int64(m.indexed)))
+		}
+		parts = append(parts, progress)
 	}
 	if m.syncNote != "" {
 		parts = append(parts, textfmt.Printable(m.syncNote))

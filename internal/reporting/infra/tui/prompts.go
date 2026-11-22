@@ -42,8 +42,6 @@ func (m Model) loadPrompts() tea.Cmd {
 
 func (m Model) promptsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k := msg.String(); k {
-	case "q", "ctrl+c":
-		return m, tea.Quit
 	case "m":
 		return m.switchMode()
 	case "r":

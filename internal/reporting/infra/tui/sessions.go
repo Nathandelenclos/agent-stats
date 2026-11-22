@@ -147,6 +147,7 @@ func (m Model) selectMode(next mode) (Model, tea.Cmd) {
 	if next == promptsMode {
 		m.prompts = promptsState{pager: pager{display: m.prompts.display}}
 	}
+	m.layout()
 	return m.reload()
 }
 
@@ -172,8 +173,6 @@ func (m Model) openSelected() (Model, tea.Cmd) {
 
 func (m Model) sessionsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k := msg.String(); k {
-	case "q", "ctrl+c":
-		return m, tea.Quit
 	case "m":
 		return m.switchMode()
 	case "r":
@@ -209,8 +208,6 @@ func (m Model) sessionsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) detailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	d := &m.sessions.detail
 	switch k := msg.String(); k {
-	case "q", "ctrl+c":
-		return m, tea.Quit
 	case "esc", "backspace":
 		m.sessions.detail = sessionDetail{}
 	case "m":
