@@ -202,6 +202,42 @@ func TestSkillUsageIsUnknownWhileSomeSkillCallNamesNoSkill(t *testing.T) {
 	}
 }
 
+func TestPluginCarryingASkillOfUnknownUsageIsNotReportedUnused(t *testing.T) {
+	// Given a plugin that carries a skill and an MCP server never called, and a Claude Skill call that names no skill
+	plugin := item(t, kernel.Claude, Plugin, "demo@market", ScopeUser)
+	skill := item(t, kernel.Claude, Skill, "demo:review", ScopePlugin)
+	skill.Origin = plugin.Name
+	server := item(t, kernel.Claude, MCPServer, "helper", ScopePlugin)
+	server.Origin = plugin.Name
+	act := Activity{UnnamedSkillLoads: map[kernel.Harness]bool{kernel.Claude: true}}
+
+	// When linked
+	p := find(t, Link([]Item{plugin, skill, server}, act), kernel.Claude, Plugin, "demo@market")
+
+	// Then the plugin's usage is unknown: its skill may have been loaded, so it is not listed as unused
+	if p.Tracked || p.Unused() {
+		t.Errorf("plugin: %+v", p)
+	}
+}
+
+func TestPluginCarryingASkillOfUnknownUsageShowsTheCallsOfItsServer(t *testing.T) {
+	// Given the same plugin, whose server was called twice
+	plugin := item(t, kernel.Claude, Plugin, "demo@market", ScopeUser)
+	skill := item(t, kernel.Claude, Skill, "demo:review", ScopePlugin)
+	skill.Origin = plugin.Name
+	server := item(t, kernel.Claude, MCPServer, "helper", ScopePlugin)
+	server.Origin = plugin.Name
+	act := Activity{
+		UnnamedSkillLoads: map[kernel.Harness]bool{kernel.Claude: true},
+		Tools:             []ToolActivity{{Harness: kernel.Claude, Name: "x", Server: "plugin_demo_helper", Calls: 2}},
+	}
+
+	// When linked, then the plugin keeps its known calls
+	if p := find(t, Link([]Item{plugin, skill, server}, act), kernel.Claude, Plugin, "demo@market"); p.Uses != 2 || p.Unused() {
+		t.Errorf("plugin: %+v", p)
+	}
+}
+
 func TestPluginsAddUpTheUsageOfWhatTheyCarry(t *testing.T) {
 	// Given a plugin carrying a skill, a server and an agent
 	plugin := item(t, kernel.Claude, Plugin, "demo@market", ScopeUser)

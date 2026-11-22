@@ -235,7 +235,7 @@ func Link(items []Item, a Activity) []Entry {
 		}
 		entries = append(entries, e)
 	}
-	entries = withPluginUsage(entries)
+	entries = withPluginUsage(entries, a.UnnamedSkillLoads)
 
 	servers := map[[2]string]int{} // (harness, server) -> index in entries, for an MCP server the logs alone name
 	for i, t := range a.Tools {
@@ -324,17 +324,22 @@ func escaped(s string) string {
 
 // withPluginUsage gives each plugin the invocations of the MCP servers and skills it carries. The model requests of
 // its agents are not added: they count something else. A plugin with none of those items, or none the logs can follow,
-// has unknown usage.
-func withPluginUsage(entries []Entry) []Entry {
+// has unknown usage; so has one that carries a skill whose loads are pending (unnamedSkillLoads) and shows no use yet.
+func withPluginUsage(entries []Entry, unnamedSkillLoads map[kernel.Harness]bool) []Entry {
 	for i, p := range entries {
 		if p.Kind != Plugin {
 			continue
 		}
+		pending := false
 		for _, c := range entries {
 			if c.Origin == p.Name && c.Harness == p.Harness && c.Tracked && c.Kind != Agent {
 				entries[i].Tracked = true
 				entries[i].add(c.Uses, c.Last)
 			}
+			pending = pending || c.Origin == p.Name && c.Harness == p.Harness && c.Kind == Skill && unnamedSkillLoads[c.Harness]
+		}
+		if pending && entries[i].Uses == 0 {
+			entries[i].Tracked = false
 		}
 	}
 	return entries
@@ -357,8 +362,15 @@ func nameMatches(it Item, logged string, bareOK bool) bool {
 	if it.Origin.IsZero() || !bareOK {
 		return false
 	}
-	own, ok := strings.CutPrefix(it.Name.s, PluginName(it.Origin)+":")
-	return ok && logged == own
+	return logged == it.bareName()
+}
+
+// bareName is the name an item answers to without its plugin: "plugin:skill" is "skill".
+func (it Item) bareName() string {
+	if it.Origin.IsZero() {
+		return it.Name.s
+	}
+	return strings.TrimPrefix(it.Name.s, PluginName(it.Origin)+":")
 }
 
 // bareNames counts, per harness, kind and short name, the distinct items a logged short name could designate: the
@@ -367,10 +379,7 @@ func bareNames(items []Item) map[[3]string]int {
 	out := map[[3]string]int{}
 	seen := map[[4]string]bool{}
 	for _, it := range items {
-		short := it.Name.s
-		if !it.Origin.IsZero() {
-			short = strings.TrimPrefix(short, PluginName(it.Origin)+":")
-		}
+		short := it.bareName()
 		id := [4]string{it.Harness.String(), it.Kind.name, short, it.Origin.s}
 		if !seen[id] {
 			seen[id] = true
