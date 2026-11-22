@@ -8,14 +8,19 @@ export interface SyncStatus {
   error?: string;
   startedAt: number;
   finishedAt: number;
+  dataVersion?: number;
 }
 
-/** Where the background indexing stands; polled each second while it runs. */
+/** Poll faster while indexing so changes appear as soon as a run finishes. */
 export function useSyncStatus() {
   return useQuery({
     queryKey: ["sync"],
     queryFn: ({ signal }) => getJSON<SyncStatus>("/api/sync", {}, signal),
-    refetchInterval: (query) => (query.state.data?.state === "running" ? 1000 : false),
+    refetchInterval: (query) => {
+      const state = query.state.data?.state;
+      if (state === "disabled") return false;
+      return state === "running" ? 1000 : 5000;
+    },
     retry: shouldRetry,
   });
 }

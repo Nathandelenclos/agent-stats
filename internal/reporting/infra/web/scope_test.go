@@ -264,7 +264,7 @@ func TestTheProjectFoundWhenIndexingEndsIsTheOneTheMetaNamesAndThePageOpensOn(t 
 	}
 
 	// When the indexing ends
-	r.handler.sync.start(context.Background(), r.handler.indexing())
+	r.handler.sync.start(context.Background(), r.handler.indexing(), false)
 	r.handler.sync.jobs.Wait()
 
 	// Then the meta names the project and the page opens on it
@@ -281,7 +281,7 @@ func TestTheProjectFoundWhenIndexingEndsCanBeAskedFor(t *testing.T) {
 	}
 
 	// When the indexing ends
-	r.handler.sync.start(context.Background(), r.handler.indexing())
+	r.handler.sync.start(context.Background(), r.handler.indexing(), false)
 	r.handler.sync.jobs.Wait()
 
 	// Then the page can ask for the project
@@ -295,7 +295,7 @@ func TestThePageIsToldTheIndexingEndedOnlyOnceTheProjectIsDecided(t *testing.T) 
 	r, seen := indexingThatFindsTheApp(t)
 
 	// When the indexing runs
-	r.handler.sync.start(context.Background(), r.handler.indexing())
+	r.handler.sync.start(context.Background(), r.handler.indexing(), false)
 	r.handler.sync.jobs.Wait()
 
 	// Then the page read it as still running while the project was decided, and as done after: it never sees the end
@@ -312,7 +312,7 @@ func TestADetectionThatFailsLeavesTheScopeOfTheServerAsItWas(t *testing.T) {
 	r.handler.opts.Detect = func() (kernel.Project, error) { return kernel.Project{}, errors.New("boom") }
 
 	// When the indexing ends
-	r.handler.sync.start(context.Background(), r.handler.indexing())
+	r.handler.sync.start(context.Background(), r.handler.indexing(), false)
 	r.handler.sync.jobs.Wait()
 
 	// Then the page still opens on the app, and the failure is logged, not shown

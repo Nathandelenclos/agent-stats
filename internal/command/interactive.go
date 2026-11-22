@@ -45,6 +45,7 @@ func keyboardReachable() bool {
 func tuiSync(run indexRun) tui.Sync {
 	return func(ctx context.Context, progress func(int)) (string, error) {
 		rep, err := run(ctx, func(r indexing.IndexReport) { progress(r.Indexed) })
+		progress(rep.Indexed)
 		return syncNote(rep), err
 	}
 }

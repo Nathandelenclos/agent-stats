@@ -34,7 +34,8 @@ type Options struct {
 	Catalog         func(catalog.Query) (catalog.Catalog, error)
 	Quotas          quota.Reader
 	// Sync, when set, runs at startup and on request. Serve cancels and waits for it when its context ends.
-	Sync Sync
+	Sync         Sync
+	SyncInterval time.Duration
 	// ParseSince reads a period start as the command line states it (7d, 12h, 2006-01-02).
 	ParseSince func(s string, now time.Time) (time.Time, error)
 	// Assets is the built front: index.html and the files it references, at the root.
@@ -282,9 +283,18 @@ func Serve(ctx context.Context, ln net.Listener, o Options) error {
 		MaxHeaderBytes:    16 << 10,
 		ErrorLog:          errLog,
 	}
-	s.sync.start(ctx, s.indexing())
+	index := s.indexing()
+	s.sync.start(ctx, index, false)
+	followed := make(chan struct{})
+	go func() {
+		defer close(followed)
+		if index != nil && o.SyncInterval > 0 {
+			s.sync.follow(ctx, index, o.SyncInterval)
+		}
+	}()
 	defer func() {
 		cancel()
+		<-followed
 		s.sync.jobs.Wait()
 	}()
 	var shutdownErr error

@@ -241,7 +241,7 @@ func (s *Server) syncProgress(w http.ResponseWriter, r *http.Request) {
 			problem{Type: problemStopping, Title: "Server stopping", Status: http.StatusServiceUnavailable}.write(w)
 			return
 		}
-		writeJSON(w, s.log, s.sync.start(s.indexCtx, index))
+		writeJSON(w, s.log, s.sync.start(s.indexCtx, index, false))
 		return
 	}
 	writeJSON(w, s.log, s.sync.snapshot())

@@ -731,7 +731,7 @@ func TestSyncProgressShowsTheFilesIndexedWhileRunningThenWhatWasSkipped(t *testi
 			return "skipped files: 1", nil
 		}
 	})
-	r.handler.sync.start(t.Context(), r.handler.opts.Sync)
+	r.handler.sync.start(t.Context(), r.handler.opts.Sync, false)
 	<-progressed
 
 	// When the page asks while it runs, then after it ends
@@ -758,7 +758,7 @@ func TestAFailedIndexingIsReportedWithoutItsCause(t *testing.T) {
 	})
 
 	// When it ends and the page asks
-	r.handler.sync.start(context.Background(), r.handler.opts.Sync)
+	r.handler.sync.start(context.Background(), r.handler.opts.Sync, false)
 	r.handler.sync.jobs.Wait()
 	rec := r.get("/api/sync")
 
@@ -1006,7 +1006,7 @@ func TestAnIndexingStoppedByTheShutdownIsNotLoggedAsAFailure(t *testing.T) {
 	cancel()
 
 	// When it ends
-	r.handler.sync.start(ctx, r.handler.opts.Sync)
+	r.handler.sync.start(ctx, r.handler.opts.Sync, false)
 	r.handler.sync.jobs.Wait()
 
 	// Then the log does not call a stop requested by the user a failure

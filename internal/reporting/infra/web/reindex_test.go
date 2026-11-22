@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestReindexRejectsRequestsFromAnotherOrigin(t *testing.T) {
@@ -70,5 +71,25 @@ func TestReindexCanRunAgainAfterCompletion(t *testing.T) {
 	}
 	if n := starts.Load(); n != 2 {
 		t.Fatalf("%d jobs started, want 2", n)
+	}
+}
+
+func TestAutomaticIndexingChangesVersionOnlyWhenItReadsLogs(t *testing.T) {
+	s := newSyncer(time.Now, func(string, ...any) {})
+	for i, tc := range []struct {
+		automatic bool
+		indexed   int
+		version   int64
+	}{
+		{false, 0, 1}, {true, 0, 1}, {true, 1, 2}, {true, 0, 2},
+	} {
+		s.start(t.Context(), func(_ context.Context, progress func(int)) (string, error) {
+			progress(tc.indexed)
+			return "", nil
+		}, tc.automatic)
+		s.jobs.Wait()
+		if got := s.snapshot(); got.State != syncDone || got.Indexed != tc.indexed || got.DataVersion != tc.version {
+			t.Fatalf("scan %d: %+v, version should be %d", i, got, tc.version)
+		}
 	}
 }

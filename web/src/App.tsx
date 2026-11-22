@@ -242,10 +242,9 @@ export function App() {
   const inspector = canInspect && <RelatedSessions filters={filters} project={project} selection={selection} close={closeSelection} open={openSession} />;
 
   // Refresh scoped reads once indexing has finished and project detection has settled.
-  const syncState = sync.data?.state;
-  const syncFinishedAt = sync.data?.finishedAt;
+  const syncVersion = sync.data?.dataVersion ?? sync.data?.finishedAt;
   useEffect(() => {
-    if (syncState === "done" || syncState === "failed") {
+    if (syncVersion) {
       void queryClient.invalidateQueries({ queryKey: ["meta"] }).then(() => Promise.all([
         queryClient.invalidateQueries({ queryKey: ["report"] }),
         queryClient.invalidateQueries({ queryKey: ["sessions"] }),
@@ -253,7 +252,7 @@ export function App() {
         queryClient.invalidateQueries({ queryKey: ["catalog"] }),
       ]));
     }
-  }, [syncState, syncFinishedAt, queryClient]);
+  }, [syncVersion, queryClient]);
   return (
     <>
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-10 focus:rounded-md focus:bg-accent focus:px-3 focus:py-2 focus:text-accent-ink">

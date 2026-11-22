@@ -95,6 +95,9 @@ In the browser, open a session and select **Requests** to page through indexed m
 its subagents. **Failed only** filters the list. Open a failed row to read its error text on a loopback
 server. Some coding agents record usage by turn rather than for each individual provider call.
 
+A running browser server checks for new or changed logs every 30 seconds. The dashboard refreshes
+when the index changes. Pass `--no-sync` to read the existing index without these checks.
+
 ## Prompts review
 
 The **Prompts** mode and the `agent-stats prompts` subcommand help you spot what you keep correcting or repeating, so you can

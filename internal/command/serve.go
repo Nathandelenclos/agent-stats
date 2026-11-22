@@ -116,6 +116,7 @@ func runServe(args []string) error {
 		Catalog:         interactiveCatalog(*dbPath, *projectDir),
 		Quotas:          readQuotas,
 		Sync:            sync,
+		SyncInterval:    30 * time.Second,
 		ParseSince:      parseSince,
 		Assets:          webui.Assets(),
 		Since:           *since,
