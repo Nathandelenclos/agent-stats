@@ -637,40 +637,80 @@ func TestADirectoryOverTheEntryBoundIsReadUpToIt(t *testing.T) {
 	}
 }
 
-func TestTomlTables(t *testing.T) {
-	// Given a TOML file with quoted keys, comments, single-quoted strings, a multi-line literal string and arrays of tables
-	src := "[a.\"b.c\".d] # trailing\nenabled = false\n['x y']\nenabled = true # on\nv = '''\n[fake]\n'''\n[[arr]]\nenabled = false\n[after]\n[bad\n"
+func TestCodexConfigTablesAreReadWhateverTheQuotingOfTheirHeader(t *testing.T) {
+	// Given a Codex config.toml with a quoted key holding a dot and a comment after the header, a single-quoted key
+	// holding a space, a sub-table of a server, a multi-line literal string with a header inside, an array of tables,
+	// a plugin, and a header that is never closed
+	r := fixtureRoots(t)
+	mustWrite(t, filepath.Join(r.CodexDir, "config.toml"), `[mcp_servers."b.c"] # trailing
+enabled = false
+[mcp_servers.'x y']
+enabled = true # on
+v = '''
+[mcp_servers.fake]
+'''
+[mcp_servers.deep]
+[mcp_servers.deep.env]
+key = "value"
+[[mcp_servers.arr]]
+enabled = false
+[plugins.after]
+[mcp_servers.bad
+`)
 
-	// When its tables are read
-	var got []string
-	for _, tb := range tomlTables([]byte(src)) {
-		on := "?"
-		if tb.Enabled != nil {
-			on = fmt.Sprint(*tb.Enabled)
+	// When the inventory is read
+	var servers []string
+	for _, it := range installed(t, r, kernel.Codex).Items {
+		if it.Kind == domain.MCPServer || it.Kind == domain.Plugin {
+			servers = append(servers, fmt.Sprintf("%s:%s(off=%v)", it.Kind, it.Name, it.Disabled))
 		}
-		got = append(got, strings.Join(tb.Path, "|")+"="+on)
 	}
 
-	// Then headers are split on dots outside quotes, enabled is read per table, and neither the multi-line text nor
-	// the array of tables nor the malformed header leaks in
-	want := []string{"a|b.c|d=false", "x y=true", "after=?"}
-	if !slices.Equal(got, want) {
-		t.Errorf("tables %q, want %q", got, want)
+	// Then keys are split on dots outside quotes, enabled is read per table, and neither the text of the string,
+	// the sub-table, the array of tables nor the unclosed header adds a server
+	slices.Sort(servers)
+	expect(t, servers, "mcp:b.c(off=true)", "mcp:x y(off=false)", "mcp:deep(off=false)", "plugin:after(off=false)")
+}
+
+// skillNamed writes a skill directory holding SKILL.md with the given content, and returns the name of the directory.
+func skillNamed(t *testing.T, r Roots, dir, content string) {
+	t.Helper()
+	mustMkdir(t, filepath.Join(r.ClaudeDir, "skills", dir))
+	mustWrite(t, filepath.Join(r.ClaudeDir, "skills", dir, "SKILL.md"), content)
+}
+
+func TestASkillIsNamedByItsFrontmatterOtherwiseByItsDirectory(t *testing.T) {
+	r := fixtureRoots(t)
+	for dir, c := range map[string]struct{ content, want string }{
+		"crlf-skill":     {"---\r\nname: crlf\r\n---\r\n", "crlf"},
+		"bom-skill":      {"\xef\xbb\xbf---\nname: 'bom'\n---\n", "bom"},
+		"body-skill":     {"---\ndescription: x\n---\nname: body-not-frontmatter\n", "body-skill"},
+		"fence-less":     {"name: no-fence\n", "fence-less"},
+		"anonymous-name": {"---\nname:\n---\n", "anonymous-name"},
+	} {
+		// Given a skill whose SKILL.md is written this way
+		skillNamed(t, r, dir, c.content)
+
+		// When the inventory is read, then the skill is listed under the name it says, or its directory's
+		if got := describe(installed(t, r, kernel.Claude)); !slices.Contains(got, "skill:"+c.want+"@user") {
+			t.Errorf("%s: skills %q lack %q", dir, got, c.want)
+		}
 	}
 }
 
-func TestFrontmatterAndTomlNames(t *testing.T) {
-	for _, c := range []struct{ got, want string }{
-		{frontmatterName([]byte("---\r\nname: crlf\r\n---\r\n"), "f"), "crlf"},
-		{frontmatterName([]byte("\xef\xbb\xbf---\nname: 'bom'\n---\n"), "f"), "bom"},
-		{frontmatterName([]byte("---\ndescription: x\n---\nname: body-not-frontmatter\n"), "f"), "f"},
-		{frontmatterName([]byte("name: no-fence\n"), "f"), "f"},
-		{tomlName([]byte("name = 'lit'\n"), "f"), "lit"},
-		{tomlName([]byte("[t]\nname = \"nested\"\n"), "f"), "f"},
-		{tomlName([]byte("name = \"unterminated\n"), "f"), "f"},
+func TestACodexAgentIsNamedByTheTopLevelNameOfItsFileOtherwiseByItsFile(t *testing.T) {
+	r := fixtureRoots(t)
+	for file, c := range map[string]struct{ content, want string }{
+		"literal-agent":  {"name = 'lit'\n", "lit"},
+		"nested-agent":   {"[t]\nname = \"nested\"\n", "nested-agent"},
+		"unclosed-agent": {"name = \"unterminated\n", "unclosed-agent"},
 	} {
-		if c.got != c.want {
-			t.Errorf("got %q, want %q", c.got, c.want)
+		// Given an agent file written this way
+		mustWrite(t, filepath.Join(r.CodexDir, "agents", file+".toml"), c.content)
+
+		// When the inventory is read, then the agent is listed under the name it says, or its file's
+		if got := describe(installed(t, r, kernel.Codex)); !slices.Contains(got, "agent:"+c.want+"@user") {
+			t.Errorf("%s: agents %q lack %q", file, got, c.want)
 		}
 	}
 }
