@@ -500,3 +500,20 @@ func TestSubagentsThatNameEachOtherAsParentAreEachListedOnce(t *testing.T) {
 		t.Errorf("listed %v, then %v", first, again)
 	}
 }
+
+func TestASubagentIndexedAsAMainConversationIsStillListedUnderItsSession(t *testing.T) {
+	// Given a subagent an earlier build indexed as a main conversation (its meta file said "main")
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	child := subagentOf(t, "main", "child", at)
+	child.Session.AgentType = domain.MainAgent
+	saveAll(t, s, map[string]application.IndexedTranscript{"/logs/main.jsonl": transcript(t, "main", at), "/logs/child.jsonl": child})
+
+	// When the sessions are listed
+	listed := listedUnder(t, s)
+
+	// Then it belongs to its session like any subagent, and its requests count for it
+	if listed["claude:main/child"] != "claude:main" || requestsListedUnder(t, s, "claude:main") != 2 {
+		t.Errorf("listed under = %v", listed)
+	}
+}

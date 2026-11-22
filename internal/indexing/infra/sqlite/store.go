@@ -84,7 +84,8 @@ DROP VIEW IF EXISTS session_tool_calls;
 DROP VIEW IF EXISTS session_overview;
 -- Session views. root_id is the session a listing shows: the session itself, or the top session whose chain of
 -- subagents it belongs to. A subagent whose parent log was never indexed (or was deleted) is its own root, and so
--- is a main conversation forked from another one: only subagents roll up into their parent.
+-- is a main conversation forked from another one: only subagents roll up into their parent. A session named
+-- "<parent id>/<name>" is a subagent whatever type its log declared.
 -- A session whose chain of parents never reaches a root (subagents naming each other, or themselves, as parent, and
 -- whatever hangs below them) is its own root: every session is listed once, and so are its requests.
 -- run_started_at and run_ended_at span the whole run (the root and its subagents): a session is active until its
@@ -92,9 +93,11 @@ DROP VIEW IF EXISTS session_overview;
 CREATE VIEW session_overview AS
 	WITH RECURSIVE tree(id, root_id) AS (
 		SELECT s.id, s.id FROM sessions s
-		WHERE NOT EXISTS (SELECT 1 FROM sessions p WHERE p.id = s.parent_id AND s.agent_type <> 'main')
+		WHERE NOT EXISTS (SELECT 1 FROM sessions p WHERE p.id = s.parent_id
+			AND (s.agent_type <> 'main' OR substr(s.id, 1, length(p.id) + 1) = p.id || '/'))
 		UNION ALL
-		SELECT c.id, t.root_id FROM tree t JOIN sessions c ON c.parent_id = t.id AND c.agent_type <> 'main'
+		SELECT c.id, t.root_id FROM tree t JOIN sessions c ON c.parent_id = t.id
+			AND (c.agent_type <> 'main' OR substr(c.id, 1, length(t.id) + 1) = t.id || '/')
 	),
 	placed(id, root_id) AS (
 		SELECT id, root_id FROM tree
