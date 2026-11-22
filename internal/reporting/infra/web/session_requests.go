@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
-	"strconv"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
@@ -36,22 +35,13 @@ type sessionRequestsJSON struct {
 }
 
 func (s *Server) sessionRequests(w http.ResponseWriter, r *http.Request) {
-	const offsetParam, failedParam, signatureParam = "offset", "failed", "signature"
-	p, bad := s.parseParams(r, paramSince, paramHarness, paramProject, paramLimit, offsetParam, failedParam, signatureParam)
+	const failedParam, signatureParam = "failed", "signature"
+	p, bad := s.parseParams(r, paramSince, paramHarness, paramProject, paramLimit, paramOffset, failedParam, signatureParam)
 	if bad != nil {
 		bad.write(w)
 		return
 	}
-	var offset int64
 	values := r.URL.Query()
-	if values.Has(offsetParam) {
-		var err error
-		offset, err = strconv.ParseInt(values.Get(offsetParam), 10, 32)
-		if err != nil || offset < 0 {
-			invalidParameter(offsetParam, "use a non-negative integer").write(w)
-			return
-		}
-	}
 	failed := values.Get(failedParam)
 	if values.Has(failedParam) && failed != "1" {
 		invalidParameter(failedParam, "use 1 to show only failed requests").write(w)
@@ -70,7 +60,7 @@ func (s *Server) sessionRequests(w http.ResponseWriter, r *http.Request) {
 		sessionMissing(w)
 		return
 	}
-	rows, err := s.opts.SessionRequests.Run(r.Context(), id, p.query, failed == "1", signature, p.limit+1, int(offset))
+	rows, err := s.opts.SessionRequests.Run(r.Context(), id, p.query, failed == "1", signature, p.limit+1, p.offset)
 	if errors.Is(err, reporting.ErrSessionNotFound) {
 		sessionMissing(w)
 		return

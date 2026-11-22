@@ -107,6 +107,17 @@ func rangeCondition(f report.Filter) (cond string, args []any) {
 	return cond, args
 }
 
+// checkVisible checks a run against the same filters as the listing without loading its summary.
+func (r runs) checkVisible(q querier, id report.SessionID, f report.Filter) error {
+	cond, args := rangeCondition(f)
+	err := q.QueryRow(r.with+" SELECT 1 FROM run WHERE 1 = 1"+cond+" AND run.id = ?",
+		append(slices.Clone(r.args), append(args, id.String())...)...).Scan(new(int))
+	if err == sql.ErrNoRows {
+		return report.ErrSessionNotFound
+	}
+	return err
+}
+
 // Session describes one session of the listing of project p (of every project for the zero Project).
 func (s *SQLiteSessions) Session(ctx context.Context, id report.SessionID, p kernel.Project) (d report.SessionDetail, err error) {
 	err = s.snapshot(ctx, func(q querier) error {

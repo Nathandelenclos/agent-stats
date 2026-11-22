@@ -346,3 +346,21 @@ func TestRequestJournalFiltersActivityRatherThanLastSessionActivity(t *testing.T
 		t.Fatalf("expected only recent work, linked to the root session: %+v", rows)
 	}
 }
+
+func TestSessionTraceMergesPromptsCallsAndSubagentTools(t *testing.T) {
+	s := openSessions(t)
+	id, _ := report.NewSessionID("claude:main")
+	events, err := s.SessionTrace(t.Context(), id, report.Filter{}, 20, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 9 || events[0].Kind != "prompt" || events[1].Kind != "model" ||
+		events[len(events)-1].AgentID != "claude:main/kid" || !events[len(events)-1].Failed {
+		t.Fatalf("trace = %+v", events)
+	}
+	for i := 1; i < len(events); i++ {
+		if events[i].At.Before(events[i-1].At) {
+			t.Fatalf("events out of order: %+v", events)
+		}
+	}
+}

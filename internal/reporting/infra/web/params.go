@@ -37,9 +37,10 @@ func ValidateSince(v string, now time.Time, parse func(string, time.Time) (time.
 
 // params are the validated query parameters of a request.
 type params struct {
-	query reporting.Query
-	scope string // the scope the project of the query stands for: scopeCurrent or scopeAll
-	limit int
+	query  reporting.Query
+	scope  string // the scope the project of the query stands for: scopeCurrent or scopeAll
+	limit  int
+	offset int
 }
 
 // The query parameters a route may accept.
@@ -47,6 +48,7 @@ const (
 	paramSince   = "since"
 	paramHarness = "harness"
 	paramLimit   = "limit"
+	paramOffset  = "offset"
 	paramProject = "project"
 )
 
@@ -141,6 +143,14 @@ func (s *Server) parseParamsBounded(r *http.Request, maxQuery int, accepts ...st
 			return p, &pr
 		}
 		p.limit = n
+	}
+	if values.Has(paramOffset) {
+		n, err := strconv.ParseInt(values.Get(paramOffset), 10, 32)
+		if err != nil || n < 0 {
+			pr := invalidParameter(paramOffset, "use a non-negative integer")
+			return p, &pr
+		}
+		p.offset = int(n)
 	}
 	return p, nil
 }

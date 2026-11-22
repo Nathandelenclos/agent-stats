@@ -19,20 +19,8 @@ func (s *SQLiteSessions) SessionRequests(ctx context.Context, id report.SessionI
 		args := slices.Clone(r.args)
 		condition := ""
 		if id.String() != "" {
-			cond, visibility := rangeCondition(f)
-			visible, err := q.Query(r.with+" SELECT 1 FROM run WHERE 1=1"+cond+" AND run.id = ?",
-				append(slices.Clone(r.args), append(visibility, id.String())...)...)
-			if err != nil {
+			if err := r.checkVisible(q, id, f); err != nil {
 				return err
-			}
-			found := visible.Next()
-			err = visible.Err()
-			visible.Close()
-			if err != nil {
-				return err
-			}
-			if !found {
-				return report.ErrSessionNotFound
 			}
 			condition = " AND u.run_id = ?"
 			args = append(args, id.String())

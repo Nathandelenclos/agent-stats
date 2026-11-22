@@ -112,6 +112,7 @@ func runServe(args []string) error {
 		RelatedSessions: reporting.ListRelatedSessions{Queries: sessions},
 		SessionRequests: reporting.ListSessionRequests{Queries: sessions},
 		ErrorSignatures: reporting.ListErrorSignatures{Queries: sessions},
+		Trace:           reporting.ShowSessionTrace{Queries: sessions},
 		SessionPrompt:   reporting.ShowSessionPrompt{Queries: sessions},
 		Prompts:         reporting.ReviewPrompts{Queries: usage.Prompts()},
 		Catalog:         interactiveCatalog(*dbPath, *projectDir),

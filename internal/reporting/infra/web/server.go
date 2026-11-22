@@ -30,6 +30,7 @@ type Options struct {
 	RelatedSessions reporting.ListRelatedSessions
 	SessionRequests reporting.ListSessionRequests
 	ErrorSignatures reporting.ListErrorSignatures
+	Trace           reporting.ShowSessionTrace
 	SessionPrompt   reporting.ShowSessionPrompt
 	Prompts         reporting.ReviewPrompts
 	Catalog         func(catalog.Query) (catalog.Catalog, error)
@@ -106,6 +107,7 @@ func New(o Options, addr net.Addr) *Server {
 	s.mux.HandleFunc("/api/requests", s.sessionRequests)
 	s.mux.HandleFunc("/api/errors", s.errorSignatures)
 	s.mux.HandleFunc("/api/sessions/{id}/requests", s.sessionRequests)
+	s.mux.HandleFunc("/api/sessions/{id}/trace", s.sessionTrace)
 	s.mux.HandleFunc("/api/sessions/{id}/prompts/{position}", s.sessionPrompt)
 	s.mux.HandleFunc("/api/related-sessions", s.relatedSessions)
 	s.mux.HandleFunc("/api/prompts", s.prompts)

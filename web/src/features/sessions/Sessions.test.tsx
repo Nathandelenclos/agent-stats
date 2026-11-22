@@ -223,7 +223,7 @@ it("moves to a neighboring detail section with the keyboard", async () => {
   const { container } = showSessions();
   await openSession(container);
   const tabs = () => [...container.querySelectorAll<HTMLElement>('[role="tab"]')];
-  await eventually(() => expect(tabs()).toHaveLength(6));
+  await eventually(() => expect(tabs()).toHaveLength(7));
   act(() => tabs()[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
   expect(tabs()[1]!.getAttribute("aria-selected")).toBe("true");
   expect(document.activeElement).toBe(tabs()[1]);
@@ -276,4 +276,21 @@ it("browses request pages and resets the page when filtering failures", async ()
     "/api/sessions/claude%3Amain%2Fhelper/requests?since=7d&harness=claude&project=current&limit=25&offset=0&failed=1",
     expect.any(Object),
   ));
+});
+
+it("shows the trace with both model and subagent tool events", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+    if (input.includes("/trace?")) return json({ events: [
+      { ts: session.startTs, kind: "model", label: "opus", agentId: session.id, agentType: "main", durationMs: 100, failed: false },
+      { ts: session.endTs, kind: "tool", label: "Read file", agentId: session.id + "/worker", agentType: "explorer", durationMs: 200, failed: true },
+    ], hasMore: true });
+    return json(input.startsWith("/api/sessions/") ? detail : list("current"));
+  }));
+  const { container } = showSessions();
+  await openSession(container);
+  await selectSection(container, "Trace");
+  await eventually(() => expect(container.textContent).toContain("Read file"));
+  expect(container.querySelector("ol")?.textContent).toContain("explorer");
+  expect(container.querySelector("ol")?.textContent).toContain("Failed");
+  expect(button(container, "Next events")?.disabled).toBe(false);
 });

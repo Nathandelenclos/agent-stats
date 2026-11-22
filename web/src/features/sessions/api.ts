@@ -151,3 +151,27 @@ export function useErrorSignatures(filters: Filters, project: string, enabled: b
     retry: shouldRetry,
   });
 }
+
+export interface TraceEvent {
+  ts: number;
+  kind: "prompt" | "model" | "tool";
+  label: string;
+  agentId: string;
+  agentType: string;
+  durationMs: number;
+  failed: boolean;
+}
+
+export const tracePageSize = 50;
+
+export function useSessionTrace(id: string, filters: Filters, project: string, offset: number) {
+  const params = { ...filterParams(filters), limit: String(tracePageSize), offset: String(offset) };
+  return useQuery({
+    queryKey: ["sessions", "trace", id, params, project],
+    queryFn: ({ signal }) => getJSON<{ events: TraceEvent[]; hasMore: boolean }>(
+      `/api/sessions/${encodeURIComponent(id)}/trace`, params, signal,
+    ),
+    gcTime: 0,
+    retry: shouldRetry,
+  });
+}
