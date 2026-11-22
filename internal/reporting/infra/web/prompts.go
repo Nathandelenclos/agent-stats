@@ -96,3 +96,32 @@ func promptReview(r reporting.PromptReview, scope string, localPrompts bool, lim
 	}
 	return out
 }
+
+type modelSignalsJSON struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	Prompts  int    `json:"prompts"`
+	Flagged  int    `json:"flagged"`
+}
+
+func (s *Server) modelSignals(w http.ResponseWriter, r *http.Request) {
+	p, bad := s.parseParams(r, paramSince, paramHarness, paramProject)
+	if bad != nil {
+		bad.write(w)
+		return
+	}
+	if s.opts.ModelSignals.Queries == nil {
+		problem{Type: problemNotFound, Title: "Model signals unavailable", Status: http.StatusNotFound}.write(w)
+		return
+	}
+	groups, err := s.opts.ModelSignals.Run(r.Context(), p.query)
+	if err != nil {
+		s.fail(w, "comparing prompt signals", err)
+		return
+	}
+	out := make([]modelSignalsJSON, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, modelSignalsJSON{g.Provider, g.Model, g.Prompts, g.Flagged})
+	}
+	writeJSON(w, s.log, out)
+}

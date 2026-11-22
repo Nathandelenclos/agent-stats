@@ -222,3 +222,11 @@ func folderFrustrations(prompts []FlaggedPrompt) []FolderFrustration {
 	})
 	return list
 }
+
+// ModelSignals distinguishes the number of prompts with local signals from all prompts attributed to a model.
+type ModelSignals struct {
+	Provider string
+	Model    string
+	Prompts  int
+	Flagged  int
+}

@@ -367,3 +367,21 @@ func TestSessionTraceMergesPromptsCallsAndSubagentTools(t *testing.T) {
 		}
 	}
 }
+
+func TestModelSignalsSeparatePromptsWithoutAPrecedingModel(t *testing.T) {
+	path := sessionsIndexed(t)
+	u, err := OpenReadOnly(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer u.Close()
+
+	got, err := u.Prompts().ModelSignals(t.Context(), report.Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Model != "cheap" || got[0].Provider != "anthropic" || got[0].Flagged != 1 ||
+		got[1].Model != "" || got[1].Prompts != 1 || got[1].Flagged != 0 {
+		t.Fatalf("model signals = %+v", got)
+	}
+}

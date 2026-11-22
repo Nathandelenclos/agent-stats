@@ -34,6 +34,7 @@ type Options struct {
 	Trace           reporting.ShowSessionTrace
 	SessionPrompt   reporting.ShowSessionPrompt
 	Prompts         reporting.ReviewPrompts
+	ModelSignals    reporting.CompareModelSignals
 	Catalog         func(catalog.Query) (catalog.Catalog, error)
 	Quotas          quota.Reader
 	RecordQuotas    func(context.Context, []quota.Window) error
@@ -114,6 +115,7 @@ func New(o Options, addr net.Addr) *Server {
 	s.mux.HandleFunc("/api/sessions/{id}/prompts/{position}", s.sessionPrompt)
 	s.mux.HandleFunc("/api/related-sessions", s.relatedSessions)
 	s.mux.HandleFunc("/api/prompts", s.prompts)
+	s.mux.HandleFunc("/api/prompts/model-signals", s.modelSignals)
 	s.mux.HandleFunc("/api/catalog", s.catalog)
 	s.mux.HandleFunc("/api/quotas", s.quotas)
 	s.mux.HandleFunc("/api/quotas/history", s.quotaHistory)

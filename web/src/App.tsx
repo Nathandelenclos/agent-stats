@@ -21,6 +21,7 @@ import {
   type Report as ReportData,
 } from "./features/report";
 import { PromptReader, Sessions, useSessions } from "./features/sessions";
+import { ModelSignals } from "./features/prompts/ModelSignals";
 import { PromptReview } from "./features/prompts/PromptReview";
 import { usePromptReview } from "./features/prompts/api";
 import { SyncBanner, useSyncStatus } from "./features/sync";
@@ -312,7 +313,8 @@ export function App() {
               {view === "Prompts" && (sessionID && selectedPrompt
                 ? <PromptReader id={sessionID} position={selectedPrompt} revision={revision} filters={filters} project={project}
                     onBack={() => back(clearedDetail)} onSession={openSession} backLabel="Back to prompt review" />
-                : <PromptReview query={prompts} onSession={openSession} onPrompt={openPrompt} />)}
+                : <><ModelSignals filters={filters} project={project} />
+                    <PromptReview query={prompts} onSession={openSession} onPrompt={openPrompt} /></>)}
               {view === "Catalog" && <>{inspector}<Catalog query={catalog} unused={unused} onUnusedChange={setUnused}
                 onServer={(entry) => explore({ kind: "mcp", value: entry.name, itemHarness: entry.harness, itemScope: entry.scope, itemOrigin: entry.originId })} /></>}
               {view === "Quotas" && <Quotas />}

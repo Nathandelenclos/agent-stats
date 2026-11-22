@@ -35,3 +35,14 @@ func (uc ReviewPrompts) Run(ctx context.Context, q Query) (PromptReview, error) 
 	}
 	return domain.NewPromptReview(prompts), nil
 }
+
+// CompareModelSignals compares the local prompt signals by the prior model in each conversation.
+type CompareModelSignals struct {
+	Queries interface {
+		ModelSignals(context.Context, domain.Filter) ([]domain.ModelSignals, error)
+	}
+}
+
+func (uc CompareModelSignals) Run(ctx context.Context, q Query) ([]domain.ModelSignals, error) {
+	return uc.Queries.ModelSignals(ctx, domain.Filter{Since: q.Since, Harness: q.Harness, Project: q.Project})
+}

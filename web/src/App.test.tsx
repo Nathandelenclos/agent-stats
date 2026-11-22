@@ -504,3 +504,23 @@ it("shows workflow signals with evidence for the selected filters", async () => 
   expect(container.textContent).toContain("reviewer");
   expect(fetch).toHaveBeenCalledWith(expect.stringMatching(/^\/api\/catalog\?.*unused=true/), expect.anything());
 });
+
+it("compares local prompt signals by the preceding model", async () => {
+  window.history.replaceState(null, "", "?view=prompts");
+  const base = serveReports(() => report()).getMockImplementation()!;
+  const fetch = vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input).startsWith("/api/prompts/model-signals?")) {
+      return new Response(JSON.stringify([{ provider: "anthropic", model: "opus", prompts: 4, flagged: 1 }]));
+    }
+    if (String(input).startsWith("/api/prompts?")) {
+      return new Response(JSON.stringify({ scope: "all", count: 0, sessions: 0, promptsVisible: true, prompts: [], recurring: [], byFolder: [] }));
+    }
+    return base(input);
+  });
+  vi.stubGlobal("fetch", fetch);
+  const { container } = render(withQueries(testQueryClient(), <App />));
+  const details = () => [...container.querySelectorAll("details")].find((el) => el.textContent?.includes("Prompt signals by model"));
+  await eventually(() => expect(details()).toBeDefined());
+  await act(async () => { details()!.open = true; });
+  await eventually(() => expect(details()?.querySelector("tbody")?.textContent).toContain("opusanthropic4125%"));
+});
