@@ -228,6 +228,39 @@ func TestPluginSkillIsAlsoFoundUnderItsOwnName(t *testing.T) {
 	}
 }
 
+func TestBareSkillNameCreditsNoPluginWhenSeveralCarryIt(t *testing.T) {
+	// Given two plugins that each carry a skill "review", and a log that names a load "review" without a plugin prefix
+	alpha := item(t, kernel.Claude, Skill, "alpha:review", ScopePlugin)
+	alpha.Origin = name(t, "alpha@market")
+	beta := item(t, kernel.Claude, Skill, "beta:review", ScopePlugin)
+	beta.Origin = name(t, "beta@market")
+	act := Activity{Skills: []SkillActivity{{Harness: kernel.Claude, Skill: "review", Calls: 1}}}
+
+	// When linked
+	entries := Link([]Item{alpha, beta}, act)
+
+	// Then neither plugin skill is credited with the load
+	for _, n := range []string{"alpha:review", "beta:review"} {
+		if e := find(t, entries, kernel.Claude, Skill, n); e.Uses != 0 {
+			t.Errorf("%s credited with an ambiguous load: %+v", n, e)
+		}
+	}
+}
+
+func TestBareSkillNameStillCreditsTheSkillOfThatNameAlone(t *testing.T) {
+	// Given a user skill "review" and a plugin skill "alpha:review", and a load logged as "review"
+	user := item(t, kernel.Claude, Skill, "review", ScopeUser)
+	plugin := item(t, kernel.Claude, Skill, "alpha:review", ScopePlugin)
+	plugin.Origin = name(t, "alpha@market")
+	act := Activity{Skills: []SkillActivity{{Harness: kernel.Claude, Skill: "review", Calls: 1}}}
+
+	// When linked, then only the skill that is called exactly that is credited
+	entries := Link([]Item{user, plugin}, act)
+	if u, p := find(t, entries, kernel.Claude, Skill, "review"), find(t, entries, kernel.Claude, Skill, "alpha:review"); u.Uses != 1 || p.Uses != 0 {
+		t.Errorf("user %+v, plugin %+v", u, p)
+	}
+}
+
 func TestEntriesCountInTheUnitOfTheirKind(t *testing.T) {
 	// Given one entry of each kind
 	for kind, want := range map[Kind]Unit{MCPServer: UnitCalls, Tool: UnitCalls, Skill: UnitLoads, Agent: UnitRequests, Plugin: UnitInvocations} {

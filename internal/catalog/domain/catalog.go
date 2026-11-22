@@ -200,6 +200,7 @@ func Link(items []Item, a Activity) []Entry {
 	claimedTool := map[int]bool{}
 	claimedAgent := map[int]bool{}
 	claimedSkill := map[int]bool{}
+	bare := bareNames(items)
 	for _, it := range items {
 		if seen[it.identity()] {
 			continue
@@ -216,14 +217,14 @@ func Link(items []Item, a Activity) []Entry {
 			}
 		case Skill:
 			for i, s := range a.Skills {
-				if s.Harness == it.Harness && nameMatches(it, s.Skill) {
+				if s.Harness == it.Harness && nameMatches(it, s.Skill, bare[bareKey(it.Harness, it.Kind, s.Skill)] == 1) {
 					e.add(s.Calls, s.Last)
 					claimedSkill[i] = true
 				}
 			}
 		case Agent:
 			for i, g := range a.Agents {
-				if g.Harness == it.Harness && nameMatches(it, g.AgentType) {
+				if g.Harness == it.Harness && nameMatches(it, g.AgentType, bare[bareKey(it.Harness, it.Kind, g.AgentType)] == 1) {
 					e.add(g.Requests, g.Last)
 					claimedAgent[i] = true
 				}
@@ -344,16 +345,40 @@ func PluginName(id Name) string {
 }
 
 // nameMatches reports whether a logged skill or agent name designates it. A plugin's items are logged as
-// "plugin:name", or sometimes by their own name alone.
-func nameMatches(it Item, logged string) bool {
+// "plugin:name", or sometimes by their own name alone: that short form designates the plugin's item only when
+// bareOK, that is when no other item of the harness answers to it.
+func nameMatches(it Item, logged string, bareOK bool) bool {
 	if logged == it.Name.s {
 		return true
 	}
-	if it.Origin.IsZero() {
+	if it.Origin.IsZero() || !bareOK {
 		return false
 	}
 	own, ok := strings.CutPrefix(it.Name.s, PluginName(it.Origin)+":")
 	return ok && logged == own
+}
+
+// bareNames counts, per harness, kind and short name, the distinct items a logged short name could designate: the
+// items called exactly that and the plugin items whose own name is that.
+func bareNames(items []Item) map[[3]string]int {
+	out := map[[3]string]int{}
+	seen := map[[4]string]bool{}
+	for _, it := range items {
+		short := it.Name.s
+		if !it.Origin.IsZero() {
+			short = strings.TrimPrefix(short, PluginName(it.Origin)+":")
+		}
+		id := [4]string{it.Harness.String(), it.Kind.name, short, it.Origin.s}
+		if !seen[id] {
+			seen[id] = true
+			out[bareKey(it.Harness, it.Kind, short)]++
+		}
+	}
+	return out
+}
+
+func bareKey(h kernel.Harness, k Kind, short string) [3]string {
+	return [3]string{h.String(), k.name, short}
 }
 
 // serverMatches reports whether a tool call logged under server belongs to the MCP server item. Claude Code writes
