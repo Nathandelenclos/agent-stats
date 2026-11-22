@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/Nathandelenclos/agent-stats/internal/platform/textfmt"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
@@ -55,4 +57,53 @@ func toolsGrid(tools []reporting.ToolUsage) grid {
 		})
 	}
 	return g
+}
+
+// sortState orders a table by one column. col -1 keeps the report's own order.
+type sortState struct {
+	col  int
+	desc bool
+}
+
+var reportOrder = sortState{col: -1}
+
+// next moves to the following column, back to the report's order after the last one.
+// Numbers start with the largest, text in alphabetical order.
+func (s sortState) next(g grid) sortState {
+	col := s.col + 1
+	if col >= len(g.headers) {
+		return reportOrder
+	}
+	return sortState{col: col, desc: g.numeric[col]}
+}
+
+// sorted returns the rows ordered by s; equal rows keep the report's order.
+func (g grid) sorted(s sortState) [][]cell {
+	rows := slices.Clone(g.rows)
+	if s.col < 0 || s.col >= len(g.headers) {
+		return rows
+	}
+	slices.SortStableFunc(rows, func(a, b []cell) int {
+		var c int
+		if g.numeric[s.col] {
+			c = cmpFloat(a[s.col].n, b[s.col].n)
+		} else {
+			c = strings.Compare(strings.ToLower(a[s.col].text), strings.ToLower(b[s.col].text))
+		}
+		if s.desc {
+			return -c
+		}
+		return c
+	})
+	return rows
+}
+
+func cmpFloat(a, b float64) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	}
+	return 0
 }

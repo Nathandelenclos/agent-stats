@@ -190,3 +190,113 @@ func TestViewFitsTheTerminal(t *testing.T) {
 		}
 	}
 }
+
+// sortReport ranks three harnesses by cost (the report's order): zed, amy, bob.
+func sortReport() reporting.Report {
+	r := sampleReport()
+	r.ByHarness = []reporting.UsageGroup{
+		group("zed", usage(5, 0, 10, 10, 0, 20)),
+		group("amy", usage(30, 3, 10, 10, 0, 5)),
+		group("Bob", usage(10, 1, 10, 10, 0, 1)),
+	}
+	return r
+}
+
+// order lists the names in the order the view shows them.
+func order(view string, names ...string) string {
+	type at struct {
+		name string
+		i    int
+	}
+	var found []at
+	for _, n := range names {
+		if i := strings.Index(view, n); i >= 0 {
+			found = append(found, at{n, i})
+		}
+	}
+	for i := range found {
+		for j := i + 1; j < len(found); j++ {
+			if found[j].i < found[i].i {
+				found[i], found[j] = found[j], found[i]
+			}
+		}
+	}
+	var out []string
+	for _, f := range found {
+		out = append(out, f.name)
+	}
+	return strings.Join(out, " ")
+}
+
+func TestSortingByColumnFromTheKeyboard(t *testing.T) {
+	m := start(t, &fakeReports{report: sortReport()})
+	names := []string{"zed", "amy", "Bob"}
+	if got := order(m.View(), names...); got != "zed amy Bob" {
+		t.Fatalf("initial order = %q, want the report's", got)
+	}
+
+	// When the user sorts by the name column, then rows are alphabetical regardless of case
+	m = press(t, m, "s")
+	if got, view := order(m.View(), names...), m.View(); got != "amy Bob zed" || !strings.Contains(view, "HARNESS▲") {
+		t.Errorf("by name: %q\n%s", got, view)
+	}
+
+	// When the user moves to the REQUESTS column, then the busiest comes first
+	m = press(t, m, "s")
+	if got, view := order(m.View(), names...), m.View(); got != "amy Bob zed" || !strings.Contains(view, "REQUESTS▼") {
+		t.Errorf("by requests: %q\n%s", got, view)
+	}
+
+	// When the user reverses the order, then the least busy comes first
+	m = press(t, m, "o")
+	if got, view := order(m.View(), names...), m.View(); got != "zed Bob amy" || !strings.Contains(view, "REQUESTS▲") {
+		t.Errorf("reversed: %q\n%s", got, view)
+	}
+}
+
+func TestSortingCyclesBackToTheReportOrder(t *testing.T) {
+	m := start(t, &fakeReports{report: sortReport()})
+	for range 7 { // 7 columns on a usage table
+		m = press(t, m, "s")
+	}
+	if m.sorts[harnessTab].col != 6 {
+		t.Fatalf("after 7 presses: %+v", m.sorts[harnessTab])
+	}
+	if got := order(m.View(), "zed", "amy", "Bob"); got != "zed amy Bob" { // COST descending is the report's order here
+		t.Errorf("by cost: %q", got)
+	}
+	m = press(t, m, "s")
+	if m.sorts[harnessTab] != reportOrder || strings.ContainsAny(m.View(), "▲▼") {
+		t.Errorf("did not return to the report's order: %+v", m.sorts[harnessTab])
+	}
+}
+
+func TestReverseWithoutASortedColumnChangesNothing(t *testing.T) {
+	m := press(t, start(t, &fakeReports{report: sortReport()}), "o")
+	if got := order(m.View(), "zed", "amy", "Bob"); got != "zed amy Bob" {
+		t.Errorf("order = %q", got)
+	}
+}
+
+func TestEachTabKeepsItsOwnSort(t *testing.T) {
+	m := start(t, &fakeReports{report: sortReport()})
+	m = press(t, m, "s", "2", "3", "1") // sort harnesses by name, visit two other tabs, come back
+	if got := order(m.View(), "zed", "amy", "Bob"); got != "amy Bob zed" {
+		t.Errorf("harness tab lost its sort: %q", got)
+	}
+	if m.sorts[modelTab] != reportOrder {
+		t.Errorf("model tab was sorted: %+v", m.sorts[modelTab])
+	}
+}
+
+func TestToolsSortByCalls(t *testing.T) {
+	m := start(t, &fakeReports{report: sampleReport()})
+	m = press(t, m, "5", "s", "s", "s") // TOOL, MCP SERVER, CALLS (largest first)
+	if got := order(m.View(), "Bash", "search"); got != "Bash search" {
+		t.Errorf("calls descending: %q", got)
+	}
+	m = press(t, m, "o")
+	if got := order(m.View(), "Bash", "search"); got != "search Bash" {
+		t.Errorf("calls ascending: %q", got)
+	}
+}

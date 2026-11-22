@@ -51,6 +51,7 @@ type Model struct {
 	query   reporting.Query
 
 	tab           tab
+	sorts         [tabCount]sortState // each tab keeps its own order
 	report        reporting.Report
 	loaded        bool
 	err           error
@@ -61,7 +62,11 @@ type Model struct {
 // New returns the model for o. Its Init asks for the first report.
 func New(o Options) Model {
 	t := table.New(table.WithFocused(true))
-	return Model{reports: o.Reports, query: o.Query, table: t, width: 80, height: 24}
+	m := Model{reports: o.Reports, query: o.Query, table: t, width: 80, height: 24}
+	for i := range m.sorts {
+		m.sorts[i] = reportOrder
+	}
+	return m
 }
 
 // Init asks for the first report.
@@ -106,6 +111,16 @@ func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.selectTab((m.tab + tabCount - 1) % tabCount)
 	case "1", "2", "3", "4", "5":
 		m.selectTab(tab(k[0] - '1'))
+	case "s":
+		m.sorts[m.tab] = m.sorts[m.tab].next(m.grid())
+		m.layout()
+		m.table.SetCursor(0)
+	case "o":
+		if s := m.sorts[m.tab]; s.col >= 0 {
+			m.sorts[m.tab].desc = !s.desc
+			m.layout()
+			m.table.SetCursor(0)
+		}
 	default:
 		var cmd tea.Cmd
 		m.table, cmd = m.table.Update(msg)
@@ -139,9 +154,10 @@ func (m Model) grid() grid {
 // layout fills the table with the current tab and fits it to the terminal.
 func (m *Model) layout() {
 	g := m.grid()
+	g.rows = g.sorted(m.sorts[m.tab])
 	widths := make([]int, len(g.headers))
 	for i, h := range g.headers {
-		widths[i] = lipgloss.Width(h)
+		widths[i] = lipgloss.Width(h) + 1 // room for the sort arrow
 		for _, r := range g.rows {
 			widths[i] = max(widths[i], lipgloss.Width(r[i].text))
 		}
@@ -156,6 +172,9 @@ func (m *Model) layout() {
 	cols := make([]table.Column, len(g.headers))
 	for i, h := range g.headers {
 		cols[i] = table.Column{Title: pad(h, widths[i], g.numeric[i]), Width: widths[i]}
+	}
+	if s := m.sorts[m.tab]; s.col >= 0 {
+		cols[s.col].Title = pad(g.headers[s.col]+arrow(s.desc), widths[s.col], g.numeric[s.col])
 	}
 	rows := make([]table.Row, len(g.rows))
 	for i, r := range g.rows {
@@ -173,6 +192,13 @@ func (m *Model) layout() {
 	s := table.DefaultStyles()
 	s.Header, s.Selected, s.Cell = headerStyle, selectedStyle, lipgloss.NewStyle().Padding(0, 1)
 	m.table.SetStyles(s)
+}
+
+func arrow(desc bool) string {
+	if desc {
+		return "▼"
+	}
+	return "▲"
 }
 
 // pad right-aligns numbers and left-aligns text in a column of width w.
@@ -199,7 +225,7 @@ func (m Model) View() string {
 		b.WriteString(m.emptyBody() + "\n")
 	}
 	b.WriteString(m.status() + "\n")
-	b.WriteString(faintStyle.Render("tab/←→ tabs · ↑↓ scroll · q quit"))
+	b.WriteString(faintStyle.Render("tab/←→ tabs · ↑↓ scroll · s sort column · o reverse · q quit"))
 	return lipgloss.NewStyle().MaxWidth(m.width).Render(b.String()) // cut what a narrow terminal cannot show
 }
 
