@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   conventional-title:
@@ -16,13 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Validate pull request title
+      # The default types are the Conventional Commits ones: feat, fix, perf, refactor, docs, test,
+      # build, ci, chore, style, revert. A ! before the colon marks a breaking change.
+      - uses: amannn/action-semantic-pull-request@2252a14e810aa9b85c2d560bd7070c802206ecf6 # v6.1.2
         env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        run: |
-          pattern='^(feat|fix|perf|refactor|docs|test|build|ci|chore|style|revert)(\([a-z0-9._/-]+\))?!?: [^ ].*$'
-          if ! printf '%s\n' "$PR_TITLE" | grep -Eq "$pattern"; then
-            echo "::error::The title \"$PR_TITLE\" is not a Conventional Commit."
-            echo "Expected: type(scope): description  (types: feat, fix, perf, refactor, docs, test, build, ci, chore, style, revert; add ! before the colon for a breaking change)."
-            exit 1
-          fi
+          GITHUB_TOKEN: ${{ github.token }}
