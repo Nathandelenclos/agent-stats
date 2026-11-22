@@ -139,8 +139,10 @@ INSERT INTO tool_calls VALUES ('/logs/with-skill.jsonl', 't1', 'claude:a', 1, 'S
 	('/logs/without.jsonl', 't2', 'claude:b', 1, 'Read', '', 0, 0, 0, NULL);
 `
 
-func TestOldIndexGainsTheSkillColumnAndReadsItsSkillFilesAgain(t *testing.T) {
-	// Given an index written before tool calls recorded their skill, holding one log with a Skill call and one without
+// openOldIndex opens, with the current code, an index written before tool calls recorded their skill: it holds one log
+// with a Skill call and one without.
+func openOldIndex(t *testing.T) (*SQLiteIndex, string) {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "index.db")
 	old, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -150,29 +152,50 @@ func TestOldIndexGainsTheSkillColumnAndReadsItsSkillFilesAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	old.Close()
-
-	// When it is opened
 	s, err := Open(Options{Path: path, User: "me@host"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	t.Cleanup(func() { s.Close() })
+	return s, path
+}
 
-	// Then the published view offers the skill, and only the log with a Skill call is forgotten, to be indexed again
+func TestOldIndexPublishesTheSkillOfItsToolCalls(t *testing.T) {
+	// Given an index written before tool calls recorded their skill, when it is opened
+	s, _ := openOldIndex(t)
+
+	// Then the published view offers the skill column, empty for the old calls
 	var n int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM usage_tool_calls WHERE skill = ''`).Scan(&n); err != nil || n != 2 {
 		t.Errorf("view rows without a skill = %d, %v", n, err)
 	}
+}
+
+func TestOldIndexReadsOnlyItsSkillFilesAgain(t *testing.T) {
+	// Given an index written before tool calls recorded their skill, when it is opened
+	s, _ := openOldIndex(t)
+
+	// Then only the log holding a Skill call is forgotten, to be indexed again
 	known, err := s.IndexedFiles()
 	if err != nil || len(known) != 1 || known["/logs/without.jsonl"].Path == "" {
 		t.Errorf("indexed files after migration = %+v %v", known, err)
 	}
-	// And opening it again changes nothing
+}
+
+func TestMigratedIndexOpensAgainUnchanged(t *testing.T) {
+	// Given an index that was migrated
+	s, path := openOldIndex(t)
+	s.Close()
+
+	// When it is opened a second time, then nothing fails and the forgotten file is not forgotten twice
 	s2, err := Open(Options{Path: path, User: "me@host"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	s2.Close()
+	defer s2.Close()
+	if known, err := s2.IndexedFiles(); err != nil || len(known) != 1 {
+		t.Errorf("indexed files = %+v %v", known, err)
+	}
 }
 
 func TestSaveRecordsTheSkillOfASkillCall(t *testing.T) {

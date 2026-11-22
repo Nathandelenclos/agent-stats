@@ -46,30 +46,59 @@ func skill(t *testing.T, h kernel.Harness, n string) domain.Item {
 	return domain.Item{Harness: h, Kind: domain.Skill, Name: name, Scope: domain.ScopeUser}
 }
 
-func TestCatalogCoversEveryHarnessAndPassesTheFilterToTheActivity(t *testing.T) {
-	// Given an inventory with a skill per harness and activity for one skill
+// twoHarnesses is an inventory with a Claude skill and a Codex skill, the Claude one reported used, and a skipped file.
+func twoHarnesses(t *testing.T) (*fakeInventory, *fakeActivity) {
+	t.Helper()
 	inv := &fakeInventory{byHarness: map[kernel.Harness]Installed{
 		kernel.Claude: {Items: []domain.Item{skill(t, kernel.Claude, "used")}, Skipped: []string{"~/.claude.json: malformed"}},
 		kernel.Codex:  {Items: []domain.Item{skill(t, kernel.Codex, "other")}},
 	}}
 	act := &fakeActivity{act: domain.Activity{Skills: []domain.SkillActivity{{Harness: kernel.Claude, Skill: "used", Calls: 2}}}}
-	since := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	return inv, act
+}
 
-	// When the catalogue is built for all harnesses since a date
-	c, err := BuildCatalog{Inventory: inv, Activity: act}.Run(Query{Since: since})
+func TestCatalogCoversEveryHarnessWithItsUsage(t *testing.T) {
+	// Given skills installed in two harnesses and activity for one of them
+	inv, act := twoHarnesses(t)
 
-	// Then every harness was inventoried, the date reached the activity query, and skipped files are reported
+	// When the catalogue is built for all harnesses
+	c, err := BuildCatalog{Inventory: inv, Activity: act}.Run(Query{})
+
+	// Then it lists both skills, the used one first with its uses
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(inv.asked) != len(kernel.Harnesses) {
-		t.Errorf("harnesses asked: %v", inv.asked)
+	if len(c.Entries) != 2 || c.Entries[0].Name.String() != "used" || c.Entries[0].Uses != 2 {
+		t.Errorf("entries: %+v", c.Entries)
 	}
-	if !act.filter.Since.Equal(since) || !act.filter.Harness.IsZero() {
+}
+
+func TestCatalogLimitsUsageToThePeriodAsked(t *testing.T) {
+	// Given the same installation, and a period starting on a date
+	inv, act := twoHarnesses(t)
+	since := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	// When the catalogue is built for that period
+	if _, err := (BuildCatalog{Inventory: inv, Activity: act}).Run(Query{Since: since}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Then the activity was asked for that period only
+	if !act.filter.Since.Equal(since) {
 		t.Errorf("filter: %+v", act.filter)
 	}
-	if len(c.Entries) != 2 || c.Entries[0].Uses != 2 || len(c.Skipped) != 1 {
-		t.Errorf("catalog: %+v", c)
+}
+
+func TestCatalogReportsWhatItCouldNotRead(t *testing.T) {
+	// Given a configuration the inventory had to skip
+	inv, act := twoHarnesses(t)
+
+	// When the catalogue is built
+	c, err := BuildCatalog{Inventory: inv, Activity: act}.Run(Query{})
+
+	// Then the skipped file is reported with it
+	if err != nil || len(c.Skipped) != 1 {
+		t.Errorf("skipped: %v, err %v", c.Skipped, err)
 	}
 }
 

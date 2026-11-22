@@ -37,21 +37,27 @@ func publishedIndex(t *testing.T) string {
 	return path
 }
 
-func TestActivityGroupsTheViewsPerHarnessAndName(t *testing.T) {
-	// Given an index with calls to an MCP server and a built-in tool, and subagent requests
+// allActivity reads the whole activity of the stand-in index.
+func allActivity(t *testing.T) domain.Activity {
+	t.Helper()
 	u, err := OpenReadOnly(publishedIndex(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer u.Close()
-
-	// When the whole activity is read
 	a, err := u.Activity(domain.Filter{})
-
-	// Then calls and requests are counted per harness and name, with their latest time
 	if err != nil {
 		t.Fatal(err)
 	}
+	return a
+}
+
+func TestToolCallsAreCountedPerHarnessAndServer(t *testing.T) {
+	// Given an index with calls to an MCP server, a built-in tool and another harness's server
+	// When the activity is read
+	a := allActivity(t)
+
+	// Then calls are counted per harness, name and server, with their latest time
 	var grace domain.ToolActivity
 	for _, x := range a.Tools {
 		if x.Server == "grace" {
@@ -61,9 +67,14 @@ func TestActivityGroupsTheViewsPerHarnessAndName(t *testing.T) {
 	if len(a.Tools) != 4 || grace.Calls != 2 || !grace.Last.Equal(time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)) || grace.Harness != kernel.Claude {
 		t.Errorf("tools: %+v", a.Tools)
 	}
-	if len(a.Skills) != 1 || a.Skills[0].Skill != "grace-review" || a.Skills[0].Calls != 2 || !a.Skills[0].Last.Equal(time.Date(2026, 1, 4, 0, 0, 0, 0, time.UTC)) {
-		t.Errorf("skills: %+v", a.Skills)
-	}
+}
+
+func TestSubagentRequestsAreCountedPerAgentType(t *testing.T) {
+	// Given an index with requests from the main conversation and from two Explore sessions
+	// When the activity is read
+	a := allActivity(t)
+
+	// Then the Explore requests are counted together
 	var explore int64
 	for _, x := range a.Agents {
 		if x.AgentType == "Explore" {
@@ -72,6 +83,17 @@ func TestActivityGroupsTheViewsPerHarnessAndName(t *testing.T) {
 	}
 	if explore != 2 {
 		t.Errorf("agents: %+v", a.Agents)
+	}
+}
+
+func TestSkillLoadsAreCountedPerSkill(t *testing.T) {
+	// Given an index with two loads of one skill and a Skill call that names none
+	// When the activity is read
+	a := allActivity(t)
+
+	// Then only the named loads are counted
+	if len(a.Skills) != 1 || a.Skills[0].Skill != "grace-review" || a.Skills[0].Calls != 2 || !a.Skills[0].Last.Equal(time.Date(2026, 1, 4, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("skills: %+v", a.Skills)
 	}
 }
 
