@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -106,6 +107,16 @@ func mustRates(t *testing.T, perToken pricing.RatesPerToken) pricing.Rates {
 		t.Fatal(err)
 	}
 	return r
+}
+
+func TestIndexWorkersKeepACoreForTheWriterAndTheInterface(t *testing.T) {
+	defer func(n int) { runtime.GOMAXPROCS(n) }(runtime.GOMAXPROCS(0))
+	for cpus, want := range map[int]int{1: 1, 2: 2, 4: 3, 8: 6, 10: 8} {
+		runtime.GOMAXPROCS(cpus)
+		if got := indexWorkers(); got != want {
+			t.Errorf("%d CPUs: %d workers, want %d", cpus, got, want)
+		}
+	}
 }
 
 func TestParseSince(t *testing.T) {

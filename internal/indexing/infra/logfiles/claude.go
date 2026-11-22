@@ -13,45 +13,92 @@ import (
 )
 
 type claudeBlock struct {
-	Type      string          `json:"type"`
-	Text      string          `json:"text"`
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Input     json.RawMessage `json:"input"`
-	ToolUseID string          `json:"tool_use_id"`
-	Content   json.RawMessage `json:"content"`
-	IsError   bool            `json:"is_error"`
+	Type      string `json:"type"`
+	Text      string `json:"text"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Input     size   `json:"input"`
+	ToolUseID string `json:"tool_use_id"`
+	Content   size   `json:"content"`
+	IsError   bool   `json:"is_error"`
+}
+
+// claudeContent is a message's content: a plain string (what a person typed) or a list of blocks.
+// Decoded by encoding/json it is there at once; the scanner leaves it in raw until resolve decodes it,
+// so lines that never read their content (a summary, a title) do not pay for it.
+type claudeContent struct {
+	Text   string
+	IsText bool
+	Blocks []claudeBlock
+	raw    []byte // the content as written, until resolve; points into the line being parsed
+}
+
+// UnmarshalJSON starts from nothing: encoding/json calls it for each occurrence of a repeated "content" key,
+// and the last one is the content, whatever the previous ones were.
+func (c *claudeContent) UnmarshalJSON(b []byte) error {
+	*c = claudeContent{}
+	if json.Unmarshal(b, &c.Text) == nil {
+		c.IsText = true
+		return nil
+	}
+	_ = json.Unmarshal(b, &c.Blocks)
+	return nil
+}
+
+// resolve decodes the content if that is still to do.
+func (c *claudeContent) resolve() {
+	if c.raw == nil {
+		return
+	}
+	raw := c.raw
+	*c = claudeContent{}
+	if fastDecode {
+		if c.scan(raw) {
+			return
+		}
+		scanRefused.Add(1)
+		*c = claudeContent{}
+	}
+	_ = c.UnmarshalJSON(raw)
+}
+
+type claudeCacheDetail struct {
+	OneHour int64 `json:"ephemeral_1h_input_tokens"`
+}
+
+type claudeOutputDetail struct {
+	Thinking int64 `json:"thinking_tokens"`
+}
+
+type claudeUsage struct {
+	Input         int64               `json:"input_tokens"`
+	Output        int64               `json:"output_tokens"`
+	CacheRead     int64               `json:"cache_read_input_tokens"`
+	CacheCreation int64               `json:"cache_creation_input_tokens"`
+	CacheDetail   *claudeCacheDetail  `json:"cache_creation"`
+	OutputDetail  *claudeOutputDetail `json:"output_tokens_details"`
+}
+
+type claudeMessage struct {
+	ID         string        `json:"id"`
+	Model      string        `json:"model"`
+	StopReason string        `json:"stop_reason"`
+	Content    claudeContent `json:"content"`
+	Usage      *claudeUsage  `json:"usage"`
 }
 
 type claudeLine struct {
-	Type              string `json:"type"`
-	Timestamp         string `json:"timestamp"`
-	SessionID         string `json:"sessionId"`
-	Cwd               string `json:"cwd"`
-	IsMeta            bool   `json:"isMeta"`
-	IsAPIErrorMessage bool   `json:"isApiErrorMessage"`
-	RequestRef        string `json:"requestRef"`
-	ID                string `json:"id"`
-	UUID              string `json:"uuid"`
-	CustomTitle       string `json:"customTitle"`
-	Message           *struct {
-		ID         string          `json:"id"`
-		Model      string          `json:"model"`
-		StopReason string          `json:"stop_reason"`
-		Content    json.RawMessage `json:"content"`
-		Usage      *struct {
-			Input         int64 `json:"input_tokens"`
-			Output        int64 `json:"output_tokens"`
-			CacheRead     int64 `json:"cache_read_input_tokens"`
-			CacheCreation int64 `json:"cache_creation_input_tokens"`
-			CacheDetail   *struct {
-				OneHour int64 `json:"ephemeral_1h_input_tokens"`
-			} `json:"cache_creation"`
-			OutputDetail *struct {
-				Thinking int64 `json:"thinking_tokens"`
-			} `json:"output_tokens_details"`
-		} `json:"usage"`
-	} `json:"message"`
+	Type              string         `json:"type"`
+	Timestamp         string         `json:"timestamp"`
+	SessionID         string         `json:"sessionId"`
+	Cwd               string         `json:"cwd"`
+	IsMeta            bool           `json:"isMeta"`
+	IsAPIErrorMessage bool           `json:"isApiErrorMessage"`
+	RequestRef        string         `json:"requestRef"`
+	ID                string         `json:"id"`
+	UUID              string         `json:"uuid"`
+	CustomTitle       string         `json:"customTitle"`
+	Message           *claudeMessage `json:"message"`
 }
 
 // ParseClaude reads a Claude Code transcript (~/.claude/projects/<folder>/<session>.jsonl,
@@ -85,8 +132,8 @@ func ParseClaude(path string, r io.Reader) (domain.Transcript, error) {
 	var lastModel string
 
 	oversized, err := eachLine(r, func(line []byte) {
-		var l claudeLine
-		if json.Unmarshal(line, &l) != nil {
+		l, ok := decodeLine(line, scanClaudeLine)
+		if !ok {
 			p.SkippedLines++
 			return
 		}
@@ -105,7 +152,8 @@ func ParseClaude(path string, r io.Reader) (domain.Transcript, error) {
 			}
 			p.Session.Span(ts)
 			m := l.Message
-			blocks := claudeBlocks(m.Content)
+			m.Content.resolve()
+			blocks := m.Content.Blocks
 			if m.Model == "<synthetic>" {
 				if l.IsAPIErrorMessage {
 					p.Requests = append(p.Requests, domain.Request{Key: "err:" + m.ID, At: ts, Model: lastModel, Provider: "anthropic", Failure: firstText(blocks)})
@@ -150,24 +198,24 @@ func ParseClaude(path string, r io.Reader) (domain.Transcript, error) {
 				}
 				server, name := domain.SplitMCPToolName(b.Name)
 				toolIndex[b.ID] = len(p.Tools)
-				p.Tools = append(p.Tools, domain.ToolCall{Key: b.ID, At: ts, Name: name, Server: server, ArgsChars: len(b.Input)})
+				p.Tools = append(p.Tools, domain.ToolCall{Key: b.ID, At: ts, Name: name, Server: server, ArgsChars: int(b.Input)})
 			}
 		case "user":
 			if l.Message == nil || l.IsMeta {
 				return
 			}
 			p.Session.Span(ts)
-			var text string
-			if json.Unmarshal(l.Message.Content, &text) == nil {
-				addClaudePrompt(p, l.UUID, ts, text)
+			l.Message.Content.resolve()
+			if c := l.Message.Content; c.IsText {
+				addClaudePrompt(p, l.UUID, ts, c.Text)
 				return
 			}
-			for j, b := range claudeBlocks(l.Message.Content) {
+			for j, b := range l.Message.Content.Blocks {
 				switch b.Type {
 				case "tool_result":
 					if i, ok := toolIndex[b.ToolUseID]; ok {
 						t := &p.Tools[i]
-						t.ResultChars, t.IsError = len(b.Content), b.IsError
+						t.ResultChars, t.IsError = int(b.Content), b.IsError
 						t.Duration = between(t.At, ts)
 					}
 				case "text":
@@ -198,12 +246,6 @@ func addClaudePrompt(p *domain.Transcript, key string, ts time.Time, text string
 	if pr, ok := domain.NewPrompt(key, ts, text); ok {
 		p.Prompts = append(p.Prompts, pr)
 	}
-}
-
-func claudeBlocks(raw json.RawMessage) []claudeBlock {
-	var blocks []claudeBlock
-	_ = json.Unmarshal(raw, &blocks)
-	return blocks
 }
 
 func firstText(blocks []claudeBlock) string {

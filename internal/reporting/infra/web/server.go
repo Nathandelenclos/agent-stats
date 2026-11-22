@@ -22,7 +22,8 @@ type logf func(format string, args ...any)
 type Options struct {
 	Reports  reporting.BuildTimelineReport
 	Sessions reporting.ListSessions
-	// Sync, when set, runs once in the background as the server starts; the page watches its progress.
+	// Sync, when set, runs once in the background as the server starts and is stopped, then waited for, when Serve's
+	// context ends; the page watches its progress.
 	Sync Sync
 	// ParseSince reads a period start as the command line states it (7d, 12h, 2006-01-02).
 	ParseSince func(s string, now time.Time) (time.Time, error)
@@ -140,8 +141,10 @@ func (s *Server) static(w http.ResponseWriter, r *http.Request) {
 	http.ServeFileFS(w, r, s.opts.Assets, name)
 }
 
-// Serve answers on ln until ctx is done, indexing in the background when Options.Sync is set.
+// Serve answers on ln until ctx is done, indexing in the background when Options.Sync is set. It returns once the
+// requests in flight are answered and the indexing has stopped, so the caller may close the index.
 func Serve(ctx context.Context, ln net.Listener, o Options) error {
+	ctx, cancel := context.WithCancel(ctx) // also ends the indexing when the server stops on its own, on an error
 	s := New(o, ln.Addr())
 	var errLog *log.Logger = o.Log
 	if errLog == nil {
@@ -156,10 +159,14 @@ func Serve(ctx context.Context, ln net.Listener, o Options) error {
 		MaxHeaderBytes:    16 << 10,
 		ErrorLog:          errLog,
 	}
-	if o.Sync != nil {
-		// ponytail: not cancellable, like the indexing of the terminal view; the process ends it. Pass ctx down when indexing takes one.
-		go s.sync.run(o.Sync)
-	}
+	indexed := make(chan struct{})
+	go func() {
+		defer close(indexed)
+		if o.Sync != nil {
+			s.sync.run(ctx, o.Sync)
+		}
+	}()
+	defer func() { cancel(); <-indexed }()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)

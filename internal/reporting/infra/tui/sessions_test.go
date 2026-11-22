@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -638,7 +639,7 @@ func TestSessionsViewFitsTheTerminal(t *testing.T) {
 func TestSessionsIndexedMeanwhileShowAfterIndexing(t *testing.T) {
 	// Given the sessions on screen while indexing runs
 	sessions := sampleSessions()
-	m := New(Options{Reports: build(&fakeReports{report: sampleReport()}), Sync: func(func(int)) (string, error) { return "", nil },
+	m := New(Options{Reports: build(&fakeReports{report: sampleReport()}), Sync: func(context.Context, func(int)) (string, error) { return "", nil },
 		Sessions: reporting.ListSessions{Queries: sessions}, Session: reporting.ShowSession{Queries: sessions}})
 	m = send(t, m, tea.WindowSizeMsg{Width: 220, Height: 30})
 	m, cmd := pressCmd(t, send(t, m, m.load()()), "m")
@@ -692,7 +693,7 @@ func TestATerminalThatReportsNoSizeKeepsTheDefaultSize(t *testing.T) {
 func TestTheSessionsHelpStillOffersQuitOnAn80ColumnTerminalWhileIndexing(t *testing.T) {
 	// Given the sessions on an 80-column terminal, with indexing available
 	sessions := sampleSessions()
-	m := New(Options{Reports: build(&fakeReports{report: sampleReport()}), Sync: func(func(int)) (string, error) { return "", nil },
+	m := New(Options{Reports: build(&fakeReports{report: sampleReport()}), Sync: func(context.Context, func(int)) (string, error) { return "", nil },
 		Sessions: reporting.ListSessions{Queries: sessions}, Session: reporting.ShowSession{Queries: sessions}})
 	m = send(t, m, tea.WindowSizeMsg{Width: 80, Height: 30})
 	m, cmd := pressCmd(t, send(t, m, m.load()()), "m")

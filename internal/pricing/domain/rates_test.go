@@ -68,3 +68,18 @@ func TestPriceListCost(t *testing.T) {
 		t.Error("out-of-bound cost accepted")
 	}
 }
+
+func TestTheSameTokensCostTheSameOnEveryCPU(t *testing.T) {
+	// Given a model's rates and the tokens of one request
+	r := rates(t, RatesPerToken{Input: 3e-6, Output: 15e-6})
+	tok, _ := kernel.NewTokens(kernel.TokenCounts{Input: 1, Output: 5})
+
+	// When the request is priced
+	c, err := r.Cost(tok)
+
+	// Then the cost is the sum of each priced part, rounded alike on arm64 and amd64
+	// (a fused multiply-add on arm64 would give 7.8e-05)
+	if err != nil || c.USD() != 7.800000000000001e-05 {
+		t.Errorf("cost = %v %v, want 7.800000000000001e-05", c.USD(), err)
+	}
+}

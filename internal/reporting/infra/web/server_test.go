@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -568,7 +569,7 @@ func TestSyncProgressShowsTheFilesIndexedWhileRunningThenWhatWasSkipped(t *testi
 	release := make(chan struct{})
 	progressed := make(chan struct{})
 	r := newRig(t, func(o *Options) {
-		o.Sync = func(progress func(int)) (string, error) {
+		o.Sync = func(_ context.Context, progress func(int)) (string, error) {
 			progress(12)
 			close(progressed)
 			<-release
@@ -576,7 +577,7 @@ func TestSyncProgressShowsTheFilesIndexedWhileRunningThenWhatWasSkipped(t *testi
 		}
 	})
 	done := make(chan struct{})
-	go func() { r.handler.sync.run(r.handler.opts.Sync); close(done) }()
+	go func() { r.handler.sync.run(context.Background(), r.handler.opts.Sync); close(done) }()
 	<-progressed
 
 	// When the page asks while it runs, then after it ends
@@ -597,13 +598,13 @@ func TestSyncProgressShowsTheFilesIndexedWhileRunningThenWhatWasSkipped(t *testi
 func TestAFailedIndexingIsReportedWithoutItsCause(t *testing.T) {
 	// Given an indexing that fails with a message naming a file
 	r := newRig(t, func(o *Options) {
-		o.Sync = func(func(int)) (string, error) {
+		o.Sync = func(context.Context, func(int)) (string, error) {
 			return "", errors.New("read /Users/someone/.claude/projects/x.jsonl: boom")
 		}
 	})
 
 	// When it ends and the page asks
-	r.handler.sync.run(r.handler.opts.Sync)
+	r.handler.sync.run(context.Background(), r.handler.opts.Sync)
 	rec := r.get("/api/sync")
 
 	// Then the page learns it failed, the cause stays in the log
@@ -617,13 +618,13 @@ func TestAFailedIndexingIsReportedWithoutItsCause(t *testing.T) {
 }
 
 // serving starts the server on an ephemeral loopback port and returns its address, a way to end it and what Serve returns.
-func serving(t *testing.T) (addr string, stop context.CancelFunc, ended <-chan error) {
+func serving(t *testing.T, mutate ...func(*Options)) (addr string, stop context.CancelFunc, ended <-chan error) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := newRig(t)
+	r := newRig(t, mutate...)
 	ctx, stop := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- Serve(ctx, ln, r.handler.opts) }()
@@ -690,6 +691,58 @@ func TestServeReturnsCleanlyWhenItsContextEnds(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Serve did not return after its context ended")
+	}
+}
+
+func TestServeStopsTheIndexingAndWaitsForItWhenItsContextEnds(t *testing.T) {
+	// Given a running server whose indexing only ends when it is told to stop
+	started := make(chan struct{})
+	var stopped atomic.Bool
+	addr, stop, ended := serving(t, func(o *Options) {
+		o.Sync = func(ctx context.Context, _ func(int)) (string, error) {
+			close(started)
+			<-ctx.Done()
+			time.Sleep(50 * time.Millisecond) // winding down takes a moment, and Serve must wait for it
+			stopped.Store(true)
+			return "", ctx.Err()
+		}
+	})
+	<-started
+	if status(t, addr, "") != http.StatusOK {
+		t.Fatal("the server does not answer while indexing")
+	}
+
+	// When the server's context is cancelled, as a SIGINT does
+	stop()
+
+	// Then Serve returns without an error, and only once the indexing has stopped
+	select {
+	case err := <-ended:
+		if err != nil {
+			t.Errorf("Serve = %v", err)
+		}
+		if !stopped.Load() {
+			t.Error("Serve returned while the indexing was still running")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Serve did not return after its context ended")
+	}
+}
+
+func TestAnIndexingStoppedByTheShutdownIsNotLoggedAsAFailure(t *testing.T) {
+	// Given an indexing that ends because its context was cancelled
+	r := newRig(t, func(o *Options) {
+		o.Sync = func(ctx context.Context, _ func(int)) (string, error) { return "", ctx.Err() }
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// When it ends
+	r.handler.sync.run(ctx, r.handler.opts.Sync)
+
+	// Then the log does not call a stop requested by the user a failure
+	if len(r.logLines) != 0 {
+		t.Errorf("log = %v", r.logLines)
 	}
 }
 

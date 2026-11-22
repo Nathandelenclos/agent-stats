@@ -76,7 +76,7 @@ func runServe(args []string) error {
 		if err != nil {
 			return err
 		}
-		sync = web.Sync(tuiSync(indexLogs))
+		sync = web.Sync(tuiSync(indexLogs)) // the same adapter as the interface's: counts as progress, skipped files as the note
 	}
 	usage, err := usagedb.OpenReadOnly(*dbPath)
 	if err != nil {

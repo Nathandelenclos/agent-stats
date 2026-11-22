@@ -1,13 +1,15 @@
 package web
 
 import (
+	"context"
+	"errors"
 	"sync"
 	"time"
 )
 
-// Sync brings the index up to date and calls progress with the number of files indexed so far.
-// The note it returns, if any, says what was skipped.
-type Sync func(progress func(indexed int)) (note string, err error)
+// Sync brings the index up to date and calls progress with the number of files indexed so far. It stops when ctx is
+// done. The note it returns, if any, says what was skipped.
+type Sync func(ctx context.Context, progress func(indexed int)) (note string, err error)
 
 // Sync states, as the page reads them.
 const (
@@ -56,16 +58,18 @@ func (s *syncer) update(fn func(*syncStatus)) {
 }
 
 // run indexes with sync and records its progress. The failure is logged in full; the page only learns that it failed,
-// since the message may name files of the user's home.
-func (s *syncer) run(sync Sync) {
+// since the message may name files of the user's home. A stop asked through ctx is not a failure worth a log line.
+func (s *syncer) run(ctx context.Context, sync Sync) {
 	s.update(func(st *syncStatus) { st.StartedAt = s.now().UnixMilli() })
-	note, err := sync(func(n int) { s.update(func(st *syncStatus) { st.Indexed = n }) })
+	note, err := sync(ctx, func(n int) { s.update(func(st *syncStatus) { st.Indexed = n }) })
 	s.update(func(st *syncStatus) {
 		st.FinishedAt = s.now().UnixMilli()
 		st.Note = note
 		st.State = syncDone
 		if err != nil {
-			s.log("indexing failed: %v", err)
+			if !errors.Is(err, context.Canceled) {
+				s.log("indexing failed: %v", err)
+			}
 			st.State, st.Error = syncFailed, "indexing failed: see the server log"
 		}
 	})
