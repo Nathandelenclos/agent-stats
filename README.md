@@ -141,7 +141,7 @@ Press Ctrl-C to stop it.
 
 The page reads a small JSON API, which is also usable with `curl`. Every route is a `GET`; errors are
 [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem documents (`application/problem+json`) with a stable `type`.
-`since` and `harness` take what the command line takes (`7d`, `24h`, `2006-01-02`; `claude`, `codex`, `omp`, `pi`) and
+`since` and `harness` take what the command line takes (`7d`, `24h`, `2006-01-02`; `claude`, `codex`, `omp`, `pi`, `opencode`, `kilo`, `gemini`) and
 may be omitted. Unknown or repeated parameters are refused with `400`.
 
 | Route | Answer |
