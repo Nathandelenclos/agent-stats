@@ -954,6 +954,9 @@ func TestARequestArrivingAfterTheDrainIsRefusedWithoutReadingTheIndex(t *testing
 
 	// Then it is refused, and no figure is read
 	wantProblem(t, rec, http.StatusServiceUnavailable, problemStopping)
+	if rec.Header().Get("Content-Security-Policy") == "" || rec.Header().Get("Cache-Control") != "no-store" {
+		t.Errorf("the refusal lacks the security headers: %v", rec.Header())
+	}
 	if len(r.idx.filters) != 0 {
 		t.Error("the index was read after the drain")
 	}

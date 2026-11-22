@@ -91,11 +91,6 @@ const contentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 
 
 // ServeHTTP checks the request is one this server answers, sets the security headers and routes it.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if !s.enter() {
-		problem{Type: problemStopping, Title: "Server stopping", Status: http.StatusServiceUnavailable}.write(w)
-		return
-	}
-	defer s.inflight.Done()
 	h := w.Header()
 	h.Set("Content-Security-Policy", contentSecurityPolicy)
 	h.Set("X-Content-Type-Options", "nosniff")
@@ -104,6 +99,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.Set("Cross-Origin-Opener-Policy", "same-origin")
 	h.Set("Cross-Origin-Resource-Policy", "same-origin")
 	// No Access-Control-* header is ever set: browsers keep other origins from reading any response.
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		h.Set("Cache-Control", "no-store")
+	}
+
+	if !s.enter() {
+		problem{Type: problemStopping, Title: "Server stopping", Status: http.StatusServiceUnavailable}.write(w)
+		return
+	}
+	defer s.inflight.Done()
 
 	if !s.opts.AllowRemote && !hostAllowed(r.Host, s.port) {
 		problem{Type: problemHostNotAllowed, Title: "Host not allowed", Status: http.StatusForbidden,
@@ -116,7 +120,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/api/") {
-		h.Set("Cache-Control", "no-store")
 		if !fromOwnPage(r.Header.Get("Sec-Fetch-Site")) {
 			problem{Type: problemForeignOrigin, Title: "Request not made by this page refused", Status: http.StatusForbidden}.write(w)
 			return
