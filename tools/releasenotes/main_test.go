@@ -22,22 +22,26 @@ func workdir(t *testing.T) (notes, out string) {
 	return notes, filepath.Join(dir, "summary.md")
 }
 
-func TestSummarizeWritesTheSummaryAndLogsNoSecret(t *testing.T) {
-	// Given a working API
+// summarized runs the program against a working API and returns what it wrote and printed.
+func summarized(t *testing.T) (summary, printed string, code int) {
+	t.Helper()
 	srv, _ := fakeAPI(t, answer(200, reply("Reports break down by day.")))
 	notes, out := workdir(t)
 	var stdout, stderr bytes.Buffer
 	env := envOf(map[string]string{"OPENAI_API_KEY": testKey, "OPENAI_MODEL": "m", "GITHUB_REPOSITORY": testRepo})
-
-	// When the program summarizes
-	code := run(context.Background(), []string{"summarize", "-notes", notes, "-out", out, "-api-url", srv.URL}, env, &stdout, &stderr)
-
-	// Then the file holds the summary, nothing printed holds the key
+	code = run(context.Background(), []string{"summarize", "-notes", notes, "-out", out, "-api-url", srv.URL}, env, &stdout, &stderr)
 	got, _ := os.ReadFile(out)
-	if code != 0 || string(got) != "Reports break down by day." {
-		t.Errorf("code %d, summary %q, stderr %q", code, got, stderr.String())
+	return string(got), stdout.String() + stderr.String(), code
+}
+
+func TestSummarizeWritesTheSummaryFile(t *testing.T) {
+	if summary, _, code := summarized(t); code != 0 || summary != "Reports break down by day." {
+		t.Errorf("code %d, summary %q", code, summary)
 	}
-	if strings.Contains(stdout.String()+stderr.String(), testKey) {
+}
+
+func TestSummarizePrintsNoSecret(t *testing.T) {
+	if _, printed, _ := summarized(t); strings.Contains(printed, testKey) {
 		t.Error("the key is printed")
 	}
 }
