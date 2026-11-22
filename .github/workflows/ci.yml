@@ -28,7 +28,7 @@ jobs:
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
-      # The front is not versioned: it is built here, as in the release (web/doc.go). `go generate ./web` runs
+      # The front is not versioned: it is built here with the same commands as the release's front job (web/doc.go). `go generate ./web` runs
       # `npm ci` (the lockfile, install scripts off through web/.npmrc) then `npm run build`, which type-checks
       # the sources with tsc before bundling them.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -66,7 +66,7 @@ jobs:
           done
 
   # Releases what these checks just validated: the release workflow tags, builds and attests this very commit.
-  # It never runs on a pull request. It builds the front itself (see release.yml) rather than reusing this job's.
+  # It never runs on a pull request. It builds the front in a job of its own (see release.yml) rather than reusing this job's.
   release:
     name: Release
     needs: go

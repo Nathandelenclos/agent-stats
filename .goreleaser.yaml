@@ -5,11 +5,9 @@ version: 2
 
 project_name: agent-stats
 
-# The web front is not versioned: build it before compiling. `go generate ./web` runs `npm ci` then `npm run build`
-# (web/doc.go); the `web` build tag below embeds web/dist in every binary.
-before:
-  hooks:
-    - go generate ./web
+# The web front is not versioned. The workflow builds it in a job of its own and drops it in web/dist before this runs;
+# the `web` build tag below embeds web/dist in every binary, and the build fails without it. Nothing here builds the front:
+# this runs with the rights to publish and sign.
 
 builds:
   - id: agent-stats
