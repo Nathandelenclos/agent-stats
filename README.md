@@ -186,7 +186,7 @@ go build -tags web .     # embeds web/dist in the binary
 
 Without the `web` tag, `go build` and `go install` still work: the binary embeds a one-page notice that says how to build
 the front, and the API answers. That is what `go install github.com/Nathandelenclos/agent-stats@latest` gives you; the
-binaries of a release include the page. Install scripts are off for npm (`web/.npmrc`) and the lockfile is committed.
+binaries of a release include the page, and each archive carries `web-package-lock.json` so that its SBOM lists the npm packages bundled in the binary. Install scripts are off for npm (`web/.npmrc`) and the lockfile is committed.
 To work on the page, run `agent-stats serve` and, in `web/`, `npm run dev` (Vite proxies `/api` to `127.0.0.1:7373`).
 
 ## Supported harnesses
