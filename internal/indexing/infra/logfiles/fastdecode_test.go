@@ -1,6 +1,7 @@
 package logfiles
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -23,11 +24,38 @@ func parseBoth(t *testing.T, p Parser, path, log string) (fast, slow domain.Tran
 	return fast, slow
 }
 
+// sameTranscript fails when the transcripts differ, saying where but never what: logs hold the prompts and
+// paths of their authors, and a failure on real logs must not print them.
 func sameTranscript(t *testing.T, what string, fast, slow domain.Transcript) {
 	t.Helper()
-	if !reflect.DeepEqual(fast, slow) {
-		t.Errorf("%s: the scanner and encoding/json read different transcripts\nscanner: %+v\njson:    %+v", what, fast, slow)
+	if reflect.DeepEqual(fast, slow) {
+		return
 	}
+	t.Errorf("%s: the scanner and encoding/json read different transcripts: %s", what, firstDifference(fast, slow))
+}
+
+func firstDifference(fast, slow domain.Transcript) string {
+	switch {
+	case !reflect.DeepEqual(fast.Session, slow.Session):
+		return "session"
+	case fast.SkippedLines != slow.SkippedLines:
+		return fmt.Sprintf("skipped lines (%d, %d)", fast.SkippedLines, slow.SkippedLines)
+	}
+	for _, part := range []struct {
+		name string
+		a, b any
+	}{{"requests", fast.Requests, slow.Requests}, {"tool calls", fast.Tools, slow.Tools}, {"prompts", fast.Prompts, slow.Prompts}} {
+		a, b := reflect.ValueOf(part.a), reflect.ValueOf(part.b)
+		if a.Len() != b.Len() {
+			return fmt.Sprintf("%s (%d, %d)", part.name, a.Len(), b.Len())
+		}
+		for i := range a.Len() {
+			if !reflect.DeepEqual(a.Index(i).Interface(), b.Index(i).Interface()) {
+				return fmt.Sprintf("%s, number %d", part.name, i+1)
+			}
+		}
+	}
+	return "unknown"
 }
 
 // compareOddLines parses prefix plus each odd line, once per line, with and without the scanner.
@@ -194,5 +222,17 @@ func compareHome(t *testing.T, home string) {
 	t.Logf("%d logs compared, %d lines handed back to encoding/json", files, refused)
 	if files == 0 {
 		t.Fatal("no log found under " + home)
+	}
+}
+
+func TestDifferenceReportSaysWhereButNeverWhatTheLogSays(t *testing.T) {
+	a := domain.Transcript{Prompts: []domain.Prompt{{Key: "1", Text: "hunter2 is my password"}}}
+	b := domain.Transcript{Prompts: []domain.Prompt{{Key: "1", Text: "other text"}}}
+	got := firstDifference(a, b)
+	if got != "prompts, number 1" || strings.Contains(got, "hunter2") {
+		t.Errorf("difference = %q", got)
+	}
+	if got := firstDifference(domain.Transcript{SkippedLines: 1}, domain.Transcript{}); got != "skipped lines (1, 0)" {
+		t.Errorf("difference = %q", got)
 	}
 }
