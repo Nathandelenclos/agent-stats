@@ -69,7 +69,9 @@ jobs:
           name: web-dist
           path: web/dist
           if-no-files-found: error
-          retention-days: 1
+          # Re-running only the failed publish job reads this artifact again, and GitHub allows a re-run for 30 days: keep it
+          # that long. Past it, the manual run on the tag rebuilds the front (see the header). It holds no secret.
+          retention-days: 30
 
   release:
     name: Tag and publish

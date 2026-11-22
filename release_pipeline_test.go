@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -81,5 +82,20 @@ func TestTheReleaseJobTakesTheFrontFromTheFrontJob(t *testing.T) {
 	}
 	if !strings.Contains(release, "download-artifact") || !strings.Contains(release, "path: web/dist") {
 		t.Error("the release job does not fetch web/dist built by the front job")
+	}
+}
+
+// GitHub lets a run be re-run for 30 days. Re-running only the publish job after a failure reads the artifact of the
+// front job again, so the artifact must outlive that window; past it, the manual run on the tag rebuilds everything.
+const rerunWindowDays = 30
+
+func TestTheFrontArtifactOutlivesTheWindowToRerunThePublishJob(t *testing.T) {
+	front := workflowJob(t, "front")
+	m := regexp.MustCompile(`retention-days: (\d+)`).FindStringSubmatch(front)
+	if m == nil {
+		t.Fatal("the front job sets no retention: the repository default applies, which a setting can change")
+	}
+	if days, _ := strconv.Atoi(m[1]); days < rerunWindowDays {
+		t.Errorf("the front artifact is kept %d days: a re-run of the publish job inside the %d-day window would find it gone", days, rerunWindowDays)
 	}
 }
