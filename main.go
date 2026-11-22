@@ -128,7 +128,7 @@ func run() error {
 	if ui {
 		sessions := usage.Sessions()
 		o := tui.Options{Reports: reporting.BuildReport{Queries: usage}, Harness: only, SinceLabel: *since, Since: from,
-			Sessions: reporting.ListSessions{Queries: sessions}, Session: reporting.ShowSession{Queries: sessions}}
+			Sessions: reporting.ListSessions{Queries: sessions}, Session: reporting.ShowSession{Queries: sessions}, Prompts: reporting.ReviewPrompts{Queries: usage.Prompts()}}
 		if indexLogs != nil {
 			o.Sync = tuiSync(indexLogs)
 		}

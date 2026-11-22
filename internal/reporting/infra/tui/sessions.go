@@ -13,15 +13,17 @@ import (
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 )
 
-// mode is what the interface shows: the usage report in tabs, or the sessions behind it.
+// mode is what the interface shows: the usage report in tabs, the sessions behind it, or the review of the prompts
+// that showed frustration. m cycles through the modes the interface was given a way to read.
 type mode int
 
 const (
 	usageMode mode = iota
 	sessionsMode
+	promptsMode
 )
 
-var modeNames = [...]string{"Usage", "Sessions"}
+var modeNames = [...]string{"Usage", "Sessions", "Prompts"}
 
 // sessionsMsg carries the result of a sessions request; seq tells which request it answers.
 type sessionsMsg struct {
@@ -54,11 +56,16 @@ type sessionsState struct {
 
 // sessionDetail is the screen of one session: Esc closes it.
 type sessionDetail struct {
-	open    bool
-	id      reporting.SessionID
-	data    reporting.SessionDetail
-	loaded  bool
-	err     error
+	open   bool
+	id     reporting.SessionID
+	data   reporting.SessionDetail
+	loaded bool
+	err    error
+	pager
+}
+
+// pager shows a body of lines a screen at a time.
+type pager struct {
 	lines   []string // the body, cut to the terminal's width
 	scroll  int      // the first line shown
 	display int      // the lines the body can show
@@ -70,6 +77,27 @@ func newSessionsState() sessionsState {
 
 // sessionsEnabled reports whether the interface was given a way to read sessions.
 func (m Model) sessionsEnabled() bool { return m.lister.Queries != nil && m.shower.Queries != nil }
+
+// modeEnabled reports whether the interface can show the mode: the usage report always, the others when given their queries.
+func (m Model) modeEnabled(md mode) bool {
+	switch md {
+	case sessionsMode:
+		return m.sessionsEnabled()
+	case promptsMode:
+		return m.promptsEnabled()
+	}
+	return true
+}
+
+// nextMode is the mode m leads to: the one after the current mode that the interface can show, the current one if none.
+func (m Model) nextMode() mode {
+	for i := 1; i < len(modeNames); i++ {
+		if next := (m.mode + mode(i)) % mode(len(modeNames)); m.modeEnabled(next) {
+			return next
+		}
+	}
+	return m.mode
+}
 
 // loadSessions asks the use case for the sessions of the current filters, off the UI loop.
 func (m Model) loadSessions() tea.Cmd {
@@ -91,13 +119,14 @@ func (m *Model) loadDetail(id reporting.SessionID) tea.Cmd {
 	}
 }
 
-// switchMode moves between the usage report and the sessions, asking for what the new mode shows.
+// switchMode moves to the next mode, asking for what it shows.
 func (m Model) switchMode() (Model, tea.Cmd) {
-	if !m.sessionsEnabled() {
+	next := m.nextMode()
+	if next == m.mode {
 		return m, nil
 	}
 	m.sessions.detail = sessionDetail{}
-	m.mode = (m.mode + 1) % mode(len(modeNames))
+	m.mode = next
 	return m.reload()
 }
 
@@ -166,24 +195,42 @@ func (m Model) detailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.switchMode()
 	case "r":
 		return m.reindex()
-	case "up", "k":
-		d.scrollBy(-1)
-	case "down", "j":
-		d.scrollBy(1)
-	case "pgup", "b":
-		d.scrollBy(-d.display)
-	case "pgdown", "f", " ":
-		d.scrollBy(d.display)
-	case "home", "g":
-		d.scrollBy(-len(d.lines))
-	case "end", "G":
-		d.scrollBy(len(d.lines))
+	default:
+		d.scrollKey(k)
 	}
 	return m, nil
 }
 
-func (d *sessionDetail) scrollBy(n int) {
-	d.scroll = max(0, min(d.scroll+n, len(d.lines)-d.display))
+// scrollKey scrolls as the key says, and does nothing for a key that is not a scrolling one.
+func (p *pager) scrollKey(k string) {
+	switch k {
+	case "up", "k":
+		p.scrollBy(-1)
+	case "down", "j":
+		p.scrollBy(1)
+	case "pgup", "b":
+		p.scrollBy(-p.display)
+	case "pgdown", "f", " ":
+		p.scrollBy(p.display)
+	case "home", "g":
+		p.scrollBy(-len(p.lines))
+	case "end", "G":
+		p.scrollBy(len(p.lines))
+	}
+}
+
+func (p *pager) scrollBy(n int) {
+	p.scroll = max(0, min(p.scroll+n, len(p.lines)-p.display))
+}
+
+// visible is the screenful of lines from the scroll position, padded with empty lines to fill it.
+func (p pager) visible() string {
+	end := min(len(p.lines), p.scroll+p.display)
+	shown := append([]string(nil), p.lines[p.scroll:end]...)
+	for len(shown) < p.display {
+		shown = append(shown, "")
+	}
+	return strings.Join(shown, "\n")
 }
 
 // sessionTitle names a session in a table or a heading.
@@ -321,12 +368,7 @@ func (m Model) detailBody() string {
 	case !d.loaded:
 		return faintStyle.Render("loading…") + strings.Repeat("\n", max(0, d.display-1))
 	}
-	end := min(len(d.lines), d.scroll+d.display)
-	shown := append([]string(nil), d.lines[d.scroll:end]...)
-	for len(shown) < d.display {
-		shown = append(shown, "")
-	}
-	return strings.Join(shown, "\n")
+	return d.visible()
 }
 
 // detailLines is the body of a session's detail: what it cost and ran on, the tools it called, the subagents
@@ -412,21 +454,7 @@ func avgText(s reporting.SessionSummary) string {
 }
 
 // signalTags names the signals of a prompt, nothing when it shows none.
-func signalTags(s reporting.PromptSignals) string {
-	var tags []string
-	for _, t := range []struct {
-		name string
-		n    int
-	}{{"yelling", s.Yelling}, {"profanity", s.Profanity}, {"anguish", s.Anguish}, {"negation", s.Negation}, {"blame", s.Blame}} {
-		if t.n > 0 {
-			tags = append(tags, fmt.Sprintf("%s %d", t.name, t.n))
-		}
-	}
-	if s.Repeated {
-		tags = append(tags, "repeated")
-	}
-	return strings.Join(tags, " · ")
-}
+func signalTags(s reporting.PromptSignals) string { return strings.Join(s.Tags(), " · ") }
 
 // plainTable draws g as aligned text lines, every row: the detail scrolls.
 func plainTable(g grid) []string {

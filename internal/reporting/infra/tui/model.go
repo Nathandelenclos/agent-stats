@@ -83,11 +83,12 @@ type syncDoneMsg struct {
 
 // Model is the Bubble Tea model of the interface.
 type Model struct {
-	reports reporting.BuildReport
-	lister  reporting.ListSessions // without queries, the sessions mode is off
-	shower  reporting.ShowSession
-	sync    Sync // nil when indexing is off
-	now     func() time.Time
+	reports  reporting.BuildReport
+	lister   reporting.ListSessions // without queries, the sessions mode is off
+	shower   reporting.ShowSession
+	reviewer reporting.ReviewPrompts // without queries, the prompts mode is off
+	sync     Sync                    // nil when indexing is off
+	now      func() time.Time
 
 	periods []period // the presets, led by a custom period when the command line asked for one
 	period  int
@@ -104,6 +105,7 @@ type Model struct {
 
 	mode          mode
 	sessions      sessionsState
+	prompts       promptsState
 	tab           tab
 	sorts         [tabCount]sortState // each tab keeps its own order
 	report        reporting.Report
@@ -116,7 +118,7 @@ type Model struct {
 // New returns the model for o. Its Init asks for the first report.
 func New(o Options) Model {
 	t := table.New(table.WithFocused(true))
-	m := Model{reports: o.Reports, lister: o.Sessions, shower: o.Session, sessions: newSessionsState(), sync: o.Sync, syncing: o.Sync != nil, spinner: spinner.New(spinner.WithSpinner(spinner.MiniDot)), now: time.Now, table: t, width: 80, height: 24, periods: periods}
+	m := Model{reports: o.Reports, lister: o.Sessions, shower: o.Session, reviewer: o.Prompts, sessions: newSessionsState(), sync: o.Sync, syncing: o.Sync != nil, spinner: spinner.New(spinner.WithSpinner(spinner.MiniDot)), now: time.Now, table: t, width: 80, height: 24, periods: periods}
 	m.period = len(periods) - 1 // all
 	if o.SinceLabel != "" {
 		m.period = -1
@@ -187,6 +189,9 @@ func (m Model) load() tea.Cmd {
 func (m Model) reload() (Model, tea.Cmd) {
 	m.seq++
 	m.pending = true
+	if m.mode == promptsMode {
+		return m, m.loadPrompts()
+	}
 	if m.mode == sessionsMode {
 		if m.sessions.detail.open { // the session on screen may have grown too
 			detail := m.loadDetail(m.sessions.detail.id) // before the return: loadDetail counts the request in m
@@ -230,6 +235,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.layout()
 		return m, nil
+	case promptsMsg:
+		if msg.seq != m.seq {
+			return m, nil
+		}
+		m.pending = false
+		m.err = msg.err
+		if msg.err == nil {
+			m.prompts.review, m.prompts.loaded = msg.review, true
+			m.shown.period, m.shown.harness = msg.period, msg.harness
+		}
+		m.layout()
+		return m, nil
 	case detailMsg:
 		if d := &m.sessions.detail; d.open && d.id == msg.id && msg.seq == m.sessions.detailSeq {
 			d.err = msg.err
@@ -259,6 +276,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.mode == promptsMode {
+		return m.promptsKey(msg)
+	}
 	if m.mode == sessionsMode {
 		if m.sessions.detail.open {
 			return m.detailKey(msg)
@@ -358,6 +378,12 @@ func (m *Model) layout() {
 		}
 		d.scrollBy(0) // a longer terminal or a shorter body leaves no empty page
 	}
+	p := &m.prompts
+	p.display = max(4, m.height-detailChromeLines)
+	if p.loaded {
+		p.lines = reviewLines(p.review, m.width)
+	}
+	p.scrollBy(0)
 }
 
 // fit fills t with the rows of g ordered by s and fits it to a terminal of the given size.
@@ -425,6 +451,9 @@ func pad(s string, w int, right bool) string {
 
 // View draws the interface.
 func (m Model) View() string {
+	if m.mode == promptsMode {
+		return m.promptsView()
+	}
 	if m.mode == sessionsMode {
 		return m.sessionsView()
 	}
@@ -458,18 +487,19 @@ func (m Model) titleBar() string {
 	return bar
 }
 
-// modeLabel shows which mode is on screen, the other one in plain text beside it; empty without a sessions mode.
+// modeLabel shows which mode is on screen, the others in plain text beside it; empty when there is only the usage report.
 func (m Model) modeLabel() string {
-	if !m.sessionsEnabled() {
-		return ""
-	}
-	parts := make([]string, len(modeNames))
+	var parts []string
 	for i, name := range modeNames {
-		if mode(i) == m.mode {
-			parts[i] = activeTab.UnsetPadding().Render("[" + name + "]")
-		} else {
-			parts[i] = name
+		switch {
+		case mode(i) == m.mode:
+			parts = append(parts, activeTab.UnsetPadding().Render("["+name+"]"))
+		case m.modeEnabled(mode(i)):
+			parts = append(parts, name)
 		}
+	}
+	if len(parts) < 2 {
+		return ""
 	}
 	return "  " + strings.Join(parts, " ")
 }
@@ -482,11 +512,13 @@ func (m Model) help() string {
 		keys = []string{"↑↓ pgup/pgdn scroll", "esc back to sessions"}
 	case m.mode == sessionsMode:
 		keys, filters = []string{"↑↓ scroll", "enter open"}, []string{"s sort", "o reverse", "p period", "h harness"}
+	case m.mode == promptsMode:
+		keys, filters = []string{"↑↓ pgup/pgdn scroll"}, []string{"p period", "h harness"}
 	default:
 		keys, filters = []string{"tab/←→ tabs", "↑↓ scroll"}, []string{"s sort", "o reverse", "p period", "h harness"}
 	}
-	if m.sessionsEnabled() {
-		keys = append(keys, "m "+strings.ToLower(modeNames[1-m.mode]))
+	if next := m.nextMode(); next != m.mode {
+		keys = append(keys, "m "+strings.ToLower(modeNames[next]))
 	}
 	if m.sync != nil {
 		keys = append(keys, "r re-index")
@@ -572,8 +604,11 @@ func (m Model) status() string {
 
 // unpriced counts the requests of what is on screen that have no known price.
 func (m Model) unpriced() int64 {
-	if m.mode == usageMode {
+	switch m.mode {
+	case usageMode:
 		return m.report.Total.Unpriced
+	case sessionsMode:
+		return m.sessions.list.Total.Unpriced
 	}
-	return m.sessions.list.Total.Unpriced
+	return 0
 }

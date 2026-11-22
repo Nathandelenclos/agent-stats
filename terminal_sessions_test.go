@@ -66,6 +66,7 @@ func (s *session) press(t *testing.T, keys string) int {
 const (
 	usageModeOn    = "\x1b[1;7m[Usage]"
 	sessionsModeOn = "\x1b[1;7m[Sessions]"
+	promptsModeOn  = "\x1b[1;7m[Prompts]"
 )
 
 func TestSessionsOnATerminal(t *testing.T) {
@@ -88,7 +89,11 @@ func TestSessionsOnATerminal(t *testing.T) {
 	n = s.press(t, "\x1b")
 	s.waitForNew(t, n, "enter open")
 
-	// And m leads back to the usage report
+	// And m leads on to the review of the flagged prompts, then back to the usage report
+	n = s.press(t, "m")
+	s.waitForNew(t, n, promptsModeOn)
+	s.waitForNew(t, n, "1 flagged prompt in 1 session")
+	s.waitForNew(t, n, "yelling")
 	n = s.press(t, "m")
 	s.waitForNew(t, n, usageModeOn)
 	s.quit(t)
