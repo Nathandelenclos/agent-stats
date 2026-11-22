@@ -1,2 +1,3 @@
 export { Sessions } from "./Sessions";
-export { useSessions } from "./api";
+export { PromptReader } from "./PromptReader";
+export { useSessions, type Session, type SessionList } from "./api";

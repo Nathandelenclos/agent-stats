@@ -1,3 +1,4 @@
+import { act } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { Filters } from "../report";
 import { tool, usage } from "../../test/fixtures";
@@ -59,6 +60,13 @@ async function openSession(container: HTMLElement) {
   click(button(container, session.title)!);
 }
 
+async function selectSection(container: HTMLElement, label: string) {
+  const tab = () => [...container.querySelectorAll<HTMLElement>('[role="tab"]')].find((el) => el.textContent === label);
+  await eventually(() => expect(tab()).toBeDefined());
+  click(tab()!);
+  expect(tab()?.getAttribute("aria-selected")).toBe("true");
+}
+
 afterEach(() => vi.unstubAllGlobals());
 
 it("lists the sessions in the requested period, harness and project", async () => {
@@ -84,12 +92,16 @@ it("opens a session with its models, tools, subagents and prompts", async () => 
   // When the session is opened
   await openSession(container);
 
-  // Then its detail is shown and the excerpt is rendered literally
+  // Then each section describes its own activity and the excerpt is rendered literally
   const contents = container.querySelector('[aria-label="Session detail"]')!;
-  await eventually(() => expect(contents.textContent).toContain(excerpt));
+  await selectSection(container, "Models");
   expect(contents.textContent).toContain("opus");
+  await selectSection(container, "Tools");
   expect(contents.textContent).toContain("Read");
+  await selectSection(container, "Subagents");
   expect(contents.textContent).toContain("Find import callers");
+  await selectSection(container, "Prompts");
+  expect(contents.textContent).toContain(excerpt);
   expect(contents.textContent).toContain("Negation 2, Repeated");
   expect(contents.querySelector("strong")).toBeNull();
   expect(requests).toHaveBeenCalledWith("/api/sessions/claude%3Amain%2Fhelper?since=7d&harness=claude&project=current", expect.any(Object));
@@ -102,7 +114,8 @@ it("renders Markdown in the prompt detail", async () => {
   await openSession(container);
 
   const contents = container.querySelector('[aria-label="Session detail"]')!;
-  await eventually(() => expect(contents.querySelector("strong")?.textContent).toBe("imports"));
+  await selectSection(container, "Prompts");
+  expect(contents.querySelector("strong")?.textContent).toBe("imports");
   expect([...contents.querySelectorAll("ul li")].map((item) => item.textContent)).toEqual(["First", "Second"]);
   expect(contents.querySelector("pre code")?.textContent?.trim()).toBe("fmt.Println()");
 });
@@ -114,7 +127,8 @@ it("shows Markdown link labels and image descriptions without external resources
   await openSession(container);
 
   const contents = container.querySelector('[aria-label="Session detail"]')!;
-  await eventually(() => expect(contents.textContent).toContain("Reference and Diagram"));
+  await selectSection(container, "Prompts");
+  expect(contents.textContent).toContain("Reference and Diagram");
   expect(contents.querySelector("a, img")).toBeNull();
 });
 
@@ -127,7 +141,9 @@ it("hides prompt excerpts when the server withholds them", async () => {
   await openSession(container);
 
   // Then its prompt signals are visible without the excerpt
-  await eventually(() => expect(container.textContent).toContain("Negation 2, Repeated"));
+  await selectSection(container, "Prompts");
+  expect(container.textContent).toContain("Negation 2, Repeated");
+  expect(button(container, "Read prompt 1")).toBeUndefined();
   expect(container.textContent).not.toContain(excerpt);
 });
 
@@ -140,7 +156,8 @@ it("removes the open detail as soon as the project filter changes", async () => 
   }));
   const { container, change } = showSessions();
   await openSession(container);
-  await eventually(() => expect(container.textContent).toContain(excerpt));
+  await selectSection(container, "Prompts");
+  expect(container.textContent).toContain(excerpt);
 
   // When every project is requested
   change({ ...filters, scope: "all" });
@@ -166,4 +183,67 @@ it("shows the server's refusal when a session is outside the filters", async () 
   await openSession(container);
 
   await eventually(() => expect(container.querySelector('[role="alert"]')?.textContent).toContain("Session not found in this view"));
+});
+
+it("loads the full prompt on demand and finds visible Markdown text", async () => {
+  const prompt = { ...detail.prompts[0]!, position: 12, revision: "snapshot-12", excerpt: "Short preview" };
+  const text = "Before the retry.\n\nAfter the **retry**. [Reference](https://example.com) ![Diagram](https://example.com/image.png)\n\n```sh\necho done\n```";
+  const requests = vi.fn(async (input: string) => {
+    if (input.includes("/prompts/12")) return json({ ...prompt, text });
+    return json(input.startsWith("/api/sessions/") ? { ...detail, prompts: [prompt] } : list("current"));
+  });
+  vi.stubGlobal("fetch", requests);
+  const { container } = showSessions();
+  await openSession(container);
+  await selectSection(container, "Prompts");
+  expect(requests.mock.calls.some(([url]) => url.includes("/prompts/12"))).toBe(false);
+  click(button(container, "Read prompt 1")!);
+  const reader = container.querySelector('[aria-label="Prompt reader"]')!;
+  await eventually(() => expect(reader.textContent).toContain("Before the retry."));
+  expect(reader.querySelector("pre code")?.textContent?.trim()).toBe("echo done");
+  expect(reader.querySelector("a, img")).toBeNull();
+  expect(requests).toHaveBeenCalledWith("/api/sessions/claude%3Amain%2Fhelper/prompts/12?since=7d&harness=claude&project=current&revision=snapshot-12", expect.any(Object));
+
+  const input = reader.querySelector("input")!;
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "retry");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await eventually(() => expect([...reader.querySelectorAll("mark")].map((mark) => mark.textContent)).toEqual(["retry", "retry"]));
+  expect(reader.textContent).toContain("2 matches");
+  click(button(reader as HTMLElement, "Next match")!);
+  expect(reader.textContent).toContain("Match 1 of 2");
+
+  click(button(reader as HTMLElement, "Back to session")!);
+  await eventually(() => expect(button(container, "Read prompt 1")).toBeDefined());
+});
+
+it("moves to a neighboring detail section with the keyboard", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: string) => json(input.startsWith("/api/sessions/") ? detail : list("current"))));
+  const { container } = showSessions();
+  await openSession(container);
+  const tabs = () => [...container.querySelectorAll<HTMLElement>('[role="tab"]')];
+  await eventually(() => expect(tabs()).toHaveLength(5));
+  act(() => tabs()[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+  expect(tabs()[1]!.getAttribute("aria-selected")).toBe("true");
+  expect(document.activeElement).toBe(tabs()[1]);
+});
+
+it("returns focus to the opened prompt after expanding the session prompt list", async () => {
+  const prompts = Array.from({ length: 13 }, (_, i) => ({ ...detail.prompts[0]!, position: i + 1 }));
+  vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+    if (input.includes("/prompts/13")) return json({ ...prompts[12], text: "The thirteenth prompt." });
+    return json(input.startsWith("/api/sessions/") ? { ...detail, prompts } : list("current"));
+  }));
+  const { container } = showSessions();
+  await openSession(container);
+  await selectSection(container, "Prompts");
+  expect(button(container, "Read prompt 13")).toBeUndefined();
+  click(button(container, "Show more prompts (12 of 13)")!);
+  const previous = button(container, "Read prompt 13")!;
+  click(previous);
+  await eventually(() => expect(container.textContent).toContain("The thirteenth prompt."));
+  click(button(container, "Back to session")!);
+  expect(previous.closest("[hidden]")).toBeNull();
+  expect(document.activeElement).toBe(previous);
 });

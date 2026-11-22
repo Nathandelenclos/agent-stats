@@ -160,14 +160,18 @@ agent-stats serve --all               # open on every project, even from inside 
 agent-stats serve --no-sync --addr 127.0.0.1:8080
 ```
 
-`serve` opens the usage report in a browser, from this machine: totals, period and harness filters, cost per day and by
-harness and model, and sortable tables per harness, model, folder, agent type and tool. The page follows the system
-light or dark theme (or a choice made on the page), works on a narrow screen and with the keyboard, and keeps the filters
-in its address. Each chart has its values behind it (a table, or the table of the same name below).
-Like the terminal view, it indexes the logs in the background and shows the progress. Use **Re-index** to refresh the index again. The figures refresh when indexing ends.
-Switch to **Sessions** to sort the most recent sessions within the same filters. Open one to see its models, tools,
-subagents and the signals of its prompts. The detail renders prompt excerpts as Markdown with literal HTML and plain
-link labels and image descriptions. The detail resets when the filters change. **Prompts** shows repeated requests, flagged prompts and totals by folder. Press Ctrl-C to stop the server.
+**Overview** shows requests, estimated cost, cache hit rate, daily activity, recent sessions, flagged prompts
+and tool errors. The local server also shows the catalog and quota summaries when available. Choose a day, coding
+agent or tool to see its contributing sessions. **Usage** breaks down the same report by harness, model, folder,
+agent type and tool. Each chart has a table with its values.
+
+Open **Sessions** for usage, models, tools, subagents and prompts. **Prompts** groups flagged requests and
+repeated text. On the local server, open a prompt to read and search its full text as Markdown. HTML is shown as
+text, and links and images are shown as labels. The browser address records the view, filters and selected detail.
+
+The page follows the system theme, with light and dark settings in the sidebar. It adapts to narrow screens and
+supports keyboard navigation. Use **Re-index** to refresh the data. The figures update when indexing ends.
+Press Ctrl-C in the terminal to stop the server.
 
 Started from a project (see [Per-project view](#per-project-view)), `serve` opens on that project: the header says
 `Project: app` or `All projects`, and a toggle switches between the two. The page offers no other folder: the server
@@ -197,6 +201,8 @@ Unknown or repeated parameters are refused with `400`.
 | `/api/report?since=&harness=&project=` | The `--json` report (same fields), plus `daily`: one entry per local day with activity, oldest first, `key` being `2006-01-02`. Lists are `[]` when empty, never `null`. |
 | `/api/sessions?since=&harness=&project=&limit=` | The most recent sessions (`limit` 1 to 1000, default 100) with their usage, models and subagent count, without the prompts. `scope` is the project filter applied. `count` and `total` cover every matching session, and add up to the report of the same scope. `title` is the session title, which for an untitled session is the start of its first prompt. |
 | `/api/sessions/{id}?since=&harness=&project=` | One session from the same scope and filters, with its tools, subagents and prompt signals. Encode the session ID as a single path segment. An unknown or out-of-scope session returns `404`. Excerpts are at most 2,000 characters each and are omitted with `--allow-remote`. |
+| `/api/sessions/{id}/prompts/{position}?since=&harness=&project=&revision=` | Full text of the selected prompt on the local server. Use `position` and `revision` from the preview. If the preview revision no longer matches, the route returns `409`. |
+| `/api/related-sessions?kind=&value=&since=&harness=&project=&limit=` | Sessions contributing to a day, harness, model, folder, agent type, tool or MCP server. Totals cover the selection. Tool and MCP relations report calls and errors. An MCP relation is local only and requires the catalog entry's harness, scope and full origin ID. |
 | `/api/prompts?since=&harness=&project=&limit=` | Flagged prompts in review order, recurrent requests and totals by folder. `limit` affects the flagged list only. Excerpts are at most 240 characters each and are omitted with `--allow-remote`. |
 | `/api/meta` | The harness names, the name of the project the server runs in (`project`, `""` when it found none), and the period, harness and scope (`defaults.scope`: `current` or `all`) the page opens on. |
 | `GET /api/sync` | The background indexing: `state` (`running`, `done`, `failed`, or `disabled` with `--no-sync`), files `indexed`, and what was skipped. |
@@ -221,10 +227,10 @@ page open in your browser, so `serve` is restrictive by default:
 - Every response carries `Content-Security-Policy` (own scripts and styles only, no inline script, no framing,
   `base-uri` and `form-action` none), `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and
   `X-Frame-Options: DENY`. API responses are `Cache-Control: no-store`.
-- Query strings are bounded on every API route (256 bytes, 32 characters for a period, `limit` at most 1000); a malformed
-  one, a parameter the route does not take (`/api/meta?typo=1`) or a repeated one is a `400`, never ignored. The server has read and
+- Query strings are bounded (256 bytes, or 4096 for related-session queries that can include folder paths). The period
+  is limited to 32 characters and `limit` is at most 1000. Malformed, unknown and repeated parameters return `400`. The server has read and
   write timeouts. A failure answers `500` without its cause, which goes to the server's log on stderr.
-- Prompt excerpts appear in session details and prompt reviews on a loopback listener without `--allow-remote`. Session titles
+- Prompt excerpts and full prompt text are available on a loopback listener without `--allow-remote`. Session titles
   (which can be based on the first prompt) and folder paths are visible in both modes. Treat screenshots like reports
   (see [Privacy](#privacy)).
 

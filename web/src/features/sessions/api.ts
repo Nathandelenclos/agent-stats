@@ -24,16 +24,19 @@ export interface Session {
   subagents: number;
   prompts: number;
   avgPromptChars: number;
+  relatedTool?: Tool;
 }
 
-interface SessionList {
+export interface SessionList {
   scope: Scope;
   count: number;
   total: Pick<Usage, "requests" | "failed" | "cost" | "unpriced">;
   sessions: Session[];
 }
 
-interface SessionPrompt {
+export interface SessionPrompt {
+  position?: number;
+  revision?: string;
   ts: number;
   excerpt?: string;
   chars: number;
@@ -53,11 +56,11 @@ function filterParams({ since, harness, scope }: Filters) {
   return { since, harness, project: scope };
 }
 
-export function useSessions(filters: Filters | undefined, project: string) {
-  const params = filters && filterParams(filters);
+export function useSessions(filters: Filters | undefined, project: string, limit = 1000) {
+  const params = filters && { ...filterParams(filters), limit: String(limit) };
   return useQuery({
     queryKey: ["sessions", "list", params, project],
-    queryFn: ({ signal }) => getJSON<SessionList>("/api/sessions", { ...params, limit: "1000" }, signal),
+    queryFn: ({ signal }) => getJSON<SessionList>("/api/sessions", params, signal),
     enabled: params !== undefined,
     retry: shouldRetry,
   });
@@ -68,6 +71,24 @@ export function useSessionDetail(id: string, filters: Filters, project: string) 
   return useQuery({
     queryKey: ["sessions", "detail", id, params, project],
     queryFn: ({ signal }) => getJSON<SessionDetail>(`/api/sessions/${encodeURIComponent(id)}`, params, signal),
+    gcTime: 0,
+    retry: shouldRetry,
+  });
+}
+
+export interface FullPrompt {
+  position: number;
+  ts: number;
+  text: string;
+  chars: number;
+  signals: PromptSignals;
+}
+
+export function useSessionPrompt(id: string, position: number, revision: string | undefined, filters: Filters, project: string) {
+  const params = { ...filterParams(filters), ...(revision ? { revision } : {}) };
+  return useQuery({
+    queryKey: ["sessions", "prompt", id, position, params, project],
+    queryFn: ({ signal }) => getJSON<FullPrompt>(`/api/sessions/${encodeURIComponent(id)}/prompts/${position}`, params, signal),
     gcTime: 0,
     retry: shouldRetry,
   });

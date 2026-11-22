@@ -13,8 +13,14 @@ const usageColumns = (label: string): Column<UsageGroup>[] => [
 ];
 
 /** Usage grouped by harness, model, folder or agent type. */
-export function UsageTable({ caption, label, groups }: { caption: string; label: string; groups: UsageGroup[] }) {
-  return <DataTable caption={caption} columns={usageColumns(label)} rows={groups} rowKey={(r) => r.key} initialSort="cost" />;
+export function UsageTable({ caption, label, groups, onSelect }: {
+  caption: string; label: string; groups: UsageGroup[]; onSelect?: (key: string) => void;
+}) {
+  const columns = usageColumns(label);
+  if (onSelect && columns[0]) {
+    columns[0].render = (r) => <button type="button" className="dashboard-link" onClick={() => onSelect(r.key)}>{r.key || "(none)"}</button>;
+  }
+  return <DataTable caption={caption} columns={columns} rows={groups} rowKey={(r) => r.key} initialSort="cost" />;
 }
 
 const toolColumns: Column<Tool>[] = [
@@ -27,6 +33,9 @@ const toolColumns: Column<Tool>[] = [
 ];
 
 /** The tools the agents called, with their MCP server. */
-export function ToolsTable({ tools }: { tools: Tool[] }) {
-  return <DataTable caption="Tools" columns={toolColumns} rows={tools} rowKey={(r) => `${r.server}\u0000${r.name}`} initialSort="calls" />;
+export function ToolsTable({ tools, onSelect }: { tools: Tool[]; onSelect?: (tool: Tool) => void }) {
+  const columns = onSelect ? toolColumns.map((column) => column.id === "name"
+    ? { ...column, render: (row: Tool) => <button type="button" className="dashboard-link" onClick={() => onSelect(row)}>{row.name}</button> }
+    : column) : toolColumns;
+  return <DataTable caption="Tools" columns={columns} rows={tools} rowKey={(r) => `${r.server}\u0000${r.name}`} initialSort="calls" />;
 }

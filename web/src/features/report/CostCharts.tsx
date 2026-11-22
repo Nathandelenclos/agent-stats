@@ -38,7 +38,7 @@ function Tip({ title, cost, requests }: { title: string; cost: number; requests:
 }
 
 /** Cost per local day. The values are also in a table behind the chart, for those who read numbers and not bars. */
-export function CostOverTime({ model: { days, total, busiest, unpriced } }: { model: CostOverTimeModel }) {
+export function CostOverTime({ model: { days, total, busiest, unpriced }, onDay }: { model: CostOverTimeModel; onDay?: (day: string) => void }) {
   const summary =
     `${formatUSD(total)} over ${days.length} ${days.length === 1 ? "day" : "days"}, ${formatDay(days[0]!.day)} to ${formatDay(days[days.length - 1]!.day)}. ` +
     `Busiest day: ${formatDay(busiest.day)}, ${formatUSD(busiest.cost)}. Days follow this machine's clock; the latest day may be incomplete.${unpricedNote(unpriced)}`;
@@ -57,7 +57,8 @@ export function CostOverTime({ model: { days, total, busiest, unpriced } }: { mo
                 return p ? <Tip title={formatDay(p.day)} cost={p.cost} requests={p.requests} /> : null;
               }}
             />
-            <Bar dataKey="cost" fill="var(--mark)" isAnimationActive={false} />
+            <Bar dataKey="cost" fill="var(--mark)" isAnimationActive={false} cursor={onDay ? "pointer" : "default"}
+              onClick={(_, index) => { if (days[index]) onDay?.(days[index].day); }} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -76,7 +77,7 @@ export function CostOverTime({ model: { days, total, busiest, unpriced } }: { mo
             <tbody>
               {days.map((d) => (
                 <tr key={d.day} className="border-t border-rule">
-                  <th scope="row" className="px-3 py-1 text-left font-normal">{formatDay(d.day)}</th>
+                  <th scope="row" className="px-3 py-1 text-left font-normal">{onDay ? <button type="button" className="dashboard-link" onClick={() => onDay(d.day)}>{formatDay(d.day)}</button> : formatDay(d.day)}</th>
                   <td className="px-3 py-1 text-right tabular-nums">{formatInteger(d.requests)}</td>
                   <td className="px-3 py-1 text-right tabular-nums">{formatUSD(d.cost)}</td>
                 </tr>
@@ -99,12 +100,14 @@ export function CostBy({
   tableName,
   model: { rows, groupCount, unpriced },
   domainMax,
+  onSelect,
 }: {
   title: string;
   tableName: string;
   model: CostByModel;
   /** The cost scale shared with the chart shown beside this one. */
   domainMax: number;
+  onSelect?: (key: string) => void;
 }) {
   if (rows.length === 0) return null;
   const summary = `${formatInteger(groupCount)} ${tableName.toLowerCase()} groups. Both charts use the same scale.` +
@@ -119,7 +122,9 @@ export function CostBy({
           const value = row.requests > 0 && row.requests === row.unpriced ? "Unavailable" : formatUSD(row.cost);
           return (
             <li key={index} className="col-span-3 grid grid-cols-subgrid items-center">
-              <span className="min-w-0 wrap-anywhere">{name}</span>
+              {onSelect && row.key !== undefined
+                ? <button type="button" className="dashboard-link min-w-0 wrap-anywhere" onClick={() => onSelect(row.key!)}>{name}</button>
+                : <span className="min-w-0 wrap-anywhere">{name}</span>}
               <span aria-hidden="true" className="min-w-0">
                 <span className="block h-2 bg-[var(--mark-2)]" style={{ width: `${domainMax > 0 ? 100 * row.cost / domainMax : 0}%` }} />
               </span>

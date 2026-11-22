@@ -8,13 +8,13 @@ export interface PromptReviewData {
   count: number;
   sessions: number;
   promptsVisible: boolean;
-  prompts: { session: string; harness: string; title: string; folder: string; ts: number; excerpt?: string; signals: PromptSignals }[];
+  prompts: { session: string; harness: string; title: string; folder: string; ts: number; position?: number; revision?: string; excerpt?: string; signals: PromptSignals }[];
   recurring: { excerpt?: string; count: number; sessions: number; firstTs: number; lastTs: number }[];
   byFolder: { folder: string; prompts: number; sessions: number; signals: number }[];
 }
 
-export function usePromptReview(filters: Filters | undefined, project: string) {
-  const params = filters && { since: filters.since, harness: filters.harness, project: filters.scope, limit: "1000" };
+export function usePromptReview(filters: Filters | undefined, project: string, limit = 1000) {
+  const params = filters && { since: filters.since, harness: filters.harness, project: filters.scope, limit: String(limit) };
   return useQuery({
     queryKey: ["prompts", params, project],
     queryFn: ({ signal }) => getJSON<PromptReviewData>("/api/prompts", params, signal),

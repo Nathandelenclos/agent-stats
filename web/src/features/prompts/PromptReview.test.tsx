@@ -2,7 +2,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import { App } from "../../App";
 import { metaInProject, report } from "../../test/fixtures";
 import { click, eventually, render, testQueryClient, withQueries } from "../../test/render";
-import type { PromptReviewData } from "./api";
+import { usePromptReview, type PromptReviewData } from "./api";
+import { PromptReview } from "./PromptReview";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -76,4 +77,23 @@ it("removes the previous review when the project filter changes", async () => {
 
   expect(container.textContent).not.toContain("Keep the file");
   await eventually(() => expect(container.textContent).toContain("No flagged prompts match these filters."));
+});
+
+it("opens the exact flagged prompt and its source session", async () => {
+  const data = { ...sample, prompts: [{ ...sample.prompts[0]!, position: 38, revision: "row-38" }] };
+  const onPrompt = vi.fn();
+  const onSession = vi.fn();
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json(data)));
+
+  function Review() {
+    const query = usePromptReview({ since: "7d", harness: "claude", scope: "current" }, "app");
+    return <PromptReview query={query} onPrompt={onPrompt} onSession={onSession} />;
+  }
+  const { container } = render(withQueries(testQueryClient(), <Review />));
+  const button = (label: string) => [...container.querySelectorAll("button")].find((b) => b.textContent === label);
+  await eventually(() => expect(button(data.prompts[0]!.excerpt!)).toBeDefined());
+  click(button(data.prompts[0]!.excerpt!)!);
+  click(button("Build")!);
+  expect(onPrompt).toHaveBeenCalledWith("claude:42", 38, "row-38");
+  expect(onSession).toHaveBeenCalledWith("claude:42");
 });

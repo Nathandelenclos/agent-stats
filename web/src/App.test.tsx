@@ -7,7 +7,11 @@ import { emptyReport, group, meta, metaInProject, report, serveReports, tool, us
 import type { SyncStatus } from "./features/sync";
 import { choose, click, eventually, render, selectLabelled, testQueryClient, withQueries } from "./test/render";
 
-afterEach(() => vi.unstubAllGlobals());
+beforeEach(() => window.history.replaceState(null, "", "?view=usage"));
+afterEach(() => {
+  vi.unstubAllGlobals();
+  window.history.replaceState(null, "", "/");
+});
 
 const open = (container: HTMLElement) => ({
   text: () => container.textContent ?? "",
@@ -296,23 +300,23 @@ it("keeps view navigation before the main content and opens Prompts with the act
   expect(container.querySelector('a[href="#main"]')?.textContent?.trim()).toBe("Skip to main content");
   expect(main.contains(nav)).toBe(false);
   expect(nav.compareDocumentPosition(main) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(buttons.map((button) => button.textContent)).toEqual(["Usage", "Sessions", "Prompts"]);
-  expect(buttons.map((button) => button.getAttribute("aria-pressed"))).toEqual(["true", "false", "false"]);
+  expect(buttons.map((button) => button.textContent)).toEqual(["Overview", "Usage", "Sessions", "Prompts"]);
+  expect(buttons.map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "true", "false", "false"]);
 
-  const prompts = buttons[2]!;
+  const prompts = buttons[3]!;
   prompts.focus();
   click(prompts);
 
   await eventually(() => expect(main.textContent).toContain("No flagged prompts match these filters."));
   expect(document.activeElement).toBe(prompts);
-  expect(buttons.map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "false", "true"]);
+  expect(buttons.map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "false", "false", "true"]);
   expect(fetch).toHaveBeenCalledWith("/api/prompts?since=30d&project=current&limit=1000", expect.any(Object));
   expect(periodSelect(container).value).toBe("30d");
   window.history.replaceState(null, "", "/");
 });
 
 it("keeps report filters when opening Catalog and lets the person ask for unused entries", async () => {
-  window.history.replaceState(null, "", "?since=30d&harness=claude&project=current");
+  window.history.replaceState(null, "", "?view=usage&since=30d&harness=claude&project=current");
   const fetchReport = serveReports(() => report(), { ...metaInProject("imports"), catalogAvailable: true });
   const unused = { harness: "claude", kind: "skill", scope: "user", unit: "loads", enabled: true, uses: 0, lastTs: 0, name: "testing" };
   const fetch = vi.fn(async (input: RequestInfo | URL) => {
@@ -353,7 +357,7 @@ it("keeps report filters when opening Catalog and lets the person ask for unused
 });
 
 it("reads account quotas without usage filters and refreshes them on demand", async () => {
-  window.history.replaceState(null, "", "?since=30d&harness=claude&project=current");
+  window.history.replaceState(null, "", "?view=usage&since=30d&harness=claude&project=current");
   const fetchReport = serveReports(() => report(), { ...metaInProject("imports"), quotasAvailable: true });
   let calls = 0;
   const snapshot = {

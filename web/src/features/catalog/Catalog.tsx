@@ -11,6 +11,7 @@ interface Entry {
   name: string;
   scope: string;
   origin?: string;
+  originId?: string;
   enabled: boolean;
   uses: number | null;
   unit: string;
@@ -37,7 +38,7 @@ const columns: Column<Entry>[] = [
   { id: "name", header: "Name", value: (row) => row.name, truncate: true },
   { id: "kind", header: "Kind", value: (row) => row.kind },
   { id: "harness", header: "Harness", value: (row) => row.harness },
-  { id: "scope", header: "Scope", value: (row) => row.origin ? row.scope + ": " + row.origin : row.scope, truncate: true },
+  { id: "scope", header: "Scope", value: (row) => row.origin ? row.scope + ": " + (row.originId ?? row.origin) : row.scope, truncate: true },
   { id: "enabled", header: "State", value: (row) => row.scope === "logs" ? "Seen in logs" : row.enabled ? "Enabled" : "Disabled" },
   {
     id: "uses", header: "Uses", value: (row) => row.uses ?? -1, numeric: true,
@@ -50,11 +51,12 @@ const columns: Column<Entry>[] = [
 ];
 
 export function Catalog({
-  query, unused, onUnusedChange,
+  query, unused, onUnusedChange, onServer,
 }: {
   query: ReturnType<typeof useCatalog>;
   unused: boolean;
   onUnusedChange: (unused: boolean) => void;
+  onServer?: (entry: Entry) => void;
 }) {
   return (
     <section aria-labelledby="catalog-title" className="flex min-w-0 flex-col gap-3">
@@ -79,9 +81,13 @@ export function Catalog({
           ) : (
             <DataTable
               caption="Catalog entries"
-              columns={columns}
+              columns={onServer ? columns.map((column) => column.id === "name"
+                ? { ...column, render: (row: Entry) => row.kind === "mcp" && (row.uses ?? 0) > 0
+                  ? <button type="button" className="dashboard-link" onClick={() => onServer(row)}>{row.name}</button>
+                  : row.name }
+                : column) : columns}
               rows={query.data.entries}
-              rowKey={(row) => JSON.stringify([row.harness, row.kind, row.name, row.scope, row.origin])}
+              rowKey={(row) => JSON.stringify([row.harness, row.kind, row.name, row.scope, row.originId])}
             />
           )}
         </>
