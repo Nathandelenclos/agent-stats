@@ -218,7 +218,7 @@ func firstText(blocks []claudeBlock) string {
 // maxMetaBytes bounds the subagent .meta.json read next to a transcript (real ones are a few hundred bytes).
 const maxMetaBytes = 64 << 10
 
-// claudeAgentType reads the subagent type Claude Code stores next to the transcript, "subagent" when absent or unusable.
+// claudeAgentType reads the subagent type Claude Code stores next to the transcript, "subagent" when absent, unusable or "main".
 func claudeAgentType(metaPath string) domain.AgentType {
 	f, err := openRegular(metaPath)
 	if err != nil {
@@ -231,7 +231,7 @@ func claudeAgentType(metaPath string) domain.AgentType {
 	if json.NewDecoder(io.LimitReader(f, maxMetaBytes)).Decode(&meta) != nil {
 		return domain.Subagent
 	}
-	if t, ok := domain.ParseAgentType(meta.AgentType); ok {
+	if t, ok := domain.ParseAgentType(meta.AgentType); ok && t != domain.MainAgent { // a file under subagents/ is never a main conversation
 		return t
 	}
 	return domain.Subagent

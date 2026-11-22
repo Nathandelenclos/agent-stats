@@ -275,3 +275,22 @@ func TestImpossibleCountsDropTheRequest(t *testing.T) {
 		t.Errorf("pi: impossible cost accepted: %+v", p.Requests)
 	}
 }
+
+func TestAClaudeLogUnderSubagentsStaysASubagentWhateverItsMetaDeclares(t *testing.T) {
+	// Given a subagent log whose meta file declares the type "main"
+	dir := filepath.Join(t.TempDir(), "sess1", "subagents")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "agent-a1.meta.json"), []byte(`{"agentType":"main"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// When it is read
+	p := parse(t, ParseClaude, filepath.Join(dir, "agent-a1.jsonl"), "")
+
+	// Then it is still a subagent of its session, not a main conversation
+	if p.Session.AgentType != domain.Subagent || p.Session.ParentID.String() != "claude:sess1" {
+		t.Errorf("session = %+v", p.Session)
+	}
+}
