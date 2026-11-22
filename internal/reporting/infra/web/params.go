@@ -3,6 +3,7 @@ package web
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -35,7 +36,12 @@ func (s *Server) parseParams(r *http.Request, withLimit bool) (params, *problem)
 		pr := problem{Type: problemInvalidParameter, Title: "Query string too long", Status: http.StatusRequestURITooLong}
 		return p, &pr
 	}
-	values := r.URL.Query()
+	// Not r.URL.Query(): it drops the pairs it cannot parse, and a broken filter would silently widen the report.
+	values, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		pr := problem{Type: problemInvalidParameter, Title: "Malformed query string", Status: http.StatusBadRequest, Detail: "the query string is not valid URL-encoded pairs"}
+		return p, &pr
+	}
 	for name, vs := range values {
 		if name != "since" && name != "harness" && !(withLimit && name == "limit") {
 			pr := invalidParameter(name, "unknown parameter")

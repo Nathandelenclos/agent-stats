@@ -265,6 +265,10 @@ func TestInvalidParametersAreRefusedWithTheParameterNamed(t *testing.T) {
 		{"limit not a number", "/api/sessions?limit=many", "limit", 400},
 		{"limit zero", "/api/sessions?limit=0", "limit", 400},
 		{"limit over the bound", "/api/sessions?limit=1001", "limit", 400},
+		{"malformed escape in the period", "/api/report?since=%ZZ", "", 400},
+		{"malformed escape beside a valid parameter", "/api/report?harness=claude&since=%ZZ", "", 400},
+		{"malformed escape on the sessions", "/api/sessions?limit=%ZZ", "", 400},
+		{"semicolon as a separator", "/api/report?since=7d;harness=claude", "", 400},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Given a request with a parameter outside what the API accepts
