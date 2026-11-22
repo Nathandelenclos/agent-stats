@@ -23,6 +23,10 @@ import (
 // maxGeminiBytes bounds a conversation: it is held in memory to replay it, unlike the line logs of other harnesses.
 var maxGeminiBytes int64 = 256 << 20
 
+// ErrConversationUnreadable reports a Gemini CLI conversation that cannot be used: not JSON, truncated, or with no
+// usable session id. What the JSON decoder says is kept as text, so that nothing above this reader depends on its errors.
+var ErrConversationUnreadable = errors.New("conversation unreadable")
+
 // geminiProvider is the provider of every Gemini CLI request: the CLI only talks to Google's API.
 const geminiProvider = "google"
 
@@ -330,7 +334,7 @@ func ParseGemini(path string, r io.Reader) (domain.Transcript, error) {
 		if limited.N <= 0 {
 			return domain.Transcript{}, fmt.Errorf("%w: over %d bytes", ErrLogTooLarge, maxGeminiBytes)
 		}
-		return domain.Transcript{}, fmt.Errorf("%s: %w", filepath.Base(path), err)
+		return domain.Transcript{}, fmt.Errorf("%s: %w: %v", filepath.Base(path), ErrConversationUnreadable, err)
 	}
 	if limited.N <= 0 {
 		return domain.Transcript{}, fmt.Errorf("%w: over %d bytes", ErrLogTooLarge, maxGeminiBytes)
@@ -402,7 +406,7 @@ func geminiText(raw json.RawMessage) string {
 func (c *geminiConversation) transcript(path string) (domain.Transcript, error) {
 	p := domain.Transcript{Session: domain.Session{Harness: kernel.Gemini, AgentType: domain.MainAgent}}
 	if !geminiSessionID.MatchString(c.meta.SessionID) {
-		return domain.Transcript{}, fmt.Errorf("%s: no valid session id", filepath.Base(path))
+		return domain.Transcript{}, fmt.Errorf("%s: %w: no valid session id", filepath.Base(path), ErrConversationUnreadable)
 	}
 	id, err := domain.NewSessionID(kernel.Gemini, c.meta.SessionID)
 	if err != nil {

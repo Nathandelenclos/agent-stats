@@ -1,6 +1,7 @@
 package logfiles
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -63,8 +64,8 @@ func TestGeminiDocumentCountsEachMessageWithUsageOnceAndSplitsItsTokens(t *testi
 
 func journal(lines ...string) string { return strings.Join(lines, "\n") + "\n" }
 
-func TestGeminiJournalIsReplayedBeforeTheConversationIsCounted(t *testing.T) {
-	// Given a journal in which an answer is replaced, a prompt is removed, the tail is rewound and the order changes
+func TestAJournalIsReplayedBeforeTheConversationIsCounted(t *testing.T) {
+	// Given a journal in which an answer is replaced, a prompt is removed, a tool result is edited, the tail is rewound and the order changes
 	log := journal(
 		`{"sessionId":"s-2","projectHash":"h","startTime":"2026-02-02T10:00:00.000Z","kind":"main"}`,
 		`{"id":"u1","timestamp":"2026-02-02T10:00:01.000Z","type":"user","content":[{"text":"first"}]}`,
@@ -102,7 +103,7 @@ func TestGeminiJournalIsReplayedBeforeTheConversationIsCounted(t *testing.T) {
 	}
 }
 
-func TestGeminiRewindToAnUnknownMessageEmptiesTheConversation(t *testing.T) {
+func TestRewindingToAMessageThatIsNotThereEmptiesTheConversation(t *testing.T) {
 	log := journal(
 		`{"sessionId":"s-3","projectHash":"h"}`,
 		`{"id":"u1","timestamp":"2026-02-02T10:00:01.000Z","type":"user","content":"hello"}`,
@@ -115,7 +116,7 @@ func TestGeminiRewindToAnUnknownMessageEmptiesTheConversation(t *testing.T) {
 	}
 }
 
-func TestGeminiSetReplacesTheMessagesAndMergesTheMetadata(t *testing.T) {
+func TestARestatedConversationReplacesTheOneBeforeItAndKeepsWhatItSaysOfItself(t *testing.T) {
 	log := journal(
 		`{"sessionId":"s-4","projectHash":"h","startTime":"2026-02-02T10:00:00.000Z"}`,
 		`{"id":"u1","timestamp":"2026-02-02T10:00:01.000Z","type":"user","content":"old"}`,
@@ -198,8 +199,10 @@ func TestGeminiRefusesAConversationItCannotName(t *testing.T) {
 		"truncated":       `{"sessionId":"s","messages":[{"id":"a"`,
 		"messages a list": `{"sessionId":"s","messages":7}`,
 	} {
-		if _, err := ParseGemini("/h/.gemini/tmp/demo/chats/session-x.json", strings.NewReader(doc)); err == nil {
-			t.Errorf("%s: no error", name)
+		_, err := ParseGemini("/h/.gemini/tmp/demo/chats/session-x.json", strings.NewReader(doc))
+		var syntax *json.SyntaxError
+		if !errors.Is(err, ErrConversationUnreadable) || errors.As(err, &syntax) {
+			t.Errorf("%s: err = %v, want ErrConversationUnreadable and nothing of the decoder's", name, err)
 		}
 	}
 }

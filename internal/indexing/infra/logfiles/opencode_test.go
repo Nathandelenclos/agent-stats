@@ -141,7 +141,7 @@ func TestASessionThatGrowsWhileItsHarnessRunsIsListedAsChangedAndTheOthersAreNot
 	}
 	after := existingLogs(t, logs)
 
-	// Then only that session is listed with a different size and modification time
+	// Then only that session shows as changed since the first listing
 	for id, f := range after {
 		changed := f.Size != before[id].Size || !f.ModTime.Equal(before[id].ModTime)
 		if changed != (id == "ses_child") {
@@ -378,13 +378,13 @@ func TestASessionKnownToBothGenerationsIsReadFromItsEventsOnly(t *testing.T) {
 }
 
 func TestReadingADatabaseNeverChangesIt(t *testing.T) {
-	for _, mode := range []string{"DELETE", "WAL"} {
-		t.Run(mode, func(t *testing.T) {
+	for name, kept := range map[string]bool{"a database kept the usual way": false, "a database kept the way OpenCode keeps it": true} {
+		t.Run(name, func(t *testing.T) {
 			// Given a database nobody has open, in a directory nobody may write to
 			root := t.TempDir()
 			db := filepath.Join(root, "opencode.db")
 			buildDB(t, db, "messages.sql")
-			if mode == "WAL" { // as OpenCode keeps it; closing the last connection leaves nothing beside the database
+			if kept { // closing the last connection leaves nothing beside the database
 				w, err := sql.Open("sqlite", db)
 				if err != nil {
 					t.Fatal(err)
@@ -424,7 +424,7 @@ func TestReadingADatabaseNeverChangesIt(t *testing.T) {
 }
 
 func TestReadingADatabaseNobodyHasOpenLeavesNothingBesideIt(t *testing.T) {
-	// Given a database in write-ahead mode that was closed cleanly, in a directory that may be written to
+	// Given a database its harness has closed, in a directory that may be written to
 	root := t.TempDir()
 	db := filepath.Join(root, "opencode.db")
 	buildDB(t, db, "messages.sql")
@@ -545,25 +545,32 @@ func TestASessionThatWasDeletedAfterTheListingIsReportedGone(t *testing.T) {
 	}
 }
 
-func TestMessagesLargerThanTheBoundAreSkippedAndASessionLargerThanItsBoundIsRefused(t *testing.T) {
+func TestMessagesLargerThanTheBoundAreSkippedAndCounted(t *testing.T) {
 	// Given a bound on the size of one message that the first message of ses_main exceeds
 	logs, _ := newOpenCode(t, "messages.sql")
 	defer func(n int) { maxDBRowBytes = n }(maxDBRowBytes)
 	maxDBRowBytes = 150
 
-	// When the session is read, then the longer messages are skipped and counted, not read
-	if p := transcriptOf(t, logs, "ses_main"); p.SkippedLines == 0 {
+	// When the session is read
+	p := transcriptOf(t, logs, "ses_main")
+
+	// Then the longer messages are skipped and counted, not read
+	if p.SkippedLines == 0 {
 		t.Error("no message was skipped")
 	}
-	maxDBRowBytes = 64 << 20
+}
 
+func TestASessionLargerThanItsBoundIsRefused(t *testing.T) {
 	// Given a bound on what one session may hold
+	logs, _ := newOpenCode(t, "messages.sql")
 	defer func(n int64) { maxDBSessionBytes = n }(maxDBSessionBytes)
 	maxDBSessionBytes = 300
 
-	// When the session is read, then it is refused as too large
-	f := existingLogs(t, logs)["ses_main"]
-	if _, err := logs.Read(f); !errors.Is(err, ErrLogTooLarge) {
+	// When the session is read
+	_, err := logs.Read(existingLogs(t, logs)["ses_main"])
+
+	// Then it is refused as too large
+	if !errors.Is(err, ErrLogTooLarge) {
 		t.Errorf("err = %v, want ErrLogTooLarge", err)
 	}
 }
@@ -596,8 +603,9 @@ func TestSessionsWithAnUnusableIdAreReportedAndNotListed(t *testing.T) {
 	}
 }
 
-func TestOnlyTheDatabasesOfTheHarnessAreRead(t *testing.T) {
-	// Given a data directory with the databases of a channel, companion files, a database of another name and one named the old way
+// dataDirectory holds the databases of two channels of OpenCode and of Kilo Code, one of them named the old way, beside files that are not databases.
+func dataDirectory(t *testing.T) string {
+	t.Helper()
 	root := t.TempDir()
 	seed := filepath.Join(t.TempDir(), "seed.db")
 	buildDB(t, seed, "messages.sql")
@@ -618,41 +626,54 @@ func TestOnlyTheDatabasesOfTheHarnessAreRead(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(root, "opencode-x.db"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	readBy := func(d *OpenCodeDatabase) []string {
-		files, _, err := harnessLogs(kernel.OpenCode, root, d).List()
-		if err != nil {
-			t.Fatal(err)
-		}
-		seen := map[string]bool{}
-		for _, f := range files {
-			name, _, _ := strings.Cut(filepath.Base(f.Path), DBSessionSep)
-			seen[name] = true
-		}
-		var out []string
-		for name := range seen {
-			out = append(out, name)
-		}
-		slices.Sort(out)
-		return out
-	}
+	return root
+}
 
-	// When OpenCode's databases are read, then the database and its channels are, but not their companion files
-	if got := readBy(&OpenCodeDatabase{Prefix: "opencode"}); !slices.Equal(got, []string{"opencode-beta.db", "opencode-dev.db", "opencode.db"}) {
-		t.Errorf("opencode: %v", got)
+// databasesRead names the databases a harness reads under root.
+func databasesRead(t *testing.T, root string, d *OpenCodeDatabase) []string {
+	t.Helper()
+	files, _, err := harnessLogs(kernel.OpenCode, root, d).List()
+	if err != nil {
+		t.Fatal(err)
 	}
-	// And Kilo reads the channel databases it names itself, and one named the old way only where it has none of its own
-	if got := readBy(&OpenCodeDatabase{Prefix: "kilo", Fallback: "opencode"}); !slices.Equal(got, []string{"kilo-beta.db", "kilo.db", "opencode-dev.db"}) {
-		t.Errorf("kilo: %v", got)
+	seen := map[string]bool{}
+	for _, f := range files {
+		name, _, _ := strings.Cut(filepath.Base(f.Path), DBSessionSep)
+		seen[name] = true
 	}
-	// And a path the user sets replaces the search, relative to the data directory unless it is absolute
-	if got := readBy(&OpenCodeDatabase{Prefix: "opencode", Override: "other.db"}); !slices.Equal(got, []string{"other.db"}) {
-		t.Errorf("relative override: %v", got)
+	var out []string
+	for name := range seen {
+		out = append(out, name)
 	}
-	if got := readBy(&OpenCodeDatabase{Prefix: "opencode", Override: filepath.Join(root, "kilo.db")}); !slices.Equal(got, []string{"kilo.db"}) {
-		t.Errorf("absolute override: %v", got)
+	slices.Sort(out)
+	return out
+}
+
+func TestOpenCodeReadsItsDatabaseAndItsChannelsButNotTheirCompanionFiles(t *testing.T) {
+	if got := databasesRead(t, dataDirectory(t), &OpenCodeDatabase{Prefix: "opencode"}); !slices.Equal(got, []string{"opencode-beta.db", "opencode-dev.db", "opencode.db"}) {
+		t.Errorf("read %v", got)
 	}
-	// And a data directory that is not there holds nothing
-	if files, _, err := harnessLogs(kernel.OpenCode, filepath.Join(root, "absent"), &OpenCodeDatabase{Prefix: "opencode"}).List(); err != nil || len(files) != 0 {
-		t.Errorf("missing directory: %v, %v", files, err)
+}
+
+func TestKiloReadsTheChannelsItNamesItselfAndOneNamedTheOldWayOnlyWhereItHasNoneOfItsOwn(t *testing.T) {
+	if got := databasesRead(t, dataDirectory(t), &OpenCodeDatabase{Prefix: "kilo", Fallback: "opencode"}); !slices.Equal(got, []string{"kilo-beta.db", "kilo.db", "opencode-dev.db"}) {
+		t.Errorf("read %v", got)
+	}
+}
+
+func TestADatabaseTheUserNamesReplacesTheSearchWhetherItsPathIsRelativeOrAbsolute(t *testing.T) {
+	root := dataDirectory(t)
+	if got := databasesRead(t, root, &OpenCodeDatabase{Prefix: "opencode", Override: "other.db"}); !slices.Equal(got, []string{"other.db"}) {
+		t.Errorf("relative path: read %v", got)
+	}
+	if got := databasesRead(t, root, &OpenCodeDatabase{Prefix: "opencode", Override: filepath.Join(root, "kilo.db")}); !slices.Equal(got, []string{"kilo.db"}) {
+		t.Errorf("absolute path: read %v", got)
+	}
+}
+
+func TestADataDirectoryThatIsNotThereHoldsNoSession(t *testing.T) {
+	files, _, err := harnessLogs(kernel.OpenCode, filepath.Join(t.TempDir(), "absent"), &OpenCodeDatabase{Prefix: "opencode"}).List()
+	if err != nil || len(files) != 0 {
+		t.Errorf("files %v, err %v", files, err)
 	}
 }
