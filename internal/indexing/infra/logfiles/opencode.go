@@ -196,7 +196,11 @@ func openSessionDatabase(path string) (*sql.DB, error) {
 		return nil, err
 	}
 	f.Close()
-	uri := (&url.URL{Scheme: "file", Path: filepath.ToSlash(path)}).String() + "?mode=ro&_pragma=query_only(true)&_pragma=busy_timeout(3000)"
+	uriPath := filepath.ToSlash(path)
+	if filepath.VolumeName(path) != "" && !strings.HasPrefix(uriPath, "/") {
+		uriPath = "/" + uriPath
+	}
+	uri := (&url.URL{Scheme: "file", Path: uriPath}).String() + "?mode=ro&_pragma=query_only(true)&_pragma=busy_timeout(3000)"
 	return sql.Open("sqlite", uri)
 }
 

@@ -255,7 +255,7 @@ what the usage covers.
 | oh-my-pi    | `~/.omp/agent/mcp.json`, skills (`~/.omp/agent/skills`, `~/.agents/skills`), agents (`~/.omp/agent/agents`), plugins (`~/.omp/plugins`) |
 | pi          | skills (`~/.pi/agent/skills`, `~/.agents/skills`), packages of `~/.pi/agent/settings.json`                           |
 
-OpenCode, Kilo Code, Gemini CLI, GitHub Copilot CLI, Zed Agent and Grok Build CLI have no configuration reader yet: their tools show up with the `logs` scope, from the
+OpenCode, Kilo Code, Gemini CLI, GitHub Copilot CLI, Zed Agent, Grok Build CLI and Cursor IDE have no configuration reader yet: their tools show up with the `logs` scope, from the
 usage their sessions record, and nothing of them is listed as installed (so none is reported unused).
 
 The per-project MCP servers of `~/.claude.json` are listed for every project it names, not only for `--project`.
@@ -302,6 +302,7 @@ file, a name with control characters) is left out and noted on stderr (`skipped`
 | GitHub Copilot CLI | `~/.copilot/session-state/<session-id>/events.jsonl` (under `$COPILOT_HOME` when set) |
 | Zed Agent | `threads/threads.db` in `~/Library/Application Support/Zed` on macOS, `${FLATPAK_XDG_DATA_HOME:-$XDG_DATA_HOME}/zed` on Linux (`~/.local/share/zed` by default), or `%LOCALAPPDATA%/Zed` on Windows |
 | Grok Build CLI | `~/.grok/sessions/<encoded-cwd>/<id>/updates.jsonl` (under `$GROK_HOME` when set), with session metadata and usage from neighbouring files |
+| Cursor IDE | `~/.cursor/projects/<project>/agent-transcripts/<id>/<id>.jsonl` and `User/globalStorage/state.vscdb` under Cursor's application data directory |
 
 A harness that is not installed is simply skipped. The index lives in the user cache directory
 (`agent-stats/index.db`). Only changed log files are re-read, and indexed rows survive when a harness deletes its
@@ -357,6 +358,19 @@ own, named `<database>#<session id>`. Zed revisions hash each thread's stored pa
 re-read a session when what its tables hold of it changes: for its messages and
 for its parts, the number of rows, the sum of their update times and the bytes of their data, with the time the session
 was updated (one grouped query per table, which reads the data of every row). The sum of the times, not the latest,
+- **Cursor IDE** combines local Composer headers and JSONL transcripts by conversation ID. Composer headers supply session
+  dates and project folders when `User/workspaceStorage/<workspaceId>/workspace.json` names a local folder.
+  The editor data directory is `~/Library/Application Support/Cursor` on macOS, `${XDG_CONFIG_HOME:-~/.config}/Cursor`
+  on Linux, and `%APPDATA%/Cursor` on Windows. The JSONL reader counts text prompts from user messages and explicit
+  `tool_use` blocks from assistant messages. It prefers a nested subagent transcript over its top-level copy so the
+  child is counted once under its parent. Tool timestamps, results, errors and durations are unavailable, so undated
+  calls appear in session details and all-time tool totals. Model requests, tokens, costs and time to first token are
+  unavailable. Legacy text transcripts, legacy conversation blobs, CLI databases and cloud-only conversations are
+  outside the reader's scope.
+
+The index keeps one log per SQLite session, named `<database>#<session id>`. For OpenCode and Kilo Code, a session
+is read again when its update time or its message and part statistics change. The statistics include row count, the
+sum of update times and total data bytes (one grouped query per table, which reads the data of every row). The sum of the times, not the latest,
 because a row stamped in the future would hide every later update; the bytes, because a tool call that goes from running to
 error keeps its row. A session with no message is listed too, as an empty session: one that lost its last message is read
 again and loses its rows. The size and modification time of the database file would
