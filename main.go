@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -25,8 +26,9 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/reporting/infra/tui"
 )
 
-// indexRun brings the index up to date with the session logs, calling progress as files are indexed.
-type indexRun func(progress func(indexing.IndexReport)) (indexing.IndexReport, error)
+// indexRun brings the index up to date with the session logs, calling progress as files are indexed,
+// until ctx is done.
+type indexRun func(ctx context.Context, progress func(indexing.IndexReport)) (indexing.IndexReport, error)
 
 func newIndexRun(index *sqlite.SQLiteIndex, prices indexing.PriceList) (indexRun, error) {
 	home, err := os.UserHomeDir()
@@ -34,7 +36,7 @@ func newIndexRun(index *sqlite.SQLiteIndex, prices indexing.PriceList) (indexRun
 		return nil, err
 	}
 	uc := indexing.IndexSessions{Logs: logfiles.NewFileSessionLogs(logfiles.DefaultSources(home)), Store: index, Prices: prices, Workers: indexWorkers()}
-	return uc.Run, nil
+	return uc.RunContext, nil
 }
 
 // indexWorkers is how many logs are read at once: three quarters of the CPUs the program may use (at least one),
@@ -46,7 +48,7 @@ func indexWorkers() int {
 
 // indexBeforeReport indexes while the plain-text report waits, narrating on stderr so stdout stays the report.
 func indexBeforeReport(run indexRun) error {
-	rep, err := run(func(r indexing.IndexReport) {
+	rep, err := run(context.Background(), func(r indexing.IndexReport) {
 		fmt.Fprintf(os.Stderr, "\rindexing… %d files", r.Indexed)
 	})
 	if rep.Indexed >= 50 {

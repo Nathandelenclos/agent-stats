@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -42,8 +43,8 @@ func keyboardReachable() bool {
 // tuiSync adapts the indexing run to the interface's Sync port: the counts become progress and what
 // was skipped becomes the note shown afterwards (nothing may be printed over the screen).
 func tuiSync(run indexRun) tui.Sync {
-	return func(progress func(int)) (string, error) {
-		rep, err := run(func(r indexing.IndexReport) { progress(r.Indexed) })
+	return func(ctx context.Context, progress func(int)) (string, error) {
+		rep, err := run(ctx, func(r indexing.IndexReport) { progress(r.Indexed) })
 		return syncNote(rep), err
 	}
 }

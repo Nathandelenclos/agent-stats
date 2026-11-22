@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -36,6 +37,12 @@ type IndexReport struct {
 
 // Run indexes every new or changed log. progress, when set, is called every 50 indexed files.
 func (uc IndexSessions) Run(progress func(IndexReport)) (IndexReport, error) {
+	return uc.RunContext(context.Background(), progress)
+}
+
+// RunContext is Run, stopping when ctx is done: it returns the report so far and the context's error, once the
+// batch being saved is saved. What was read and not saved yet is dropped; the next run reads it again.
+func (uc IndexSessions) RunContext(ctx context.Context, progress func(IndexReport)) (IndexReport, error) {
 	var rep IndexReport
 	known, err := uc.Store.IndexedFiles()
 	if err != nil {
@@ -59,8 +66,9 @@ func (uc IndexSessions) Run(progress func(IndexReport)) (IndexReport, error) {
 	if batch <= 0 {
 		batch = defaultSaveBatch
 	}
-	ahead := newWindow(uc.readAheadBytes())
-	take := uc.readAhead(changed, ahead)
+	ahead := newWindow(ctx, uc.readAheadBytes())
+	defer ahead.stop()
+	take := uc.readAhead(ctx, changed, ahead)
 
 	var pending []readLog // in the order of the list: failures stay in it, so errors are reported in that order
 	flush := func() {
@@ -93,7 +101,13 @@ func (uc IndexSessions) Run(progress func(IndexReport)) (IndexReport, error) {
 		pending = pending[:0]
 	}
 	for range changed {
-		r := take(flush)
+		if err := ctx.Err(); err != nil {
+			return rep, err
+		}
+		r, ok := take(flush)
+		if !ok {
+			return rep, ctx.Err()
+		}
 		// A reader that waits for room while the writer waits for a batch to fill would wait for ever:
 		// save what is there, however few logs that are.
 		if pending = append(pending, r); len(pending) == batch || ahead.hasWaiter() {
@@ -124,23 +138,35 @@ const readAheadBytes = 512 << 20
 type window struct {
 	mu          sync.Mutex
 	freed       *sync.Cond
+	ctx         context.Context
 	held, limit int64
 	files       int
 	waiting     bool          // enter is waiting for room
 	stalled     chan struct{} // told, without blocking, each time enter starts waiting
+	cancelWake  func() bool   // stops the wake-up that cancels the waiting
 }
 
-func newWindow(limit int64) *window {
-	w := &window{limit: limit, stalled: make(chan struct{}, 1)}
+func newWindow(ctx context.Context, limit int64) *window {
+	w := &window{ctx: ctx, limit: limit, stalled: make(chan struct{}, 1)}
 	w.freed = sync.NewCond(&w.mu)
+	w.cancelWake = context.AfterFunc(ctx, func() {
+		w.mu.Lock() // so that a waiter that has just tested the context is waiting when the broadcast comes
+		w.mu.Unlock()
+		w.freed.Broadcast()
+	})
 	return w
 }
 
-// enter waits for room for size bytes.
-func (w *window) enter(size int64) {
+func (w *window) stop() { w.cancelWake() }
+
+// enter waits for room for size bytes; it is false when the context was cancelled first.
+func (w *window) enter(size int64) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	for w.files > 0 && w.held+size > w.limit {
+		if w.ctx.Err() != nil {
+			return false
+		}
 		w.waiting = true
 		select {
 		case w.stalled <- struct{}{}:
@@ -149,8 +175,12 @@ func (w *window) enter(size int64) {
 		w.freed.Wait()
 	}
 	w.waiting = false
+	if w.ctx.Err() != nil {
+		return false
+	}
 	w.held += size
 	w.files++
+	return true
 }
 
 func (w *window) leave(size int64) {
@@ -169,9 +199,10 @@ func (w *window) hasWaiter() bool {
 }
 
 // readAhead starts reading, parsing and pricing files in the background and returns take, which hands over
-// the results one at a time in the order of files; take must be called once per file. While take waits for a
-// result it calls flush if the readers wait for room. The workers run ahead of the caller within the window.
-func (uc IndexSessions) readAhead(files []LogFile, ahead *window) (take func(flush func()) readLog) {
+// the results one at a time in the order of files; take must be called once per file, and returns false when ctx
+// is done. While take waits for a result it calls flush if the readers wait for room. The workers run ahead of
+// the caller within the window.
+func (uc IndexSessions) readAhead(ctx context.Context, files []LogFile, ahead *window) (take func(flush func()) (readLog, bool)) {
 	workers := min(max(uc.Workers, 1), len(files))
 	results := make([]chan readLog, len(files)) // one per file, so results come out in order
 	for i := range results {
@@ -181,8 +212,14 @@ func (uc IndexSessions) readAhead(files []LogFile, ahead *window) (take func(flu
 	go func() {
 		defer close(next)
 		for i, f := range files {
-			ahead.enter(f.weight())
-			next <- i
+			if !ahead.enter(f.weight()) {
+				return
+			}
+			select {
+			case next <- i:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 	for range workers {
@@ -200,14 +237,16 @@ func (uc IndexSessions) readAhead(files []LogFile, ahead *window) (take func(flu
 		}()
 	}
 	i := 0
-	return func(flush func()) readLog {
+	return func(flush func()) (readLog, bool) {
 		for {
 			select {
 			case r := <-results[i]:
 				i++
-				return r
+				return r, true
 			case <-ahead.stalled:
 				flush() // a no-op when nothing waits to be saved
+			case <-ctx.Done():
+				return readLog{}, false
 			}
 		}
 	}

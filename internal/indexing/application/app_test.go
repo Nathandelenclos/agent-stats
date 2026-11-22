@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -323,5 +324,42 @@ func TestIndexSessionsReportsErrorsInTheOrderOfTheList(t *testing.T) {
 	want := []string{"unreadable: permission denied", "log-00: unexpected EOF", "log-01: disk full", "log-02: bad zstd"}
 	if err != nil || !slices.Equal(rep.Errors, want) || rep.Indexed != 1 {
 		t.Errorf("report = %+v, %v; want errors %v", rep, err, want)
+	}
+}
+
+func TestIndexSessionsStopsWhenItsContextIsCancelled(t *testing.T) {
+	// Given 200 logs, and a user who quits once the tenth is being read
+	logs := manyLogs(200)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	logs.onRead = func(path string) {
+		if path == "log-10" {
+			cancel()
+		}
+		time.Sleep(time.Millisecond)
+	}
+	store := &fakeStore{known: map[string]LogFile{}, saved: map[string]IndexedTranscript{}}
+
+	// When the run is cancelled
+	var rep IndexReport
+	var err error
+	done(t, func() {
+		rep, err = IndexSessions{Logs: logs, Store: store, Prices: flatPrices{}, Workers: 3, ReadAhead: 50, SaveBatch: 1}.RunContext(ctx, nil)
+	})
+
+	// Then it ends with the context's error, long before the end of the list, and nothing is saved after it returned
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled", err)
+	}
+	logs.mu.Lock()
+	reads := len(logs.read)
+	logs.mu.Unlock()
+	if reads > 40 || rep.Indexed > 40 {
+		t.Errorf("%d logs read and %d indexed after the cancellation, want it to stop early", reads, rep.Indexed)
+	}
+	saved := len(store.order)
+	time.Sleep(30 * time.Millisecond)
+	if len(store.order) != saved {
+		t.Error("the run kept saving after it returned")
 	}
 }
