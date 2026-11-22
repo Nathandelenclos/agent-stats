@@ -74,7 +74,9 @@ result size.
 }
 ```
 
-Costs are in USD, timestamps are Unix milliseconds (`0` when unknown).
+Costs are in USD, timestamps are Unix milliseconds (`0` when unknown). When there is nothing to report (an empty
+index or a range without activity), a group or tool list with no entry is printed as `null`, not as `[]`: read an
+absent or `null` list as empty.
 
 ### Interfaces
 
