@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -373,13 +375,40 @@ func IsGeminiConversation(path string) bool {
 // maxProjectRootBytes bounds the file that names the folder of a project.
 const maxProjectRootBytes = 4096
 
+// projectRoot is the .project_root file beside the chats, when it is a regular file: it is not followed when it is a link.
+func projectRoot(chats string) (path string, info fs.FileInfo, ok bool) {
+	path = filepath.Join(filepath.Dir(chats), ".project_root")
+	info, err := os.Lstat(path)
+	return path, info, err == nil && info.Mode().IsRegular()
+}
+
+// geminiBeside is what a conversation depends on besides its file, for its revision: the .project_root file that
+// names its folder. A conversation read before that file existed must be read again when it appears.
+func geminiBeside(path string) string {
+	chats, _, ok := geminiChatsDir(path)
+	if !ok {
+		return ""
+	}
+	if _, info, ok := projectRoot(chats); ok {
+		return fmt.Sprintf(":root=%d:%d", info.Size(), info.ModTime().UnixNano())
+	}
+	return ""
+}
+
 // geminiFolder reads the folder of the project from the .project_root file Gemini CLI keeps beside the chats; empty when unknown.
 func geminiFolder(chats string) string {
-	f, err := openRegular(filepath.Join(filepath.Dir(chats), ".project_root"))
+	path, info, ok := projectRoot(chats)
+	if !ok {
+		return ""
+	}
+	f, err := openRegular(path)
 	if err != nil {
 		return ""
 	}
 	defer f.Close()
+	if opened, err := f.Stat(); err != nil || !os.SameFile(info, opened) {
+		return "" // the file was replaced by a link since it was looked at
+	}
 	raw, _ := io.ReadAll(io.LimitReader(f, maxProjectRootBytes+1))
 	if len(raw) > maxProjectRootBytes {
 		return ""

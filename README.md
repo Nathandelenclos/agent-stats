@@ -278,7 +278,8 @@ What each of the three newer readers counts, and what it does not:
   `$set`) before it is counted. A request is a `gemini` message that states its tokens, counted once whatever the
   number of its tool calls; the cached tokens are part of its input and are counted as cache reads, not added to it, and
   the thoughts are counted as output. Prompts are the `user` messages and tool calls come with their sizes and status.
-  The folder is read from the `.project_root` file Gemini CLI keeps beside the chats, when it holds an absolute path.
+  The folder is read from the `.project_root` file Gemini CLI keeps beside the chats, when it is a regular file (a link
+  is not followed) that holds an absolute path; the conversations of the project are read again when that file appears or changes.
   Gemini CLI logs no cost, duration or time to first token, so costs are priced from the table (the model ids it logs,
   such as `gemini-2.5-pro` or `gemini-3.1-pro-preview`, are in it) and latencies stay unknown. A subagent journal in the
   directory of its parent session is linked to it; a subagent file elsewhere is a subagent with no known parent.

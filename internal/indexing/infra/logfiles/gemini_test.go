@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Nathandelenclos/agent-stats/internal/indexing/application"
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 )
@@ -231,6 +232,65 @@ func TestGeminiFolderComesFromTheProjectRootFileWhenItIsUsable(t *testing.T) {
 				t.Errorf("folder = %q, want %q", p.Session.Folder, tc.want)
 			}
 		})
+	}
+}
+
+func TestAProjectRootFileThatIsALinkIsNotFollowed(t *testing.T) {
+	// Given a project directory whose .project_root is a link to a file that names a folder
+	dir := t.TempDir()
+	chats := filepath.Join(dir, "proj", "chats")
+	if err := os.MkdirAll(chats, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dir, "elsewhere")
+	if err := os.WriteFile(target, []byte("/work/demo-app\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "proj", ".project_root")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+
+	// When a conversation of that project is read
+	p := parse(t, ParseGemini, filepath.Join(chats, "session-1.json"), `{"sessionId":"s-5","projectHash":"h","messages":[]}`)
+
+	// Then the folder is unknown
+	if p.Session.Folder != "" {
+		t.Errorf("folder = %q", p.Session.Folder)
+	}
+}
+
+func TestAProjectRootFileCreatedAfterAConversationWasListedMakesItBeReadAgain(t *testing.T) {
+	// Given a conversation that was listed, in a project that has no .project_root file yet
+	root := t.TempDir()
+	chats := filepath.Join(root, "proj", "chats")
+	if err := os.MkdirAll(chats, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(chats, "session-1.json"), []byte(`{"sessionId":"s-5","projectHash":"h","messages":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	logs := NewFileSessionLogs([]Source{GeminiSource(root)})
+	listed := func() application.LogFile {
+		files, problems, err := logs.List()
+		if err != nil || len(problems) > 0 || len(files) != 1 {
+			t.Fatalf("list: %v, %v, %v", files, problems, err)
+		}
+		return files[0]
+	}
+	before := listed()
+
+	// When the project root file is written, the conversation itself unchanged
+	if err := os.WriteFile(filepath.Join(root, "proj", ".project_root"), []byte("/work/demo-app\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	after := listed()
+
+	// Then the conversation shows as changed, and is read with its folder
+	if after.Revision == before.Revision {
+		t.Fatal("the conversation shows as unchanged")
+	}
+	if p, err := logs.Read(after); err != nil || p.Session.Folder != "/work/demo-app" {
+		t.Errorf("folder = %q, %v", p.Session.Folder, err)
 	}
 }
 
