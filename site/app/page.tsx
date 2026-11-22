@@ -28,6 +28,13 @@ const software = {
   },
 };
 
+const website = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: software.name,
+  url: software.url,
+};
+
 const views = [
   {
     title: "Usage and cost",
@@ -53,6 +60,7 @@ export default function HomePage() {
   return (
     <HomeLayout {...navigation}>
       <JsonLd data={software} />
+      <JsonLd data={website} />
       <div className="landing">
         <section className="hero" aria-labelledby="home-title">
           <div className="landing-wrap hero-layout">
