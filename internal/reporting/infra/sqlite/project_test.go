@@ -12,6 +12,7 @@ import (
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	"github.com/Nathandelenclos/agent-stats/internal/platform/projectfolders"
+	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 	report "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 )
 
@@ -230,5 +231,44 @@ func TestAFolderNoSessionWorkedInHasNoSessions(t *testing.T) {
 		if err != nil || got != want {
 			t.Errorf("HasSessions(%s) = %v, %v, want %v", dir, got, err, want)
 		}
+	}
+}
+
+func TestTheQuestionsOfOneSnapshotAgreeOnTheFoldersOfTheProject(t *testing.T) {
+	// Given the workplace, and a snapshot that asks a first question about the app, in which a link leads to its sub-folder
+	w := newWorkplace(t)
+	f := report.Filter{Project: projectAt(t, w.app)}
+	var first, second, groups report.Usage
+	err := w.index.Snapshot(context.Background(), func(r reporting.UsageReader) (err error) {
+		if first, err = r.Total(f); err != nil {
+			return err
+		}
+
+		// When the link is pointed outside the app before the next questions of the same snapshot
+		if err = os.Remove(w.link); err != nil {
+			return err
+		}
+		if err = os.Symlink(w.sibling, w.link); err != nil {
+			return err
+		}
+		if second, err = r.Total(f); err != nil {
+			return err
+		}
+		byFolder, err := r.UsageBy(f, report.ByFolder)
+		for _, g := range byFolder {
+			groups.Requests += g.Requests
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Then they all count the same sessions, while a question asked outside a snapshot sees the link where it leads now
+	if second.Requests != first.Requests || groups.Requests != first.Requests {
+		t.Errorf("requests = %d, then %d, then %d by folder", first.Requests, second.Requests, groups.Requests)
+	}
+	if now, err := w.index.Total(f); err != nil || now.Requests != first.Requests-1 {
+		t.Errorf("outside a snapshot: %d requests, %v, want %d", now.Requests, err, first.Requests-1)
 	}
 }

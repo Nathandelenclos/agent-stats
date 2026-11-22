@@ -34,20 +34,30 @@ func Folders(q Querier, p kernel.Project) ([]string, error) {
 	return within, rows.Err()
 }
 
-// Condition is an SQL condition keeping the rows whose folder column (a name written by the caller, never read from
-// input) holds a folder of project p, and its argument: the folders travel as one bound value, whatever their number.
-// For the zero project it is empty, which keeps every row.
-func Condition(q Querier, p kernel.Project, column string) (cond string, args []any, err error) {
+// List is Folders as one JSON array, the single bound value of an InList condition: the folders travel together, whatever
+// their number. It is empty for the zero Project.
+func List(q Querier, p kernel.Project) (string, error) {
 	if p.IsZero() {
-		return "", nil, nil
+		return "", nil
 	}
 	folders, err := Folders(q, p)
 	if err != nil {
-		return "", nil, err
+		return "", err
 	}
 	list, err := json.Marshal(folders)
-	if err != nil {
+	return string(list), err
+}
+
+// InList is the SQL condition keeping the rows whose folder column (a name written by the caller, never read from input)
+// is one of the folders List returned; the list is its one argument.
+func InList(column string) string { return column + " IN (SELECT value FROM json_each(?))" }
+
+// Condition is an SQL condition keeping the rows whose folder column holds a folder of project p, and its argument.
+// For the zero Project it is empty, which keeps every row.
+func Condition(q Querier, p kernel.Project, column string) (cond string, args []any, err error) {
+	list, err := List(q, p)
+	if err != nil || p.IsZero() {
 		return "", nil, err
 	}
-	return column + " IN (SELECT value FROM json_each(?))", []any{string(list)}, nil
+	return InList(column), []any{list}, nil
 }

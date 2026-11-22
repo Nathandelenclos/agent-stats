@@ -52,8 +52,32 @@ func (s scoped) QueryRow(query string, args ...any) *sql.Row {
 	return s.db.QueryRowContext(s.ctx, query, args...)
 }
 
-// reader answers the usage questions through q.
-type reader struct{ q querier }
+// reader answers the usage questions through q. folders, when set, remembers the folders of the project the questions
+// are about, so that the questions of one snapshot read the index's folders once and agree on them; a reader of the
+// live index has none, for what it read would go stale.
+type reader struct {
+	q       querier
+	folders *projectFolders
+}
+
+// projectFolders is the folders of one project as projectfolders.List gives them.
+type projectFolders struct {
+	project kernel.Project
+	list    string
+	read    bool
+}
+
+// folderList is the folders of p, read the first time and remembered after that when the reader remembers.
+func (r reader) folderList(p kernel.Project) (string, error) {
+	if m := r.folders; m != nil && m.read && m.project == p {
+		return m.list, nil
+	}
+	list, err := projectfolders.List(r.q, p)
+	if err == nil && r.folders != nil {
+		*r.folders = projectFolders{p, list, true}
+	}
+	return list, err
+}
 
 var _ reporting.UsageReader = reader{}
 
@@ -72,7 +96,7 @@ func OpenReadOnly(path string) (*SQLiteUsage, error) {
 		db.Close()
 		return nil, err
 	}
-	return &SQLiteUsage{db: db, reader: reader{scoped{context.Background(), db}}}, nil
+	return &SQLiteUsage{db: db, reader: reader{q: scoped{context.Background(), db}}}, nil
 }
 
 // Snapshot runs fn inside one read transaction. The index is in WAL mode, so the transaction keeps the state
@@ -84,7 +108,7 @@ func (s *SQLiteUsage) Snapshot(ctx context.Context, fn func(reporting.UsageReade
 		return err
 	}
 	defer tx.Rollback() // nothing was written: ending the transaction is all it takes
-	return fn(reader{scoped{ctx, tx}})
+	return fn(reader{q: scoped{ctx, tx}, folders: &projectFolders{}})
 }
 
 // Close closes the database.
@@ -99,7 +123,7 @@ func (s *SQLiteUsage) HasSessions(p kernel.Project) (bool, error) {
 }
 
 // where turns a filter into SQL conditions on the rows of a view aliased alias; every value is a bound parameter.
-func where(q querier, f report.Filter, alias string) (string, []any, error) {
+func (r reader) where(f report.Filter, alias string) (string, []any, error) {
 	var conds []string
 	var args []any
 	if !f.Since.IsZero() {
@@ -108,12 +132,12 @@ func where(q querier, f report.Filter, alias string) (string, []any, error) {
 	if !f.Harness.IsZero() {
 		conds, args = append(conds, "harness = ?"), append(args, f.Harness.String())
 	}
-	cond, projectArgs, err := projectfolders.Condition(q, f.Project, alias+".folder")
-	if err != nil {
-		return "", nil, err
-	}
-	if cond != "" {
-		conds, args = append(conds, cond), append(args, projectArgs...)
+	if !f.Project.IsZero() {
+		list, err := r.folderList(f.Project)
+		if err != nil {
+			return "", nil, err
+		}
+		conds, args = append(conds, projectfolders.InList(alias+".folder")), append(args, list)
 	}
 	if len(conds) == 0 {
 		return "", nil, nil
@@ -164,7 +188,7 @@ func (r reader) UsageBy(f report.Filter, d report.Dimension) ([]report.UsageGrou
 	if !ok {
 		return nil, fmt.Errorf("unknown usage dimension %d", d)
 	}
-	cond, args, err := where(r.q, f, "r")
+	cond, args, err := r.where(f, "r")
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +222,7 @@ func (r reader) UsageBy(f report.Filter, d report.Dimension) ([]report.UsageGrou
 
 // Total aggregates every request matching f.
 func (r reader) Total(f report.Filter) (report.Usage, error) {
-	cond, args, err := where(r.q, f, "r")
+	cond, args, err := r.where(f, "r")
 	if err != nil {
 		return report.Usage{}, err
 	}
@@ -209,7 +233,7 @@ func (r reader) Total(f report.Filter) (report.Usage, error) {
 
 // Tools aggregates tool calls, most used first.
 func (r reader) Tools(f report.Filter) ([]report.ToolUsage, error) {
-	cond, args, err := where(r.q, f, "t")
+	cond, args, err := r.where(f, "t")
 	if err != nil {
 		return nil, err
 	}
