@@ -300,8 +300,8 @@ it("keeps view navigation before the main content and opens Prompts with the act
   expect(container.querySelector('a[href="#main"]')?.textContent?.trim()).toBe("Skip to main content");
   expect(main.contains(nav)).toBe(false);
   expect(nav.compareDocumentPosition(main) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(buttons.map((button) => button.textContent)).toEqual(["Overview", "Usage", "Sessions", "Requests", "Errors", "Prompts", "Improvements"]);
-  expect(buttons.map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "true", "false", "false", "false", "false", "false"]);
+  expect(buttons.map((button) => button.textContent)).toEqual(["Overview", "Usage", "Models", "Tools", "Sessions", "Requests", "Errors", "Prompts", "Improvements"]);
+  expect(buttons.filter((button) => button.getAttribute("aria-pressed") === "true").map((button) => button.textContent)).toEqual(["Usage"]);
 
   const prompts = buttons.find((button) => button.textContent === "Prompts")!;
   prompts.focus();
@@ -309,7 +309,7 @@ it("keeps view navigation before the main content and opens Prompts with the act
 
   await eventually(() => expect(main.textContent).toContain("No flagged prompts match these filters."));
   expect(document.activeElement).toBe(prompts);
-  expect(buttons.map((button) => button.getAttribute("aria-pressed"))).toEqual(["false", "false", "false", "false", "false", "true", "false"]);
+  expect(buttons.filter((button) => button.getAttribute("aria-pressed") === "true")).toEqual([prompts]);
   expect(fetch).toHaveBeenCalledWith("/api/prompts?since=30d&project=current&limit=1000", expect.any(Object));
   expect(periodSelect(container).value).toBe("30d");
   window.history.replaceState(null, "", "/");

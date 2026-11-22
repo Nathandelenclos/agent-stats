@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { formatDay } from "../../shared/format";
 
-export const views = ["Overview", "Usage", "Sessions", "Requests", "Errors", "Prompts", "Improvements", "Catalog", "Quotas"] as const;
+export const views = ["Overview", "Usage", "Models", "Tools", "Sessions", "Requests", "Errors", "Prompts", "Improvements", "Catalog", "Quotas"] as const;
 export type View = (typeof views)[number];
 export type Metric = "cost" | "requests" | "tokens";
 

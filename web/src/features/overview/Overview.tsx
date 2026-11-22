@@ -1,14 +1,15 @@
 import type { ReactNode } from "react";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { describe, Failure } from "../../shared/Failure";
-import { formatDateTime, formatInteger, formatPercent, formatUSD } from "../../shared/format";
-import type { Report, UsageGroup } from "../report";
-import { inputTokens } from "../report/types";
+import { formatDateTime, formatInteger, formatUSD } from "../../shared/format";
+import type { Filters, Report, UsageGroup } from "../report";
 import type { useSessions } from "../sessions/api";
 import type { usePromptReview } from "../prompts/api";
 import type { useCatalog } from "../catalog/Catalog";
 import { QuotaOverview, type useQuotas } from "../quotas/Quotas";
 import { ActivityChart } from "./ActivityChart";
+import { RecentRequests, TokenMix } from "./OverviewDetails";
+import { OverviewMetrics } from "./OverviewMetrics";
 import { SessionRows } from "./RelatedSessions";
 import type { Metric, Relation, View } from "./navigation";
 
@@ -50,17 +51,9 @@ function Rank({ groups, explore }: { groups: UsageGroup[]; explore?: (relation: 
   </ul>;
 }
 
-function MetricValue({ label, value, note }: { label: string; value: string; note: string }) {
-  return <div className="dashboard-panel dashboard-metric">
-    <dt>{label}</dt>
-    <dd className="dashboard-metric-value tabular-nums">{value}</dd>
-    <dd className="dashboard-metric-note">{note}</dd>
-  </div>;
-}
-
 export function Overview({
   report, sessions, prompts, catalog, quotas, catalogAvailable, quotasAvailable, metric, setMetric,
-  explore, selectView, openSession, selectedDay, inspector,
+  explore, selectView, openSession, openRequestSession, filters, project, selectedDay, inspector,
 }: {
   report: UseQueryResult<Report, unknown>;
   sessions: ReturnType<typeof useSessions>;
@@ -74,26 +67,22 @@ export function Overview({
   explore: (relation: Relation) => void;
   selectView: (view: View) => void;
   openSession: (id: string) => void;
+  openRequestSession: (id: string) => void;
+  filters: Filters;
+  project: string;
   selectedDay?: string;
   inspector?: ReactNode;
 }) {
   if (report.isPending) return <p role="status">Loading the overview…</p>;
   if (report.isError) return <Failure title="The overview could not be loaded." message={describe(report.error)} retry={() => void report.refetch()} />;
   const { total, daily, hourly, byHarness, tools } = report.data;
-  const known = total.requests - total.unpriced;
   const canExplore = report.isPlaceholderData ? undefined : explore;
   const entries = catalog.data?.entries ?? [];
   const recent = sessions.data?.sessions ?? [];
   const recurring = prompts.data?.recurring[0];
   const errors = tools.filter((tool) => tool.errors > 0).sort((a, b) => b.errors - a.errors).slice(0, 3);
   return <div aria-busy={report.isFetching} className={`dashboard-overview${report.isPlaceholderData ? " opacity-60" : ""}`}>
-    <dl className="dashboard-metrics">
-      <MetricValue label="Estimated cost" value={total.requests > 0 && known === 0 ? "Unavailable" : formatUSD(total.cost)}
-        note={`Price known for ${formatInteger(known)} of ${formatInteger(total.requests)} requests`} />
-      <MetricValue label="Model requests" value={formatInteger(total.requests)}
-        note={total.requests > 0 ? `${formatInteger(total.failed)} failed` : "No requests in this period."} />
-      <MetricValue label="Input from cache" value={inputTokens(total) > 0 ? formatPercent(total.cacheRate) : "Unavailable"} note="Share of input tokens" />
-    </dl>
+    <OverviewMetrics total={total} periods={hourly?.length ? hourly : daily} />
 
     <div className={`dashboard-chart-grid${inspector ? " dashboard-chart-grid-active" : ""}`}>
       <ActivityChart daily={daily} hourly={hourly} metric={metric} onMetric={setMetric} selectedDay={selectedDay}
@@ -102,6 +91,7 @@ export function Overview({
     </div>
 
     <div className="dashboard-card-grid">
+      <TokenMix usage={total} />
       <Card title="Cost by agent" action={<Browse title="Usage" open={() => selectView("Usage")} />}><Rank groups={byHarness} explore={canExplore} /></Card>
       {quotasAvailable && <Card title="Account quotas" action={<Browse title="Quotas" open={() => selectView("Quotas")} />}><QuotaOverview query={quotas} /></Card>}
       <Card title="Recent sessions" action={<Browse title="Sessions" open={() => selectView("Sessions")} />}>
@@ -139,5 +129,6 @@ export function Overview({
         </Preview>
       </Card>}
     </div>
+    {!report.isPlaceholderData && <RecentRequests filters={filters} project={project} open={openRequestSession} browse={() => selectView("Requests")} />}
   </div>;
 }

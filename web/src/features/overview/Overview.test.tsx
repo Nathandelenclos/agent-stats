@@ -130,3 +130,56 @@ it("shows hourly values and fills empty hours in a short period", async () => {
   expect(rows).toHaveLength(3);
   expect(rows?.[1]?.textContent).toContain("$0.00");
 });
+
+it("shows token categories and opens a recent model call in its session", async () => {
+  const normal = serveReports(() => report(), metaInProject("agent-stats"));
+  const fetch = vi.fn((input: RequestInfo | URL) => {
+    const requested = new URL(String(input), "http://localhost");
+    if (requested.pathname === "/api/requests") return Promise.resolve(json({ requests: [{
+      sessionId: "codex:matching", ts: 1795300000000, model: "test-model", provider: "fixture",
+      input: 100, cacheRead: 200, cacheWrite: 10, output: 1, priced: false, durationMs: 1200, failed: true,
+    }] }));
+    return normal(input);
+  });
+  vi.stubGlobal("fetch", fetch);
+  const { container } = render(withQueries(testQueryClient(), <App />));
+  await eventually(() => expect(button(container, "test-model")).toBeDefined());
+  expect(fetch).toHaveBeenCalledWith("/api/requests?since=7d&project=current&limit=5", expect.any(Object));
+  expect(container.querySelector('[aria-labelledby="token-mix"]')?.textContent).toContain("Cache read");
+  click(button(container, "Tokens")!);
+  expect(container.querySelector(".dashboard-daily-table")?.textContent).toContain("Uncached input");
+  click(button(container, "test-model")!);
+  const selected = new URLSearchParams(location.search);
+  expect(selected.get("session")).toBe("codex:matching");
+  expect(selected.get("section")).toBe("Requests");
+});
+
+it("keeps the model and provider in the request journal and clears the filter explicitly", async () => {
+  window.history.replaceState(null, "", "?view=models&since=30d");
+  const normal = serveReports(() => report(), metaInProject("agent-stats"));
+  const fetch = vi.fn((input: RequestInfo | URL) => {
+    const requested = new URL(String(input), "http://localhost");
+    if (requested.pathname === "/api/activity-series") return Promise.resolve(json({
+      bucketSize: "day",
+      samples: [{
+        bucket: "2026-11-22", name: "model", source: "second-provider", calls: 2, errors: 0,
+        avgDurationMs: 0, avgTtftMs: 0, avgTokensPerSecond: 0, durationSamples: 0, ttftSamples: 0, throughputSamples: 0,
+        input: 100, output: 10, cacheRead: 0, cacheWrite: 0, cost: 0, premiumUnits: 0, unpriced: 2,
+      }],
+    }));
+    return normal(input);
+  });
+  vi.stubGlobal("fetch", fetch);
+  const { container } = render(withQueries(testQueryClient(), <App />));
+  await eventually(() => expect(button(container, "model · second-provider")).toBeDefined());
+  click(button(container, "model · second-provider")!);
+  click(button(container, "View model requests")!);
+  await eventually(() => expect(fetch).toHaveBeenCalledWith(
+    expect.stringMatching(/^\/api\/requests\?.*model=model&provider=second-provider/), expect.any(Object),
+  ));
+  expect(new URLSearchParams(location.search).get("since")).toBe("30d");
+  expect(container.querySelector("h1")?.textContent).toBe("Requests");
+  click(button(container, "Clear model filter")!);
+  expect(new URLSearchParams(location.search).has("requestModel")).toBe(false);
+  expect(button(container, "Clear model filter")).toBeUndefined();
+});

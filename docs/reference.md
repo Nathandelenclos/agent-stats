@@ -177,10 +177,16 @@ agent-stats serve --all               # open on every project, even from inside 
 agent-stats serve --no-sync --addr 127.0.0.1:8080
 ```
 
-**Overview** shows requests, estimated cost, cache hit rate, daily activity, recent sessions, flagged prompts
-and tool errors. The local server also shows the catalog and quota summaries when available. Choose a day, coding
-agent or tool to see its contributing sessions. **Usage** breaks down the same report by harness, model, folder,
-agent type and tool. Each chart has a table with its values.
+**Overview** shows estimated cost, requests, token usage, cache hit rate and error rate with recent trends.
+Switch the activity chart between cost, requests and tokens. The token mix and the latest model requests
+sit alongside recent sessions, flagged prompts, catalog entries and quotas. Choose a day, coding agent or
+tool to see its contributing sessions.
+
+**Models** charts request volume or share by model and provider. Select a series or table row to see
+latency, time to first token, output rate and the number of samples measured. Open the request journal
+for that model and provider. **Tools** charts calls or errors by tool and MCP server, with links to the
+sessions behind each series. The chart and table use matching colors and text labels. Time charts offer
+a table of values. **Usage** breaks the report down by harness, model, folder, agent type and tool.
 
 Open **Sessions** for usage, models, tools, subagents and prompts. **Activity graph** shows recorded parent and
 fork links, with a timeline for activity intervals. **Improvements** shows recurring requests and enabled catalog
@@ -217,6 +223,8 @@ Unknown or repeated parameters are refused with `400`.
 | Route | Answer |
 |-------|--------|
 | `/api/report?since=&harness=&project=` | The `--json` report (same fields), plus `daily`: one entry per local day with activity, oldest first, `key` being `2006-01-02`. Lists are `[]` when empty, never `null`. |
+| `/api/activity-series?kind=&since=&harness=&project=` | Dated samples for `kind=models` (model and provider) or `kind=tools` (tool and MCP server). Buckets are hourly for periods up to 72 hours, daily up to 120 days and monthly for longer periods or all time. Day and month keys use the server's local time. |
+| `/api/requests?since=&harness=&project=&model=&provider=` | Paginated model requests, newest first. With `model`, the request matches that exact model and provider. An omitted provider with a model matches rows whose provider is unknown. |
 | `/api/sessions?since=&harness=&project=&limit=` | The most recent sessions (`limit` 1 to 1000, default 100) with their usage, models and subagent count, without the prompts. `scope` is the project filter applied. `count` and `total` cover every matching session, and add up to the report of the same scope. `title` is the session title, which for an untitled session is the start of its first prompt. |
 | `/api/sessions/{id}?since=&harness=&project=` | One session from the same scope and filters, with its tools, subagents and prompt signals. Subagents can include `id`, `parentId` within the selected run, `startTs`, `endTs` and `models`. `forkedFrom` identifies the recorded source of a Codex fork when it is visible in the selected project. Encode the session ID as a single path segment. An unknown or out-of-scope session returns `404`. Excerpts are at most 2,000 characters each and are omitted with `--allow-remote`. |
 | `/api/sessions/{id}/prompts/{position}?since=&harness=&project=&revision=` | Full text of the selected prompt on the local server. Use `position` and `revision` from the preview. If the preview revision no longer matches, the route returns `409`. |

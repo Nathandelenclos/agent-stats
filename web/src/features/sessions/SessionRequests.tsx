@@ -3,7 +3,7 @@ import { DataTable, type Column } from "../../shared/DataTable";
 import { describe, Failure } from "../../shared/Failure";
 import { formatDateTime, formatInteger, formatMs, formatUSD } from "../../shared/format";
 import type { Filters } from "../report";
-import { requestPageSize, useErrorSignatures, useSessionRequests, type SessionRequest } from "./api";
+import { requestPageSize, useErrorSignatures, useSessionRequests, type RequestModel, type SessionRequest } from "./api";
 
 type Row = SessionRequest & { position: number };
 
@@ -29,9 +29,11 @@ const columns: Column<Row>[] = [
   },
 ];
 
-export function SessionRequests({ id, filters, project, openSession, errorsOnly = false }: {
+export function SessionRequests({ id, filters, project, openSession, errorsOnly = false, model, clearModel }: {
   id?: string;
   errorsOnly?: boolean;
+  model?: RequestModel;
+  clearModel?: () => void;
   filters: Filters;
   project: string;
   openSession?: (id: string) => void;
@@ -43,12 +45,16 @@ export function SessionRequests({ id, filters, project, openSession, errorsOnly 
   const [input, setInput] = useState("");
   const [search, setSearch] = useState("");
   const signatures = useErrorSignatures(filters, project, errorsOnly);
-  const page = useSessionRequests(id, filters, project, errorsOnly || failed, offset, signature, search);
+  const page = useSessionRequests(id, filters, project, errorsOnly || failed, offset, signature, search, model);
   const shownColumns: Column<Row>[] = openSession ? [{
     id: "session", header: "Session", value: (r) => r.folder || r.sessionId, truncate: true,
     render: (r) => <button type="button" className="dashboard-link" onClick={() => openSession(r.sessionId)}>{r.folder || r.sessionId}</button>,
   }, ...columns] : columns;
   return <>
+    {model && <p className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+      <strong>{model.name}</strong><span>{model.provider || "Unknown provider"}</span>
+      {clearModel && <button type="button" className="dashboard-link" onClick={clearModel}>Clear model filter</button>}
+    </p>}
     <form className="mb-3 flex flex-wrap items-end gap-2" onSubmit={(event) => { event.preventDefault(); setSearch(input.trim()); setOffset(0); }}>
       <label className="flex flex-col gap-1 text-sm">
         Search requests

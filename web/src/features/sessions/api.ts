@@ -131,7 +131,9 @@ export interface SessionRequest {
 
 export const requestPageSize = 25;
 
-export function useSessionRequests(id: string | undefined, filters: Filters, project: string, failed: boolean, offset: number, signature: string, search: string) {
+export type RequestModel = { name: string; provider: string };
+
+export function useSessionRequests(id: string | undefined, filters: Filters, project: string, failed: boolean, offset: number, signature: string, search: string, model?: RequestModel) {
   const params = {
     ...filterParams(filters),
     limit: String(requestPageSize),
@@ -139,6 +141,7 @@ export function useSessionRequests(id: string | undefined, filters: Filters, pro
     ...(failed ? { failed: "1" } : {}),
     ...(signature ? { signature } : {}),
     ...(search ? { q: search } : {}),
+    ...(model ? { model: model.name, provider: model.provider } : {}),
   };
   return useQuery({
     queryKey: ["sessions", "requests", id, params, project],

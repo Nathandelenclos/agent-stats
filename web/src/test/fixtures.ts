@@ -59,6 +59,8 @@ export function serveReports(
         const state = indexing();
         return json({ state, indexed: 0, startedAt: 1, finishedAt: state === "done" ? 2 : 0, dataVersion: state === "done" ? 1 : 0 });
       }
+      case "/api/requests":
+        return json({ requests: [], hasMore: false });
       case "/api/report": {
         const scope = url.searchParams.get("project") ?? "";
         return json({ ...(await reportFor(url.searchParams.get("since") ?? "", url.searchParams.get("harness") ?? "", scope)), scope });

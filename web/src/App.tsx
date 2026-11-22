@@ -29,6 +29,7 @@ import { Catalog, useCatalog } from "./features/catalog/Catalog";
 import { Improvements } from "./features/improvements/Improvements";
 import { Quotas, useQuotas } from "./features/quotas/Quotas";
 import { Overview } from "./features/overview/Overview";
+import { Analytics } from "./features/report/Analytics";
 import { ToolModels } from "./features/report/ToolModels";
 import { CostBreakdown } from "./features/report/CostBreakdown";
 import { SessionRequests } from "./features/sessions/SessionRequests";
@@ -168,9 +169,9 @@ function Report({ report, explore, filters, project }: {
   );
 }
 
-const navIcons: Record<View, string> = { Overview: "▦", Usage: "▥", Sessions: "▤", Requests: "↔", Errors: "!", Prompts: "≡", Improvements: "↗", Catalog: "⊞", Quotas: "◴" };
+const navIcons: Record<View, string> = { Overview: "▦", Usage: "▥", Models: "◈", Tools: "⚙", Sessions: "▤", Requests: "↔", Errors: "!", Prompts: "≡", Improvements: "↗", Catalog: "⊞", Quotas: "◴" };
 const clearedRelation = Object.fromEntries(relationKeys.map((key) => [key, undefined]));
-const clearedDetail = { session: undefined, prompt: undefined, revision: undefined, section: undefined };
+const clearedDetail = { session: undefined, prompt: undefined, revision: undefined, section: undefined, requestModel: undefined, requestProvider: undefined };
 
 export function App() {
   const meta = useMeta();
@@ -188,12 +189,16 @@ export function App() {
   const isOverview = view === "Overview";
   const isImprovements = view === "Improvements";
   const hasCatalog = !!meta.data?.catalogAvailable;
-  const report = useReport(isOverview || view === "Usage" ? filters : undefined);
+  const report = useReport(isOverview || view === "Usage" || view === "Tools" ? filters : undefined);
   const sessionID = address.get("session") || undefined;
   const position = Number(address.get("prompt"));
   const selectedPrompt = Number.isSafeInteger(position) && position > 0 ? position : undefined;
   const revision = address.get("revision") || undefined;
   const section = address.get("section") || undefined;
+  const requestModel = address.get("requestModel");
+  const modelFilter = view === "Requests" && requestModel
+    ? { name: requestModel, provider: address.get("requestProvider") ?? "" }
+    : undefined;
   const sessions = useSessions(isOverview || view === "Sessions" ? filters : undefined, project, isOverview ? 5 : 1000);
   const prompts = usePromptReview(isOverview || isImprovements || view === "Prompts" ? filters : undefined, project, isOverview || isImprovements ? 5 : 1000);
   const catalog = useCatalog(
@@ -208,6 +213,8 @@ export function App() {
   const shownScope = {
     Overview: report.data?.scope,
     Usage: report.data?.scope,
+    Models: filters?.scope,
+    Tools: report.data?.scope ?? filters?.scope,
     Sessions: sessions.data?.scope,
     Requests: filters?.scope,
     Errors: filters?.scope,
@@ -218,7 +225,7 @@ export function App() {
   }[view];
 
   function selectView(next: View, focusHeading = true) {
-    if (next !== view || sessionID || selection) {
+    if (next !== view || sessionID || selection || modelFilter) {
       const previous = document.activeElement;
       update({ ...clearedDetail, ...clearedRelation, view: next === "Overview" ? undefined : next.toLowerCase() });
       if (focusHeading) window.requestAnimationFrame(() => {
@@ -246,6 +253,10 @@ export function App() {
     update({ ...clearedDetail, view: "sessions", session: id });
   }
 
+  function openRequestSession(id: string) {
+    update({ ...clearedRelation, ...clearedDetail, view: "sessions", session: id, section: "Requests" });
+  }
+
   function openPrompt(id: string, prompt: number, version?: string) {
     update({ session: id, prompt: String(prompt), revision: version });
   }
@@ -254,7 +265,7 @@ export function App() {
     update({ ...clearedRelation, ...clearedDetail, since: next.since, harness: next.harness, project: next.scope });
   }
 
-  const canInspect = filters && selection && (view === "Overview" || view === "Usage" || view === "Catalog");
+  const canInspect = filters && selection && (view === "Overview" || view === "Usage" || view === "Tools" || view === "Catalog");
   const inspector = canInspect && <RelatedSessions filters={filters} project={project} selection={selection} close={closeSelection} open={openSession} />;
 
   // Refresh scoped reads once indexing has finished and project detection has settled.
@@ -263,6 +274,7 @@ export function App() {
     if (syncVersion) {
       void queryClient.invalidateQueries({ queryKey: ["meta"] }).then(() => Promise.all([
         queryClient.invalidateQueries({ queryKey: ["report"] }),
+        queryClient.invalidateQueries({ queryKey: ["activity-series"] }),
         queryClient.invalidateQueries({ queryKey: ["sessions"] }),
         queryClient.invalidateQueries({ queryKey: ["prompts"] }),
         queryClient.invalidateQueries({ queryKey: ["catalog"] }),
@@ -306,14 +318,28 @@ export function App() {
                 catalogAvailable={!!meta.data.catalogAvailable} quotasAvailable={!!meta.data.quotasAvailable}
                 metric={metric} setMetric={(next) => update({ metric: next === "cost" ? undefined : next }, true)}
                 explore={explore} selectView={selectView} openSession={openSession} inspector={inspector}
+                filters={filters} project={project} openRequestSession={openRequestSession}
                 selectedDay={selection?.kind === "day" ? selection.value : undefined} />}
               {view === "Usage" && <>{inspector}<Report report={report} explore={explore} filters={filters} project={project} /></>}
+              {(view === "Models" || view === "Tools") && <>
+                {inspector}
+                <Analytics key={view} kind={view === "Models" ? "models" : "tools"} filters={filters} project={project}
+                  tools={report.isPlaceholderData ? undefined : report.data?.tools}
+                  openTool={(name, server) => explore({ kind: "tool", value: name, server })}
+                  openRequests={(name, provider) => update({ ...clearedDetail, ...clearedRelation, view: "requests", requestModel: name, requestProvider: provider || undefined })} />
+                {view === "Tools" && <>
+                  {(report.isPending || report.isPlaceholderData) && <p role="status">Loading tool totals…</p>}
+                  {report.isError && <Failure title="Tool totals could not be loaded." message={describe(report.error)} retry={() => void report.refetch()} />}
+                  <ToolModels filters={filters} project={project} />
+                </>}
+              </>}
               {view === "Sessions" && <Sessions filters={filters} project={project} list={sessions} selected={sessionID} prompt={selectedPrompt}
                 revision={revision} section={section} onSelect={openSession} onPrompt={openPrompt}
                 onSection={(next) => update({ section: next }, true)}
                 onBack={() => back(selectedPrompt ? { prompt: undefined, revision: undefined } : clearedDetail)} />}
-              {(view === "Requests" || view === "Errors") && <SessionRequests key={JSON.stringify([view, project, filters])} filters={filters} project={project} errorsOnly={view === "Errors"}
-                openSession={(id) => update({ ...clearedDetail, view: "sessions", session: id, section: "Requests" })} />}
+              {(view === "Requests" || view === "Errors") && <SessionRequests key={JSON.stringify([view, project, filters, modelFilter])} filters={filters} project={project} errorsOnly={view === "Errors"}
+                model={modelFilter} clearModel={() => update({ requestModel: undefined, requestProvider: undefined }, true)}
+                openSession={openRequestSession} />}
               {view === "Prompts" && (sessionID && selectedPrompt
                 ? <PromptReader id={sessionID} position={selectedPrompt} revision={revision} filters={filters} project={project}
                     onBack={() => back(clearedDetail)} onSession={openSession} backLabel="Back to prompt review" />

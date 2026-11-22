@@ -16,6 +16,14 @@
   --mark-2: #b45309;
   --focus: #1d4ed8;
   --danger: #b42318;
+  --plot-cyan: light-dark(#007687, #66d6e7);
+  --plot-magenta: light-dark(#a82078, #f07ac5);
+  --plot-violet: light-dark(#6342b0, #ac93ff);
+  --plot-amber: light-dark(#896000, #fdc069);
+  --plot-green: light-dark(#137444, #63dc97);
+  --plot-blue: light-dark(#2758a6, #80aaff);
+  --plot-coral: light-dark(#9f3f2d, #ff927a);
+  --plot-neutral: light-dark(#636e80, #9aa6b6);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -288,6 +296,7 @@ body {
     position:sticky;
     top:0;
     height:100vh;
+    overflow-y:auto;
     align-self:start;
     align-items:stretch;
     flex-direction:column;
@@ -305,6 +314,7 @@ body {
   .dashboard-card-grid { grid-template-columns:repeat(3,minmax(0,1fr)) }
 }
 @media (min-width: 90rem) {
+  .dashboard-metrics { grid-template-columns:repeat(5,minmax(0,1fr)) }
   .dashboard-plot { height:clamp(17rem,40vh,28rem) }
 }
 /* Leave room for the plot when summary cards or related sessions sit beside it. */
@@ -315,12 +325,12 @@ body {
     align-items:start;
     gap:1rem;
   }
-  .dashboard-metrics,.dashboard-chart-grid-active,
+  .dashboard-metrics,.dashboard-chart-grid-active,.dashboard-latest-requests,
   .dashboard-overview:has(> .dashboard-chart-grid-active) > .dashboard-card-grid { grid-column:1 / -1 }
   .dashboard-card-grid { grid-template-columns:repeat(auto-fit,minmax(16rem,1fr)) }
 }
 @media (max-width: 41.99rem) {
-  .dashboard-overview:has(> .dashboard-chart-grid-active) > :is(.dashboard-metrics,.dashboard-card-grid),
+  .dashboard-overview:has(> .dashboard-chart-grid-active) > :is(.dashboard-metrics,.dashboard-card-grid,.dashboard-latest-requests),
   .dashboard-chart-grid-active > :first-child { display:none }
   .dashboard-nav-icon { display:none }
   .dashboard-theme { margin-left:0 }
