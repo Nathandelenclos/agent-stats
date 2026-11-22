@@ -2,6 +2,7 @@ package logfiles
 
 import (
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -27,7 +28,7 @@ type Source struct {
 	Beside func(path string) string
 }
 
-// DefaultSources lists the standard log locations, honouring CLAUDE_CONFIG_DIR and CODEX_HOME.
+// DefaultSources lists the standard log locations and honours the home directory overrides of the harnesses.
 func DefaultSources(home string) []Source {
 	claude := envOr("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
 	codex := envOr("CODEX_HOME", filepath.Join(home, ".codex"))
@@ -47,6 +48,7 @@ func DefaultSources(home string) []Source {
 		{Harness: kernel.OpenCode, Root: openCodeData, Database: &OpenCodeDatabase{Prefix: "opencode", Override: os.Getenv("OPENCODE_DB")}},
 		{Harness: kernel.Kilo, Root: kiloData, Database: &OpenCodeDatabase{Prefix: "kilo", Fallback: "opencode", Override: os.Getenv("KILO_DB")}},
 		GeminiSource(filepath.Join(envOr("GEMINI_CLI_HOME", home), ".gemini", "tmp")),
+		grokSource(filepath.Join(envOr("GROK_HOME", filepath.Join(home, ".grok")), "sessions")),
 	}
 }
 
@@ -104,6 +106,9 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 			}
 			continue
 		}
+		first := len(files)
+		children := map[string]grokChild{}
+		parents := map[string]bool{}
 		err := filepath.WalkDir(src.Root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				if os.IsNotExist(err) || os.IsPermission(err) {
@@ -111,7 +116,13 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 				}
 				return err
 			}
-			if d.IsDir() || !src.Match(path) {
+			if src.Harness == kernel.Grok && d.Type().IsRegular() && d.Name() == "meta.json" {
+				if child := readGrokChild(src.Root, path); child.ID != "" {
+					children[child.ID] = child
+					parents[child.Parent] = true
+				}
+			}
+			if d.IsDir() || !src.Match(path) || (src.Harness == kernel.Grok && d.Type()&fs.ModeSymlink != 0) {
 				return nil
 			}
 			if t := d.Type(); !t.IsRegular() && t&fs.ModeSymlink == 0 {
@@ -129,6 +140,17 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 		})
 		if err != nil {
 			return files, problems, err
+		}
+		if src.Harness == kernel.Grok {
+			for i := first; i < len(files); i++ {
+				file := &files[i]
+				id := filepath.Base(filepath.Dir(file.Path))
+				child, hasChildren := children[id], parents[id]
+				file.Revision += fmt.Sprintf(":child=%q:%q:parent=%t", child.Parent, child.Type, hasChildren)
+				parsers[file.Path] = func(path string, r io.Reader) (domain.Transcript, error) {
+					return parseGrok(path, r, child, hasChildren)
+				}
+			}
 		}
 	}
 	l.mu.Lock()
@@ -161,6 +183,14 @@ func (l *FileSessionLogs) Read(f application.LogFile) (domain.Transcript, error)
 	}
 	if !ok {
 		return domain.Transcript{}, fmt.Errorf("%s was not listed", f.Path)
+	}
+	if f.Harness == kernel.Grok {
+		log, err := openGrokFile(f.Path)
+		if err != nil {
+			return domain.Transcript{}, err
+		}
+		defer log.Close()
+		return p(f.Path, &capped{r: log, left: maxLogBytes})
 	}
 	return ParseFile(f.Path, p)
 }

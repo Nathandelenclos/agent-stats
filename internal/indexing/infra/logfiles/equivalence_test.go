@@ -147,6 +147,8 @@ func TestParsersReadRealLogsAsTheLegacyOnesDid(t *testing.T) {
 	for _, src := range DefaultSources(home) {
 		legacy := legacyParsePi(src.Harness)
 		switch src.Harness {
+		case kernel.Grok:
+			continue
 		case kernel.Claude:
 			legacy = legacyParseClaude
 		case kernel.Codex:

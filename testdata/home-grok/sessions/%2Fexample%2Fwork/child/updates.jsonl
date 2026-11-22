@@ -1,0 +1,2 @@
+{"timestamp":1795168804,"method":"session/update","params":{"sessionId":"child","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"Copied prompt"}}}}
+{"timestamp":1795168806,"method":"session/update","params":{"sessionId":"child","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"Check the child"},"_meta":{"promptIndex":0}}}}

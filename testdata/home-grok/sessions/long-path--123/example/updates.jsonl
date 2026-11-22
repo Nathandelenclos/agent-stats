@@ -1,0 +1,7 @@
+{"timestamp":1795168800,"method":"session/update","params":{"sessionId":"example","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"Check the "},"_meta":{"promptIndex":0}}}}
+{"timestamp":1795168800,"method":"session/update","params":{"sessionId":"example","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"sample"},"_meta":{"promptIndex":0}}}}
+{"timestamp":1795168801,"method":"session/update","params":{"sessionId":"example","update":{"sessionUpdate":"tool_call","toolCallId":"tool-1","title":"read_file","status":"pending","rawInput":{"path":"a"},"_meta":{"x.ai/tool":{"name":"read_file"}}}}}
+{"timestamp":1795168802,"method":"session/update","params":{"sessionId":"example","update":{"sessionUpdate":"tool_call_update","toolCallId":"tool-1","status":"in_progress","title":"Read a","rawInput":{"path":"a","other":true},"rawOutput":"partial"}}}
+{"timestamp":1795168803,"method":"session/update","params":{"sessionId":"example","update":{"sessionUpdate":"tool_call_update","toolCallId":"tool-1","status":"failed","rawOutput":{"error":"failed"}}}}
+{"timestamp":1795168804,"method":"session/update","params":{"sessionId":"example","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Done."}}}}
+{
