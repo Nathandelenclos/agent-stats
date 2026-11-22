@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"encoding/json"
@@ -10,8 +10,6 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	"github.com/Nathandelenclos/agent-stats/internal/platform/textfmt"
 )
-
-func printable(s string) string { return textfmt.Printable(s) }
 
 // jsonEntry is the --json form of a catalogue entry. Uses is counted in Unit and null when the logs of the harness do not tell the item
 // apart; lastTs is in Unix milliseconds, 0 when unknown.
@@ -49,16 +47,17 @@ func toCatalogJSON(c catalog.Catalog) jsonCatalog {
 	return out
 }
 
-func writeCatalogJSON(w io.Writer, c catalog.Catalog) error {
+// WriteJSON writes the catalogue in its command-line JSON format.
+func WriteJSON(w io.Writer, c catalog.Catalog) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(toCatalogJSON(c))
 }
 
-// printCatalog writes what the usage covers, then one table per harness: kind, item, scope, uses and last use. Names come from configuration
+// WriteText writes what the usage covers, then one table per harness: kind, item, scope, uses and last use. Names come from configuration
 // files and logs, so they are made printable.
-func printCatalog(w io.Writer, c catalog.Catalog, onlyUnused bool, cov coverage) {
-	fmt.Fprintln(w, cov.label())
+func WriteText(w io.Writer, c catalog.Catalog, onlyUnused bool, scope string) {
+	fmt.Fprintln(w, scope)
 	if len(c.Entries) == 0 {
 		if onlyUnused {
 			fmt.Fprintln(w, "Nothing installed goes unused in this range.")
@@ -81,7 +80,7 @@ func printCatalog(w io.Writer, c catalog.Catalog, onlyUnused bool, cov coverage)
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "KIND\tITEM\tSCOPE\tUSES\tUNIT\tLAST USED")
 		for _, e := range rows {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", e.Kind, textfmt.Shorten(printable(itemLabel(e)), 50), scopeLabel(e), usesLabel(e), e.Unit(), lastLabel(e))
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", e.Kind, textfmt.Shorten(textfmt.Printable(itemLabel(e)), 50), scopeLabel(e), usesLabel(e), e.Unit(), lastLabel(e))
 		}
 		tw.Flush()
 	}
@@ -96,7 +95,7 @@ func itemLabel(e catalog.Entry) string {
 
 func scopeLabel(e catalog.Entry) string {
 	if p := e.Plugin(); p != "" {
-		return e.Scope.String() + ":" + printable(p)
+		return e.Scope.String() + ":" + textfmt.Printable(p)
 	}
 	return e.Scope.String()
 }
@@ -116,5 +115,5 @@ func lastLabel(e catalog.Entry) string {
 	case e.Last.IsZero():
 		return "never"
 	}
-	return day(e.Last)
+	return e.Last.Format("2006-01-02")
 }

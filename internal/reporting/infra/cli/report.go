@@ -1,9 +1,11 @@
-package main
+package cli
 
 import (
+	"encoding/json"
 	"fmt"
-	"os"
+	"io"
 	"text/tabwriter"
+	"time"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	"github.com/Nathandelenclos/agent-stats/internal/platform/textfmt"
@@ -74,47 +76,65 @@ func usageJSON(u reporting.Usage) jsonUsage {
 		float64(u.AvgDuration), float64(u.AvgTTFT), u.CacheRate(), kernel.UnixMilli(u.First), kernel.UnixMilli(u.Last)}
 }
 
-func printReport(r reporting.Report, cov coverage) {
-	fmt.Println(cov.label())
+// WriteJSON writes the usage report in its command-line JSON format.
+func WriteJSON(w io.Writer, r reporting.Report) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(toJSON(r))
+}
+
+// WriteText writes the usage report under the given scope label.
+func WriteText(w io.Writer, r reporting.Report, scope string) {
+	fmt.Fprintln(w, scope)
 	t := r.Total
 	if t.Requests == 0 {
-		fmt.Println("No requests in this range.")
+		fmt.Fprintln(w, "No requests in this range.")
 		return
 	}
-	fmt.Printf("%s requests (%s failed) · %s · %s in / %s out · cache %.0f%% · %s → %s\n",
+	fmt.Fprintf(w, "%s requests (%s failed) · %s · %s in / %s out · cache %.0f%% · %s → %s\n",
 		textfmt.Number(t.Requests), textfmt.Number(t.Failed), usd(t.Cost), textfmt.Number(t.InputWithCache()), textfmt.Number(t.Output), t.CacheRate()*100,
 		day(t.First), day(t.Last))
 	if t.Unpriced > 0 {
-		fmt.Printf("%s requests have no known cost\n", textfmt.Number(t.Unpriced))
+		fmt.Fprintf(w, "%s requests have no known cost\n", textfmt.Number(t.Unpriced))
 	}
-	usageTable("HARNESS", r.ByHarness, 0)
-	usageTable("MODEL", r.ByModel, 15)
-	usageTable("FOLDER", r.ByFolder, 10)
-	usageTable("AGENT", r.ByAgent, 10)
+	usageTable(w, "HARNESS", r.ByHarness, 0)
+	usageTable(w, "MODEL", r.ByModel, 15)
+	usageTable(w, "FOLDER", r.ByFolder, 10)
+	usageTable(w, "AGENT", r.ByAgent, 10)
 
-	fmt.Println()
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', tabwriter.AlignRight)
-	fmt.Fprintln(w, "TOOL\tMCP SERVER\tCALLS\tERRORS\tRESULT CHARS\t")
+	fmt.Fprintln(w)
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', tabwriter.AlignRight)
+	fmt.Fprintln(tw, "TOOL\tMCP SERVER\tCALLS\tERRORS\tRESULT CHARS\t")
 	for i, x := range r.Tools {
 		if i == 20 {
 			break
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t\n", textfmt.Printable(x.Name), textfmt.Printable(x.Server), textfmt.Number(x.Calls), textfmt.Number(x.Errors), textfmt.Number(x.ResultChars))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t\n", textfmt.Printable(x.Name), textfmt.Printable(x.Server), textfmt.Number(x.Calls), textfmt.Number(x.Errors), textfmt.Number(x.ResultChars))
 	}
-	w.Flush()
+	tw.Flush()
 }
 
-func usageTable(title string, rows []reporting.UsageGroup, limit int) {
-	fmt.Println()
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', tabwriter.AlignRight)
-	fmt.Fprintln(w, title+"\tREQUESTS\tFAILED\tTOKENS IN\tTOKENS OUT\tCACHE\tCOST\t")
+func usageTable(w io.Writer, title string, rows []reporting.UsageGroup, limit int) {
+	fmt.Fprintln(w)
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', tabwriter.AlignRight)
+	fmt.Fprintln(tw, title+"\tREQUESTS\tFAILED\tTOKENS IN\tTOKENS OUT\tCACHE\tCOST\t")
 	for i, x := range rows {
 		if limit > 0 && i == limit {
-			fmt.Fprintf(w, "… %d more\t\t\t\t\t\t\t\n", len(rows)-limit)
+			fmt.Fprintf(tw, "… %d more\t\t\t\t\t\t\t\n", len(rows)-limit)
 			break
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%.0f%%\t%s\t\n", textfmt.Shorten(textfmt.Printable(x.Group), 50), textfmt.Number(x.Requests), textfmt.Number(x.Failed),
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%.0f%%\t%s\t\n", textfmt.Shorten(textfmt.Printable(x.Group), 50), textfmt.Number(x.Requests), textfmt.Number(x.Failed),
 			textfmt.Number(x.InputWithCache()), textfmt.Number(x.Output), x.CacheRate()*100, usd(x.Cost))
 	}
-	w.Flush()
+	tw.Flush()
+}
+
+func usd(c reporting.USD) string { return fmt.Sprintf("$%.2f", float64(c)) }
+
+// day formats t as a date, an unknown time reading as the Unix epoch.
+func day(t time.Time) string {
+	if t.IsZero() {
+		t = time.UnixMilli(0)
+	}
+	return t.Format("2006-01-02")
 }

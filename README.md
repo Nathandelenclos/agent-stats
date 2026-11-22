@@ -515,7 +515,7 @@ holds `''`. The skills are kept in `tool_call_skills`, a table of their own: a b
 with positional statements that a column more would refuse, so it keeps writing an index this build has migrated. Its
 `Skill` calls then stay `NULL` until their log is read again (delete the index to read all logs again).
 
-`web/` holds the front of the web interface and embeds its build. `main.go` wires the slices together and opens the interactive view on a terminal; `serve.go` wires `agent-stats serve`; `present.go` renders the plain report as text or JSON; `prompts.go` renders the prompts review.
+`web/` holds the front of the web interface and embeds its build. `main.go` wires the slices together and opens the interactive view on a terminal; `serve.go` wires `agent-stats serve`; The `infra/cli` adapters in reporting and catalog format the command-line output.
 
 ## Development
 

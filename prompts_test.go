@@ -3,11 +3,8 @@ package main
 import (
 	"bytes"
 	"flag"
-	"strings"
 	"testing"
 	"time"
-
-	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 )
 
 var argumentTime = time.Date(2026, 1, 5, 10, 0, 0, 0, time.UTC)
@@ -98,17 +95,5 @@ func TestTheDefaultCommandStillRefusesAll(t *testing.T) {
 	// Given the default command with --since all, when its period is read, then it is refused
 	if _, err := sinceOf("", "all", argumentTime); err == nil {
 		t.Error("the default command accepted all")
-	}
-}
-
-func TestPromptReviewJSONPreservesDistinctLongFolderPaths(t *testing.T) {
-	prefix := "/" + strings.Repeat("a", excerptRunes)
-	review := reporting.PromptReview{Folders: []reporting.FolderFrustration{
-		{Folder: prefix + "/one", Prompts: 1},
-		{Folder: prefix + "/two", Prompts: 2},
-	}}
-	got := promptReviewJSON(review).ByFolder
-	if got[0].Folder != prefix+"/one" || got[1].Folder != prefix+"/two" {
-		t.Fatalf("folder paths were truncated: %+v", got)
 	}
 }

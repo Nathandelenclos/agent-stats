@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -21,6 +20,7 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/platform/termquiet"
 	"github.com/Nathandelenclos/agent-stats/internal/pricing/infra/pricetable"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
+	reportcli "github.com/Nathandelenclos/agent-stats/internal/reporting/infra/cli"
 	usagedb "github.com/Nathandelenclos/agent-stats/internal/reporting/infra/sqlite"
 	"github.com/Nathandelenclos/agent-stats/internal/reporting/infra/tui"
 )
@@ -163,11 +163,9 @@ func run() error {
 		return err
 	}
 	if *asJSON {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(toJSON(rep))
+		return reportcli.WriteJSON(os.Stdout, rep)
 	}
-	printReport(rep, cov)
+	reportcli.WriteText(os.Stdout, rep, cov.label())
 	return nil
 }
 
@@ -197,14 +195,4 @@ func currentUser() string {
 	}
 	host, _ := os.Hostname()
 	return name + "@" + host
-}
-
-func usd(c reporting.USD) string { return fmt.Sprintf("$%.2f", float64(c)) }
-
-// day formats t as a date, an unknown time reading as the Unix epoch.
-func day(t time.Time) string {
-	if t.IsZero() {
-		t = time.UnixMilli(0)
-	}
-	return t.Format("2006-01-02")
 }

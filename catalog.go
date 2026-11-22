@@ -10,11 +10,13 @@ import (
 	"time"
 
 	catalog "github.com/Nathandelenclos/agent-stats/internal/catalog/application"
+	catalogcli "github.com/Nathandelenclos/agent-stats/internal/catalog/infra/cli"
 	"github.com/Nathandelenclos/agent-stats/internal/catalog/infra/configfiles"
 	catalogdb "github.com/Nathandelenclos/agent-stats/internal/catalog/infra/sqlite"
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/infra/sqlite"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 	"github.com/Nathandelenclos/agent-stats/internal/platform/projectfolders"
+	"github.com/Nathandelenclos/agent-stats/internal/platform/textfmt"
 	"github.com/Nathandelenclos/agent-stats/internal/pricing/infra/pricetable"
 )
 
@@ -114,11 +116,11 @@ func runCatalog(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	if *asJSON {
-		return writeCatalogJSON(stdout, c)
+		return catalogcli.WriteJSON(stdout, c)
 	}
 	for _, note := range c.Skipped {
-		fmt.Fprintln(stderr, "skipped", printable(note))
+		fmt.Fprintln(stderr, "skipped", textfmt.Printable(note))
 	}
-	printCatalog(stdout, c, *unused, cov)
+	catalogcli.WriteText(stdout, c, *unused, cov.label())
 	return nil
 }
