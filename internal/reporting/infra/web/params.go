@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"time"
 
@@ -28,9 +29,16 @@ type params struct {
 	limit int
 }
 
-// parseParams validates the query string against the parameters the route accepts. Unknown and repeated parameters
-// are refused, so that a typo never silently widens a report.
-func (s *Server) parseParams(r *http.Request, withLimit bool) (params, *problem) {
+// The query parameters a route may accept.
+const (
+	paramSince   = "since"
+	paramHarness = "harness"
+	paramLimit   = "limit"
+)
+
+// parseParams validates the query string against the parameters the route accepts, none for a route that takes
+// none. Unknown and repeated parameters are refused, so that a typo never silently widens a report.
+func (s *Server) parseParams(r *http.Request, accepts ...string) (params, *problem) {
 	p := params{limit: defaultLimit}
 	if len(r.URL.RawQuery) > maxRawQuery {
 		pr := problem{Type: problemInvalidParameter, Title: "Query string too long", Status: http.StatusRequestURITooLong}
@@ -43,7 +51,7 @@ func (s *Server) parseParams(r *http.Request, withLimit bool) (params, *problem)
 		return p, &pr
 	}
 	for name, vs := range values {
-		if name != "since" && name != "harness" && !(withLimit && name == "limit") {
+		if !slices.Contains(accepts, name) {
 			pr := invalidParameter(name, "unknown parameter")
 			return p, &pr
 		}
@@ -52,31 +60,31 @@ func (s *Server) parseParams(r *http.Request, withLimit bool) (params, *problem)
 			return p, &pr
 		}
 	}
-	if v := values.Get("since"); v != "" {
+	if v := values.Get(paramSince); v != "" {
 		if len(v) > maxSinceChars {
-			pr := invalidParameter("since", "too long")
+			pr := invalidParameter(paramSince, "too long")
 			return p, &pr
 		}
 		now := s.now()
 		since, err := s.parseSince(v, now)
 		if err != nil || since.Before(earliestSince) || since.After(now) {
-			pr := invalidParameter("since", "use 24h, 7d, 30d, another duration such as 12h, or a date such as 2006-01-02, not in the future")
+			pr := invalidParameter(paramSince, "use 24h, 7d, 30d, another duration such as 12h, or a date such as 2006-01-02, not in the future")
 			return p, &pr
 		}
 		p.query.Since = since
 	}
-	if v := values.Get("harness"); v != "" {
+	if v := values.Get(paramHarness); v != "" {
 		h, err := kernel.ParseHarness(v)
 		if err != nil {
-			pr := invalidParameter("harness", err.Error())
+			pr := invalidParameter(paramHarness, err.Error())
 			return p, &pr
 		}
 		p.query.Harness = h
 	}
-	if v := values.Get("limit"); v != "" {
+	if v := values.Get(paramLimit); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 || n > maxLimit {
-			pr := invalidParameter("limit", fmt.Sprintf("an integer from 1 to %d", maxLimit))
+			pr := invalidParameter(paramLimit, fmt.Sprintf("an integer from 1 to %d", maxLimit))
 			return p, &pr
 		}
 		p.limit = n

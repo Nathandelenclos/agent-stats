@@ -298,6 +298,37 @@ func TestAQueryStringOverTheBoundIsRefused(t *testing.T) {
 	wantProblem(t, rec, http.StatusRequestURITooLong, problemInvalidParameter)
 }
 
+func TestEveryRouteAppliesTheSameQueryRules(t *testing.T) {
+	r := newRig(t)
+	for _, c := range []struct {
+		name, target string
+		status       int
+		typ          string
+	}{
+		{"unknown parameter on meta", "/api/meta?typo=1", 400, problemInvalidParameter},
+		{"period on meta", "/api/meta?since=7d", 400, problemInvalidParameter},
+		{"unknown parameter on sync", "/api/sync?typo=1", 400, problemInvalidParameter},
+		{"malformed escape on meta", "/api/meta?%ZZ", 400, problemInvalidParameter},
+		{"query over the bound on sync", "/api/sync?" + strings.Repeat("a", 259), 414, problemInvalidParameter},
+		{"query over the bound on meta", "/api/meta?" + strings.Repeat("a", 259), 414, problemInvalidParameter},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Given a request to a route that takes no parameter, with a query the other routes would refuse
+			// When it is sent
+			rec := r.get(c.target)
+
+			// Then it is refused like on the report, instead of the query being ignored
+			wantProblem(t, rec, c.status, c.typ)
+		})
+	}
+	// And the plain routes still answer
+	for _, target := range []string{"/api/meta", "/api/sync"} {
+		if rec := r.get(target); rec.Code != http.StatusOK {
+			t.Errorf("GET %s = %d, want 200", target, rec.Code)
+		}
+	}
+}
+
 func TestSessionsAreListedMostRecentFirstWithinTheLimit(t *testing.T) {
 	// Given 3 sessions
 	r := newRig(t)

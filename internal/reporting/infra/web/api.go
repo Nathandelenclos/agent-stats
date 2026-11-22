@@ -67,7 +67,7 @@ type reportJSON struct {
 
 // report answers GET /api/report?since=&harness=.
 func (s *Server) report(w http.ResponseWriter, r *http.Request) {
-	p, bad := s.parseParams(r, false)
+	p, bad := s.parseParams(r, paramSince, paramHarness)
 	if bad != nil {
 		bad.write(w)
 		return
@@ -124,7 +124,7 @@ type totalJSON struct {
 
 // sessions answers GET /api/sessions?since=&harness=&limit=: the most recent sessions, without their prompts.
 func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
-	p, bad := s.parseParams(r, true)
+	p, bad := s.parseParams(r, paramSince, paramHarness, paramLimit)
 	if bad != nil {
 		bad.write(w)
 		return
@@ -162,7 +162,11 @@ type metaJSON struct {
 }
 
 // meta answers GET /api/meta: what the page needs to build its filters.
-func (s *Server) meta(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) meta(w http.ResponseWriter, r *http.Request) {
+	if _, bad := s.parseParams(r); bad != nil {
+		bad.write(w)
+		return
+	}
 	m := metaJSON{Harnesses: make([]string, 0, len(kernel.Harnesses))}
 	for _, h := range kernel.Harnesses {
 		m.Harnesses = append(m.Harnesses, h.String())
@@ -172,7 +176,11 @@ func (s *Server) meta(w http.ResponseWriter, _ *http.Request) {
 }
 
 // syncProgress answers GET /api/sync: where the background indexing stands.
-func (s *Server) syncProgress(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) syncProgress(w http.ResponseWriter, r *http.Request) {
+	if _, bad := s.parseParams(r); bad != nil {
+		bad.write(w)
+		return
+	}
 	writeJSON(w, s.log, s.sync.snapshot())
 }
 

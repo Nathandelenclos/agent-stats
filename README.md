@@ -170,7 +170,8 @@ page open in your browser, so `serve` is restrictive by default:
 - Every response carries `Content-Security-Policy` (own scripts and styles only, no inline script, no framing,
   `base-uri` and `form-action` none), `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and
   `X-Frame-Options: DENY`. API responses are `Cache-Control: no-store`.
-- Query strings are bounded (256 bytes, 32 characters for a period, `limit` at most 1000) and the server has read and
+- Query strings are bounded on every API route (256 bytes, 32 characters for a period, `limit` at most 1000); a malformed
+  one, a parameter the route does not take (`/api/meta?typo=1`) or a repeated one is a `400`, never ignored. The server has read and
   write timeouts. A failure answers `500` without its cause, which goes to the server's log on stderr.
 - The page never shows the prompts. Session titles and folder paths do appear, so treat a screenshot like a report
   (see [Privacy](#privacy)).
