@@ -22,6 +22,18 @@ In the interactive view: `tab`/`←→` or `1`–`5` switch between harness, mod
 `↑↓` scroll, `s` sorts by the next column and `o` reverses it, `p` cycles the period (24h, 7d, 30d, all),
 `h` cycles the harness, `r` indexes the logs again and `q` quits.
 
+`m` switches between the **Usage** report and the **Sessions** view; the title shows which one is open (`[Usage] Sessions` or `Usage [Sessions]`).
+Sessions lists one row per session (a subagent whose parent log was not indexed has its own row): title, harness, start, duration,
+requests, cost, main model with its share of the cost, number of prompts you typed and their average length in characters, agent type,
+number of subagents and folder. Requests, cost and models cover the session and its subagents, so a costly session shows even when it delegated its work.
+Prompts count what you typed in the session itself, not the briefs it sent to its subagents.
+The period and harness filters apply as in Usage: a session is listed when its last activity falls in the period, and its figures then cover the whole session.
+`s`/`o` sort by any column (cost, average prompt length…); the order starts with the most recent session.
+`Enter` opens the selected session: its requests by model, the tools it called, its subagents, and its prompts in order, each with the frustration signals
+found in it (yelling, profanity, anguish, negation, blame, repeated). Prompt text is shown cut to a line, with control characters replaced.
+`↑↓`, `PgUp`/`PgDn`, `Home`/`End` scroll, `Esc` goes back to the list.
+The sessions are not part of `--json` or the plain-text report.
+
 The index lives in the user cache directory (`agent-stats/index.db`). Only changed log files are re-read,
 and rows survive when a harness deletes old logs.
 
@@ -35,8 +47,10 @@ Override or add models with `--prices file.json` (`{"model": [input, output, cac
 Vertical slices, each in clean-architecture layers (`domain` ← `application` ← `infra`):
 
 - `internal/indexing`: read session logs (`infra/logfiles`) and keep them in the SQLite index (`infra/sqlite`).
-- `internal/reporting`: summarise indexed usage; its `UsageQueries` port is implemented by the index.
+- `internal/reporting`: summarise indexed usage and describe sessions (`ListSessions`, `ShowSession`); its `UsageQueries` and `SessionQueries` ports are implemented by the index.
+  It reads only the views `indexing` publishes: `usage_requests` and `usage_tool_calls`, and `session_overview`, `session_requests`, `session_tool_calls` and `session_prompts`.
+  `session_prompts` is the only one that carries prompt text.
 - `internal/pricing`: rates and price list; `infra/pricetable` loads the embedded LiteLLM table.
 - `internal/kernel`: what every slice shares (harnesses, token counts, request cost).
-- `internal/reporting/infra/tui`: the interactive view (Bubble Tea), an input adapter over the reporting use case.
+- `internal/reporting/infra/tui`: the interactive view (Bubble Tea), an input adapter over the reporting use cases.
 - `main.go` wires the slices, then opens the view on a terminal or prints the report.
