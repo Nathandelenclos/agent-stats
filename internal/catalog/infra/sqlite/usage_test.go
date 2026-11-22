@@ -97,6 +97,30 @@ func TestSkillLoadsAreCountedPerSkill(t *testing.T) {
 	}
 }
 
+func TestAnUnnamedSkillCallMakesTheSkillUsageOfItsHarnessUnknown(t *testing.T) {
+	// Given an index with a Claude Skill call that names no skill, on 4 January
+	u, err := OpenReadOnly(publishedIndex(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer u.Close()
+
+	// When the activity is read for the whole period, and for the period after that call
+	all, err := u.Activity(domain.Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	later, err := u.Activity(domain.Filter{Since: time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC)})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Then Claude is flagged for the first period only, and Codex for neither
+	if !all.UnnamedSkillLoads[kernel.Claude] || all.UnnamedSkillLoads[kernel.Codex] || len(later.UnnamedSkillLoads) != 0 {
+		t.Errorf("all %v, later %v", all.UnnamedSkillLoads, later.UnnamedSkillLoads)
+	}
+}
+
 func TestActivityHonoursPeriodAndHarness(t *testing.T) {
 	// Given the same index
 	u, err := OpenReadOnly(publishedIndex(t))

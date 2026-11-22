@@ -148,6 +148,9 @@ type Activity struct {
 	Tools  []ToolActivity
 	Agents []AgentActivity
 	Skills []SkillActivity
+	// UnnamedSkillLoads flags the harnesses with a Skill call that names no skill: the index has not read its file again
+	// (after a migration), so the loads counted per skill are incomplete and the usage of skills is unknown.
+	UnnamedSkillLoads map[kernel.Harness]bool
 }
 
 // Entry is one line of the catalogue: an item, or a tool, server, agent or skill seen in the logs but defined nowhere
@@ -206,7 +209,7 @@ func Link(items []Item, a Activity) []Entry {
 			continue
 		}
 		seen[it.identity()] = true
-		e := Entry{Item: it, Tracked: tracked(it.Harness, it.Kind)}
+		e := Entry{Item: it, Tracked: tracked(it.Harness, it.Kind) && !(it.Kind == Skill && a.UnnamedSkillLoads[it.Harness])}
 		switch it.Kind {
 		case MCPServer:
 			for i, t := range a.Tools {

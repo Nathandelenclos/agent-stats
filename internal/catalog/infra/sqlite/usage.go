@@ -77,6 +77,9 @@ func (u *Usage) Activity(f domain.Filter) (domain.Activity, error) {
 	if a.Skills, err = skillActivity(tx, f); err != nil {
 		return domain.Activity{}, err
 	}
+	if a.UnnamedSkillLoads, err = unnamedSkillLoads(tx, f); err != nil {
+		return domain.Activity{}, err
+	}
 	return a, nil
 }
 
@@ -161,6 +164,31 @@ func skillActivity(q querier, f domain.Filter) ([]domain.SkillActivity, error) {
 		}
 		s.Last = fromMillis(last)
 		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// unnamedSkillLoads flags the harnesses with a Skill call whose skill is empty. After the index's migration that is
+// every Skill call whose file is not read again yet. ponytail: a Skill call that never named its skill (no input) is
+// indistinguishable and keeps the usage of skills unknown; the view does not say which files are pending.
+func unnamedSkillLoads(q querier, f domain.Filter) (map[kernel.Harness]bool, error) {
+	cond, args := where(f, "name = 'Skill'", "server = ''", "skill = ''")
+	rows, err := q.Query(`SELECT DISTINCT harness FROM usage_tool_calls`+cond, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[kernel.Harness]bool{}
+	for rows.Next() {
+		var harness string
+		if err := rows.Scan(&harness); err != nil {
+			return nil, err
+		}
+		h, err := harnessOf(harness)
+		if err != nil {
+			return nil, err
+		}
+		out[h] = true
 	}
 	return out, rows.Err()
 }

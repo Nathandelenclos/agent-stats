@@ -182,6 +182,26 @@ func TestUsageOfWhatTheLogsDoNotTellApartIsUnknownNotZero(t *testing.T) {
 	}
 }
 
+func TestSkillUsageIsUnknownWhileSomeSkillCallNamesNoSkill(t *testing.T) {
+	// Given a Claude skill and agent with no named load, and a Skill call of Claude that names no skill (not read again yet)
+	items := []Item{
+		item(t, kernel.Claude, Skill, "review", ScopeUser),
+		item(t, kernel.Claude, Agent, "reviewer", ScopeUser),
+	}
+	act := Activity{UnnamedSkillLoads: map[kernel.Harness]bool{kernel.Claude: true}}
+
+	// When linked
+	entries := Link(items, act)
+
+	// Then the skill is not reported unused, its usage being unknown, and the agent is still known to be unused
+	if s := find(t, entries, kernel.Claude, Skill, "review"); s.Tracked || s.Unused() {
+		t.Errorf("skill: %+v", s)
+	}
+	if a := find(t, entries, kernel.Claude, Agent, "reviewer"); !a.Unused() {
+		t.Errorf("agent: %+v", a)
+	}
+}
+
 func TestPluginsAddUpTheUsageOfWhatTheyCarry(t *testing.T) {
 	// Given a plugin carrying a skill, a server and an agent
 	plugin := item(t, kernel.Claude, Plugin, "demo@market", ScopeUser)
