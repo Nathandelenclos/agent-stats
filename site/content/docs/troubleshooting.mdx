@@ -1,0 +1,34 @@
+---
+title: Troubleshooting
+description: Find missing requests, fix a dashboard build notice, or switch a busy port.
+---
+
+## The report has no requests
+
+Clear the coding agent filter, select all projects, and try a longer period.
+
+```sh
+agent-stats --all --since 30d | more
+```
+
+Confirm your coding agent has written a [supported local log](/docs/coding-agents/). If you used `--no-sync`, remove it or choose **Re-index** in the dashboard.
+
+## The dashboard shows a build notice
+
+Install a [release binary](/docs/install/) for the packaged dashboard. If you are building from a checkout, regenerate the front and build the binary again. The front build needs Node.js 22.12 or later.
+
+```sh
+go generate ./web
+go build -tags web .
+./agent-stats serve --all
+```
+
+On Windows, start the rebuilt executable with `.\agent-stats.exe serve --all`.
+
+## The default port is busy
+
+```sh
+agent-stats serve --all --addr 127.0.0.1:8080
+```
+
+Then open [http://127.0.0.1:8080](http://127.0.0.1:8080).

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>agent-stats user guide</title>
+  <link rel="canonical" href="https://agent-stats.delenclosnathan.fr/docs/">
+</head>
+<body>
+  <main>
+    <h1>The agent-stats guide has moved</h1>
+    <p><a href="./docs/" id="documentation">Open the documentation</a></p>
+    <ul>
+      <li id="install"><a href="./docs/install/">Install</a></li>
+      <li id="first-report"><a href="./docs/first-report/">Run your first report</a></li>
+      <li id="dashboard"><a href="./docs/dashboard/">Open the dashboard</a></li>
+      <li id="usage"><a href="./docs/dashboard/#usage">Usage</a></li>
+      <li id="sessions"><a href="./docs/dashboard/#sessions">Sessions</a></li>
+      <li id="prompts"><a href="./docs/dashboard/#prompts">Prompts</a></li>
+      <li id="privacy"><a href="./docs/privacy/">Privacy</a></li>
+      <li id="troubleshooting"><a href="./docs/troubleshooting/">Troubleshooting</a></li>
+    </ul>
+  </main>
+  <script>
+    const section = document.getElementById(location.hash.slice(1));
+    const destination = section?.querySelector("a") ?? document.getElementById("documentation");
+    location.replace(destination.href);
+  </script>
+</body>
+</html>

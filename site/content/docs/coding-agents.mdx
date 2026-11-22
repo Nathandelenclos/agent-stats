@@ -1,0 +1,32 @@
+---
+title: Supported coding agents
+description: Find which coding agents are indexed and where agent-stats reads their local logs.
+---
+
+Agents that do not have local logs are skipped. The report only shows metrics recorded by the agent or derived from the available usage data.
+
+| Coding agent | Logs read |
+|---------|-----------|
+| Claude Code | `~/.claude/projects` (or `$CLAUDE_CONFIG_DIR/projects`), including sub-agent logs |
+| Codex | `~/.codex/sessions` and `~/.codex/archived_sessions` (or under `$CODEX_HOME`), `.jsonl` and `.jsonl.zst` rollouts |
+| oh-my-pi | `~/.omp/agent/sessions` |
+| pi | `~/.pi/agent/sessions` |
+| OpenCode | the SQLite databases `opencode.db` and `opencode-<channel>.db` of `$XDG_DATA_HOME/opencode` (`~/.local/share/opencode`), or the file named by `$OPENCODE_DB` |
+| Kilo Code | `kilo.db` and `kilo-<channel>.db` of `$XDG_DATA_HOME/kilo` (`~/.local/share/kilo`), or `$KILO_DB`; an `opencode-<channel>.db` there (the old name) only when the channel has no `kilo-<channel>.db` |
+| Gemini CLI | `~/.gemini/tmp/<project>/chats/*.json` and `*.jsonl` (under `$GEMINI_CLI_HOME` when set), including subagent journals |
+| GitHub Copilot CLI | `~/.copilot/session-state/<session-id>/events.jsonl` (under `$COPILOT_HOME` when set) |
+| Zed Agent | `threads/threads.db` in `~/Library/Application Support/Zed` on macOS, `${FLATPAK_XDG_DATA_HOME:-$XDG_DATA_HOME}/zed` on Linux (`~/.local/share/zed` by default), or `%LOCALAPPDATA%/Zed` on Windows |
+| Grok Build CLI | `~/.grok/sessions/<encoded-cwd>/<id>/updates.jsonl` (under `$GROK_HOME` when set), with session metadata and usage from neighbouring files |
+| Cursor IDE | `~/.cursor/projects/<project>/agent-transcripts/<id>/<id>.jsonl` and `User/globalStorage/state.vscdb` under Cursor's application data directory |
+| Goose | `~/.local/share/goose/sessions/sessions.db` |
+| VS Code Chat | `workspaceStorage/<workspace>/chatSessions` and `globalStorage/emptyWindowChatSessions` under the VS Code user directory, plus supported debug logs |
+| Cline | Session manifests and messages under `~/.cline/data/sessions`, or legacy tasks under the VS Code user directory |
+| Continue CLI (`cn`) | `~/.continue/sessions/<id>.json` |
+
+## Check one agent
+
+```sh
+agent-stats --all --harness codex --since 7d | more
+```
+
+Run `agent-stats --help` for filters. The dashboard also lists available agent names when you open its coding agent filter. For how each reader handles missing fields, session IDs, and tools, see the [reader details](https://github.com/Nathandelenclos/agent-stats#supported-harnesses).

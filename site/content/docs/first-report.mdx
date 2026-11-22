@@ -1,0 +1,30 @@
+---
+title: Run your first report
+description: Read seven days of usage and drill into a coding agent or project.
+---
+
+After a session with a [supported coding agent](/docs/coding-agents/), run:
+
+```sh
+agent-stats --all --since 7d | more
+```
+
+The first run indexes local logs. Later runs read only files that changed. Start with the totals, then compare the breakdowns by coding agent, model, project folder, and tool.
+
+## Read the totals
+
+- **Requests and tokens** show how much work the logs recorded. The input, output, and cache counts are tracked separately.
+- **Estimated cost** uses reported cost when available, otherwise the embedded price table. It can differ from your bill. The report flags requests that have no known price.
+- **Cache hit rate** shows how much input came from the cache where the logs expose those counts.
+
+## Narrow the scope
+
+```sh
+agent-stats --all --since 24h --harness codex | more
+agent-stats --project ~/work/app --since 30d | more
+agent-stats --all --since 7d --json
+```
+
+From a project folder, the report can select that project automatically when an indexed session worked there. Use `--all` to see every project from any directory, especially in scripts. Use `--project DIR` to choose a specific folder, or `--no-sync` to reuse the current index.
+
+For an interactive report, run `agent-stats` in a terminal. Press `m` to cycle through Usage, Sessions, and Prompts. Press `a` to switch between the current project and all projects when a project is available.

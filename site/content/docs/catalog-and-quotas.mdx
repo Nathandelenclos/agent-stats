@@ -1,0 +1,26 @@
+---
+title: Catalog and account quotas
+description: Compare installed extensions with recorded usage and check provider quota windows.
+---
+
+Catalog is available from the CLI. The Catalog and Quotas views, and Claude Code quota recording, are available in development builds after v0.6.0.
+
+## Catalog
+
+```sh
+agent-stats catalog --all --since 30d
+agent-stats catalog --unused
+```
+
+Catalog lists installed items by coding agent alongside their recorded uses and last use, when the source exposes them. `?` means the logs cannot distinguish usage for that item. JSON represents that value as `null`. `--unused` selects installed items with zero recorded uses.
+
+Open **Catalog** in the local dashboard, or press `c` in the terminal and `u` to toggle unused items. The report filters also apply to the catalog. [See the catalog coverage by coding agent](https://github.com/Nathandelenclos/agent-stats#catalog).
+
+## Account quotas
+
+Open **Quotas** in the local dashboard, or press `l` in the terminal and `r` to refresh. Available windows show the remaining percentage and reset time for the provider account.
+
+- **Codex** uses the installed app-server and its current login when you open or refresh the view.
+- **Claude Code** needs the standard status-line JSON on stdin. Forward it from your existing status-line script to `agent-stats quota record-claude` while keeping the script's current display. The snapshot is available for up to 15 minutes.
+
+Account quotas are independent of project, period, and coding agent filters. The web Catalog and Quotas are available on a loopback server without `--allow-remote`.

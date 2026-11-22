@@ -1,0 +1,29 @@
+---
+title: Review recurring prompts
+description: Identify repeated corrections and decide what to document in project instructions.
+---
+
+Run a review across all projects for the last seven days:
+
+```sh
+agent-stats prompts --all --since 7d
+```
+
+You can also open **Prompts** in the [dashboard](/docs/dashboard/#prompts), or press `m` in the interactive terminal until Prompts is selected.
+
+## Read the review
+
+- **Recurring** groups matching flagged prompts found in at least two sessions. Check whether an instruction in `AGENTS.md` or `CLAUDE.md` would save you repeating the request.
+- **By folder** helps you find where flagged prompts are concentrated.
+- **Flagged prompts** let you inspect the excerpt, source session, and signals behind an entry.
+
+Signals include repetition, negation, profanity, and all-caps text. Pasted logs or quoted text can trigger them. Open the source session before acting on a flag.
+
+## Export or filter
+
+```sh
+agent-stats prompts --project ~/work/app --since 30d
+agent-stats prompts --all --since all --json
+```
+
+The command defaults to seven days. Use `--since all` for the full index. JSON from this command can contain prompt excerpts, so review it before sharing.

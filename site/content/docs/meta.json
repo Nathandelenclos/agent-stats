@@ -1,0 +1,17 @@
+{
+  "pages": [
+    "index",
+    "install",
+    "first-report",
+    "---Explore your usage---",
+    "dashboard",
+    "prompts",
+    "catalog-and-quotas",
+    "---Reference---",
+    "cli",
+    "api",
+    "coding-agents",
+    "privacy",
+    "troubleshooting"
+  ]
+}

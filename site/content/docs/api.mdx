@@ -1,0 +1,35 @@
+---
+title: Local JSON API
+description: Query the local report, sessions, prompt review, and indexing status.
+---
+
+Start `agent-stats serve --all`, then query the loopback server:
+
+```sh
+curl 'http://127.0.0.1:7373/api/report?since=7d&harness=codex&project=all'
+```
+
+The API is available even when the binary was built without the dashboard. All data comes from the local process.
+
+## Read endpoints
+
+The catalog and quota API endpoints are available in development builds after v0.6.0.
+
+| GET route | What it returns |
+| --- | --- |
+| `/api/report` | Usage totals and breakdowns, plus daily values in date order. Empty lists are arrays. |
+| `/api/sessions` | Recent sessions, scope, and totals across all matching sessions. Accepts `limit` from 1 to 1,000 (default 100). |
+| `/api/sessions/{id}` | Models, tool calls, subagents, and prompt signals for one session. Encode the ID as a single path segment. |
+| `/api/prompts` | Flagged prompts, recurring requests, and totals by folder. `limit` only caps the flagged list. |
+| `/api/meta` | Available coding agents, current project, and default filters. |
+| `/api/sync` | Background indexing state, files indexed, and skipped counts. |
+| `/api/catalog` | Catalog items and usage. Accepts `unused=true` to show zero-use items only. Available on a loopback server without remote access. |
+| `/api/quotas` | Available provider quota windows. Available on a loopback server without remote access. |
+
+Reports, sessions, prompts, and catalog use the optional `since`, `harness`, and `project` filters. For `project`, pass `all` or `current`. The latter requires a current project. Unknown or repeated parameters return `400`. Unknown or out-of-scope session IDs return `404`. Errors use `application/problem+json`.
+
+## Refresh the index
+
+`POST /api/sync` starts indexing or returns the run already in progress. It expects a same-origin browser request with no body or query string. Use **Re-index** in the dashboard to trigger it.
+
+See [privacy and remote access](/docs/privacy/) before sharing reports or changing the listener.

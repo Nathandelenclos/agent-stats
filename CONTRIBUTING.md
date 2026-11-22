@@ -49,6 +49,24 @@ Examples: `feat(reporting): add a per-day breakdown`, `fix(indexing): skip trunc
 commit on `main`. A check fails the pull request if the title is not conventional. Keep one pull request to one
 change; a large pull request is easier to review as several small ones.
 
+## Public documentation site
+
+The Next.js and Fumadocs site lives in `site/`. Write guides in `site/content/docs/` and list their slugs in `meta.json` to set the sidebar order. The dashboard bundled in the CLI is developed separately in `web/`.
+
+```sh
+npm --prefix site ci
+npm --prefix site run dev
+```
+
+To verify the GitHub Pages artifact:
+
+```sh
+npm --prefix site run build
+npm --prefix site test
+```
+
+The build outputs `site/out/`, including the static search index. The repository currently publishes the legacy site from `main:/docs`. When the new workflow reaches `main`, select **GitHub Actions** under **Settings → Pages**, keep the existing custom domain, and run **Documentation site** from `main`. GitHub Actions then publishes changes under `site/` pushed to `main`.
+
 ## Releases
 
 Do not bump a version, create a tag or edit a changelog by hand. When commits that count (see the table above) reach

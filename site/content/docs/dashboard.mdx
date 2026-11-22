@@ -1,0 +1,34 @@
+---
+title: Open the dashboard
+description: Explore usage, sessions, and prompts in a browser on your machine.
+---
+
+Run the local server using a release binary:
+
+```sh
+agent-stats serve --all
+```
+
+Open [http://127.0.0.1:7373](http://127.0.0.1:7373) on the machine running the command. The dashboard opens while the index updates in the background. Use **Re-index** after a new session and press `Ctrl+C` in the terminal to stop the server.
+
+## Usage
+
+Start with the totals and estimated cost over time. Narrow the period or coding agent, then sort the breakdowns to find the model, project, or tool behind a change. If the server has a current project, switch between that project and all projects.
+
+```sh
+agent-stats serve --since 7d --harness claude
+```
+
+The browser keeps the active filters in its URL. Open [CLI reference](/docs/cli/#dashboard) for the server flags.
+
+## Sessions
+
+Open **Sessions** from the sidebar and choose a row to see models, tool calls, subagents, and prompt signals. Sessions are selected by their latest activity within the period. The figures for a matching session describe its whole run, subject to the project filter.
+
+## Prompts
+
+Open **Prompts** to see recurring requests, flagged prompts, and totals by project folder. Use the [prompt review guide](/docs/prompts/) to interpret the flags.
+
+## Catalog and quotas
+
+Development builds after v0.6.0 also expose [Catalog and Quotas](/docs/catalog-and-quotas/). These views need a loopback listener without remote access enabled.

@@ -1,13 +1,17 @@
 # agent-stats
 
-Usage statistics for AI coding agents, computed from the session logs they already write on your machine.
+Track usage, estimated cost, and sessions for AI coding agents using the logs already on your machine.
 
-`agent-stats` reads the local session logs of **Claude Code**, **Codex**, **oh-my-pi** and **pi**, indexes them in a
-local SQLite file and reports requests, tokens, cache hit rate, cost, latency and tool usage, per harness, model,
-folder and sub-agent type. There is no proxy, no wrapper, no account and no network call: **nothing leaves your
-machine** (see [Privacy](#privacy)).
+[Website](https://agent-stats.delenclosnathan.fr/) · [Documentation](https://agent-stats.delenclosnathan.fr/guide.html) · [Releases](https://github.com/Nathandelenclos/agent-stats/releases)
 
-[Project website](https://nathandelenclos.github.io/agent-stats/) · [User guide](https://nathandelenclos.github.io/agent-stats/guide.html)
+```sh
+brew install nathandelenclos/tap/agent-stats
+agent-stats --all --since 7d | more
+```
+
+Use a [release binary](https://github.com/Nathandelenclos/agent-stats/releases) on Linux or Windows. Run `agent-stats serve` from a release binary to open the local dashboard at <http://127.0.0.1:7373>.
+
+The report covers requests, tokens, cache use, latency, and tool usage. agent-stats opens [supported session logs](#supported-harnesses) read-only and keeps the SQLite index on your machine. See [Privacy](#privacy) for what the index stores.
 
 ## Install
 
@@ -359,6 +363,8 @@ file, a name with control characters) is left out and noted on stderr (`skipped`
 | Grok Build CLI | `~/.grok/sessions/<encoded-cwd>/<id>/updates.jsonl` (under `$GROK_HOME` when set), with session metadata and usage from neighbouring files |
 | Cursor IDE | `~/.cursor/projects/<project>/agent-transcripts/<id>/<id>.jsonl` and `User/globalStorage/state.vscdb` under Cursor's application data directory |
 | Goose | `~/.local/share/goose/sessions/sessions.db` |
+| VS Code Chat | `workspaceStorage/<workspace>/chatSessions` and `globalStorage/emptyWindowChatSessions` under the VS Code user directory, plus supported debug logs |
+| Cline | Session manifests and messages under `~/.cline/data/sessions`, or legacy tasks under the VS Code user directory |
 | Continue CLI (`cn`) | `~/.continue/sessions/<id>.json` |
 
 A harness that is not installed is simply skipped. The index lives in the user cache directory

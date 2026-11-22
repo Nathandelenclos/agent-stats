@@ -1,0 +1,29 @@
+---
+title: Get started with agent-stats
+description: Measure how you use AI coding agents with the session logs already on your machine.
+---
+
+agent-stats reads local session logs and reports requests, tokens, estimated cost, cache usage, and tool calls. Use it to compare models, inspect an expensive session, or find prompts you keep repeating.
+
+## Run your first report
+
+1. [Install a release binary](/docs/install/) for your operating system.
+2. Run a session with a [supported coding agent](/docs/coding-agents/).
+3. Open a seven-day report across all projects.
+
+```sh
+agent-stats --all --since 7d | more
+```
+
+The report starts with the scope and totals, followed by breakdowns by coding agent, model, project, and tool. [Read your first report](/docs/first-report/) explains what the numbers mean.
+
+## Choose an interface
+
+| Interface | Command | Best for |
+| --- | --- | --- |
+| Interactive terminal | `agent-stats` | Browse usage, sessions, and flagged prompts without leaving the terminal |
+| Local dashboard | `agent-stats serve` | Inspect charts and sortable tables in your browser |
+| Text report | `agent-stats > usage.txt` | Read or save a report without an interactive session |
+| JSON | `agent-stats --all --json` | Feed your own scripts or reporting tools |
+
+The [local dashboard](/docs/dashboard/) reads your local index. This public website uses sample data.
