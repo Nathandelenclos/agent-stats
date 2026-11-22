@@ -609,9 +609,8 @@ func TestNewIndexUsesLargePagesAndAnOlderOneKeepsItsOwn(t *testing.T) {
 	}
 }
 
-// oldSchema is the index as 80bf4b1 made it, before tool calls recorded the skill they load and before migrations
-// (user_version 0): one log with a Skill call, one without, and a Codex log whose function call kept the full name
-// of an MCP tool under no server.
+// oldSchema is the index as 80bf4b1 made it, before tool calls recorded the skill they load and before migrations:
+// one Claude log with a Skill call, one without, and a Codex log whose function call kept the full name of an MCP tool.
 const oldSchema = `
 CREATE TABLE files (path TEXT PRIMARY KEY, harness TEXT NOT NULL, size INTEGER NOT NULL, mtime INTEGER NOT NULL);
 CREATE TABLE sessions (id TEXT PRIMARY KEY, file TEXT NOT NULL, harness TEXT NOT NULL, parent_id TEXT, agent_type TEXT NOT NULL,
@@ -630,8 +629,8 @@ INSERT INTO tool_calls VALUES ('/logs/with-skill.jsonl', 't1', 'claude:a', 1, 'S
 	('/logs/codex-mcp.jsonl', 't3', 'codex:c', 1, 'mcp__demo__read', '', 0, 0, 0, NULL);
 `
 
-// openOldIndex opens, with the current code, the index of 80bf4b1 described by oldSchema.
-func openOldIndex(t *testing.T) (*SQLiteIndex, string) {
+// openIndexOf80bf4b1 opens, with the current code, the index described by oldSchema.
+func openIndexOf80bf4b1(t *testing.T) (*SQLiteIndex, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "index.db")
 	old, err := sql.Open("sqlite", path)
@@ -645,32 +644,29 @@ func openOldIndex(t *testing.T) (*SQLiteIndex, string) {
 	return reopen(t, path), path
 }
 
-// indexBuiltBeforeTheSkillColumn is an index as main made it before tool calls recorded their skill, at the
-// version of its sessions views (1): it holds a Claude log with a Skill call, a Claude log without, a Codex log
-// whose function call kept the full name of an MCP tool, and a Codex log already read the way it is now.
-func indexBuiltBeforeTheSkillColumn(t *testing.T) (path string) {
+// indexOfMainBeforeSkillLoads is an index as main made it before tool calls recorded their skill, with its sessions
+// listing up to date: a Claude log with a Skill call, a Claude log without, a Codex log whose function call kept the
+// full name of an MCP tool, and a Codex log already read the way it is now.
+func indexOfMainBeforeSkillLoads(t *testing.T) (path string) {
 	t.Helper()
 	s := open(t)
 	path = pathOf(t, s)
 	at := time.UnixMilli(1767261600000)
-	logs := map[string]application.IndexedTranscript{}
-	for _, f := range []struct{ file, native, name, server string }{
-		{"/logs/with-skill.jsonl", "a", "Skill", ""}, {"/logs/without.jsonl", "b", "Read", ""},
-		{"/logs/codex-mcp.jsonl", "c", "mcp__demo__read", ""}, {"/logs/codex-split.jsonl", "d", "read", "demo"},
+	for _, f := range []struct {
+		file         string
+		harness      kernel.Harness
+		name, server string
+	}{
+		{"/logs/with-skill.jsonl", kernel.Claude, "Skill", ""}, {"/logs/without.jsonl", kernel.Claude, "Read", ""},
+		{"/logs/codex-mcp.jsonl", kernel.Codex, "mcp__demo__read", ""}, {"/logs/codex-split.jsonl", kernel.Codex, "read", "demo"},
 	} {
-		tr := transcript(t, f.native, at)
+		tr := transcript(t, filepath.Base(f.file), at)
 		tr.Tools[0].Name, tr.Tools[0].Server = f.name, f.server
-		logs[f.file] = tr
-	}
-	for file, tr := range logs {
-		harness := kernel.Claude
-		if file[:11] == "/logs/codex" {
-			harness = kernel.Codex
-		}
-		if err := save(s, application.LogFile{Path: file, Harness: harness, Size: 1}, tr); err != nil {
+		if err := save(s, application.LogFile{Path: f.file, Harness: f.harness, Size: 1}, tr); err != nil {
 			t.Fatal(err)
 		}
 	}
+	// what main left: no skill column, the sessions listing already built
 	for _, q := range []string{`DROP VIEW usage_tool_calls`, `ALTER TABLE tool_calls DROP COLUMN skill`, `PRAGMA user_version = 1`} {
 		if _, err := s.db.Exec(q); err != nil {
 			t.Fatal(err)
@@ -680,98 +676,137 @@ func indexBuiltBeforeTheSkillColumn(t *testing.T) (path string) {
 	return path
 }
 
-func version(t *testing.T, s *SQLiteIndex) (v int) {
+// logsToReadAgain returns the logs the next indexing does not know, among those the index of a test holds.
+func logsToReadAgain(t *testing.T, s *SQLiteIndex, logs ...string) (again []string) {
 	t.Helper()
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+	known, err := s.IndexedFiles()
+	if err != nil {
 		t.Fatal(err)
 	}
-	return v
+	for _, l := range logs {
+		if _, ok := known[l]; !ok {
+			again = append(again, l)
+		}
+	}
+	return again
 }
 
-func TestOldIndexPublishesTheSkillOfItsToolCalls(t *testing.T) {
-	// Given the index of 80bf4b1, when it is opened
-	s, _ := openOldIndex(t)
+func sameLogs(got []string, want ...string) bool {
+	return fmt.Sprint(got) == fmt.Sprint(want)
+}
 
-	// Then the published view offers the skill column, empty for the old calls, and the index is up to date
+func TestAnIndexOf80bf4b1ReadsAgainTheLogsWithASkillLoadOrAnMCPCall(t *testing.T) {
+	// Given the index of 80bf4b1, holding a log with a Skill call, a log without and a Codex log with an MCP call
+	// When it is opened
+	s, _ := openIndexOf80bf4b1(t)
+
+	// Then the next indexing reads the Codex log and the log with a Skill call again, and not the other
+	if got := logsToReadAgain(t, s, "/logs/with-skill.jsonl", "/logs/without.jsonl", "/logs/codex-mcp.jsonl"); !sameLogs(got, "/logs/with-skill.jsonl", "/logs/codex-mcp.jsonl") {
+		t.Errorf("logs to read again = %v", got)
+	}
+}
+
+func TestAnIndexOf80bf4b1StillListsItsSessions(t *testing.T) {
+	// Given the index of 80bf4b1, holding three sessions
+	// When it is opened
+	s, _ := openIndexOf80bf4b1(t)
+
+	// Then the three sessions are listed
+	if listed := len(listedUnder(t, s)); listed != 3 {
+		t.Errorf("%d sessions listed, want 3", listed)
+	}
+}
+
+func TestAnIndexOf80bf4b1PublishesItsToolCallsAsLoadingNoSkillYet(t *testing.T) {
+	// Given the index of 80bf4b1, holding three tool calls
+	// When it is opened
+	s, _ := openIndexOf80bf4b1(t)
+
+	// Then the published tool calls are all three there, none of them said to load a skill until its log is read again
 	var n int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM usage_tool_calls WHERE skill = ''`).Scan(&n); err != nil || n != 3 {
-		t.Errorf("view rows without a skill = %d, %v", n, err)
-	}
-	if v := version(t, s); v != len(migrations) {
-		t.Errorf("user_version = %d, want %d", v, len(migrations))
+		t.Errorf("tool calls published without a skill = %d, %v", n, err)
 	}
 }
 
-func TestOldIndexReadsOnlyTheLogsItsNewColumnsComeFromAgain(t *testing.T) {
-	// Given the index of 80bf4b1, when it is opened
-	s, _ := openOldIndex(t)
-
-	// Then the logs the sessions fix and the new columns concern are forgotten, to be indexed again, and the other is kept
-	known, err := s.IndexedFiles()
-	if err != nil || len(known) != 1 || known["/logs/without.jsonl"].Path == "" {
-		t.Errorf("indexed files after migration = %+v %v", known, err)
-	}
-	if listed := len(listedUnder(t, s)); listed != 3 {
-		t.Errorf("%d sessions listed, want the three indexed so far", listed)
-	}
-}
-
-func TestIndexOfMainReadsOnlyTheLogsTheSkillColumnComesFromAgain(t *testing.T) {
-	// Given an index built before tool calls recorded their skill, already at the version of the sessions views
-	path := indexBuiltBeforeTheSkillColumn(t)
+func TestAnIndexOfMainReadsAgainTheLogsWithASkillLoad(t *testing.T) {
+	// Given an index of main from before skill loads were recorded
+	path := indexOfMainBeforeSkillLoads(t)
 
 	// When it is opened
 	s := reopen(t, path)
 
-	// Then it publishes the skill, and forgets the Claude log with a Skill call and the Codex log with an unsplit MCP name only:
-	// the sessions migration is not run a second time, so the other Codex log stays known
+	// Then the next indexing reads again the log with a Skill call
+	if got := logsToReadAgain(t, s, "/logs/with-skill.jsonl"); !sameLogs(got, "/logs/with-skill.jsonl") {
+		t.Errorf("logs to read again = %v", got)
+	}
+}
+
+func TestAnIndexOfMainReadsAgainTheCodexLogsThatNamedAnMCPToolInFull(t *testing.T) {
+	// Given an index of main from before the server of a Codex MCP call was split out of its name
+	path := indexOfMainBeforeSkillLoads(t)
+
+	// When it is opened
+	s := reopen(t, path)
+
+	// Then the next indexing reads again the Codex log with a call named in full, and not the one already split
+	if got := logsToReadAgain(t, s, "/logs/codex-mcp.jsonl", "/logs/codex-split.jsonl"); !sameLogs(got, "/logs/codex-mcp.jsonl") {
+		t.Errorf("logs to read again = %v", got)
+	}
+}
+
+func TestAnIndexOfMainKeepsTheLogsWithNothingToReadAgain(t *testing.T) {
+	// Given an index of main from before skill loads were recorded
+	path := indexOfMainBeforeSkillLoads(t)
+
+	// When it is opened
+	s := reopen(t, path)
+
+	// Then the Claude log without a Skill call is still known
+	if got := logsToReadAgain(t, s, "/logs/without.jsonl"); len(got) != 0 {
+		t.Errorf("logs to read again = %v", got)
+	}
+}
+
+func TestAnIndexOfMainPublishesItsToolCallsAsLoadingNoSkillYet(t *testing.T) {
+	// Given an index of main from before skill loads were recorded, holding four tool calls
+	path := indexOfMainBeforeSkillLoads(t)
+
+	// When it is opened
+	s := reopen(t, path)
+
+	// Then the four published tool calls say that none loads a skill until its log is read again
 	var n int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM usage_tool_calls WHERE skill = ''`).Scan(&n); err != nil || n != 4 {
-		t.Errorf("view rows without a skill = %d, %v", n, err)
-	}
-	known, err := s.IndexedFiles()
-	if err != nil || len(known) != 2 || known["/logs/without.jsonl"].Path == "" || known["/logs/codex-split.jsonl"].Path == "" {
-		t.Errorf("indexed files after migration = %+v %v", known, err)
-	}
-	if v := version(t, s); v != len(migrations) {
-		t.Errorf("user_version = %d, want %d", v, len(migrations))
+		t.Errorf("tool calls published without a skill = %d, %v", n, err)
 	}
 }
 
-func TestMigratedIndexOpensAgainUnchanged(t *testing.T) {
-	// Given an index that was migrated
-	_, path := openOldIndex(t)
-
-	// When it is opened a second time, then nothing fails and the forgotten files are not forgotten twice
-	s2 := reopen(t, path)
-	if err := save(s2, application.LogFile{Path: "/logs/with-skill.jsonl", Harness: kernel.Claude}, transcript(t, "a", time.UnixMilli(1))); err != nil {
-		t.Fatal(err)
+func TestAnIndexOpenedBeforeReadsNoLogAgainTheSecondTime(t *testing.T) {
+	// Given an index of 80bf4b1 that was opened, then its forgotten logs read again
+	s, path := openIndexOf80bf4b1(t)
+	for file, harness := range map[string]kernel.Harness{"/logs/with-skill.jsonl": kernel.Claude, "/logs/codex-mcp.jsonl": kernel.Codex} {
+		if err := save(s, application.LogFile{Path: file, Harness: harness, Size: 1}, transcript(t, filepath.Base(file), time.UnixMilli(1))); err != nil {
+			t.Fatal(err)
+		}
 	}
-	s2.Close()
-	s3 := reopen(t, path)
-	if known, err := s3.IndexedFiles(); err != nil || len(known) != 2 {
-		t.Errorf("indexed files = %+v %v", known, err)
+	s.Close()
+
+	// When it is opened again
+	again := reopen(t, path)
+
+	// Then every log is known: none is forgotten twice
+	if got := logsToReadAgain(t, again, "/logs/with-skill.jsonl", "/logs/without.jsonl", "/logs/codex-mcp.jsonl"); len(got) != 0 {
+		t.Errorf("logs to read again = %v", got)
 	}
 }
 
-func TestAFreshIndexIsAtTheLatestVersion(t *testing.T) {
-	// Given an index created now
+// indexAlreadyRecordingSkillLoads is an index that gives tool calls a skill but was made before indexes were migrated by
+// version: an early build of the catalogue, which added the column on its own.
+func indexAlreadyRecordingSkillLoads(t *testing.T) string {
+	t.Helper()
 	s := open(t)
-
-	// Then it is at the latest version, and publishes the skill of tool calls
-	if v := version(t, s); v != len(migrations) {
-		t.Errorf("user_version = %d, want %d", v, len(migrations))
-	}
-	if _, err := s.db.Exec(`SELECT skill FROM usage_tool_calls`); err != nil {
-		t.Errorf("view: %v", err)
-	}
-}
-
-func TestAnIndexWhoseSkillColumnWasAddedBeforeKeepsItsRows(t *testing.T) {
-	// Given an index at version 0 that has the skill column already (written by a build of the catalogue before migrations)
-	s := open(t)
-	at := time.UnixMilli(1767261600000)
-	tr := transcript(t, "s1", at)
+	tr := transcript(t, "s1", time.UnixMilli(1767261600000))
 	tr.Tools[0].Name, tr.Tools[0].Server, tr.Tools[0].Skill = "Skill", "", "review"
 	if err := save(s, application.LogFile{Path: "/logs/s1.jsonl", Harness: kernel.Claude, Size: 1}, tr); err != nil {
 		t.Fatal(err)
@@ -781,17 +816,67 @@ func TestAnIndexWhoseSkillColumnWasAddedBeforeKeepsItsRows(t *testing.T) {
 	}
 	path := pathOf(t, s)
 	s.Close()
+	return path
+}
+
+func TestAnIndexAlreadyRecordingSkillLoadsKeepsThem(t *testing.T) {
+	// Given an index that already records the skill a call loads
+	path := indexAlreadyRecordingSkillLoads(t)
 
 	// When it is opened
-	again := reopen(t, path)
+	s := reopen(t, path)
 
-	// Then the skill is kept, and the log that holds it is not read again for nothing
+	// Then the skill load recorded is still published
 	var skill string
-	if err := again.db.QueryRow(`SELECT skill FROM usage_tool_calls WHERE name = 'Skill'`).Scan(&skill); err != nil || skill != "review" {
+	if err := s.db.QueryRow(`SELECT skill FROM usage_tool_calls WHERE name = 'Skill'`).Scan(&skill); err != nil || skill != "review" {
 		t.Errorf("skill = %q, %v", skill, err)
 	}
-	if known, err := again.IndexedFiles(); err != nil || len(known) != 1 {
-		t.Errorf("indexed files = %+v %v", known, err)
+}
+
+func TestAnIndexAlreadyRecordingSkillLoadsReadsNoLogForThem(t *testing.T) {
+	// Given an index that already records the skill a call loads
+	path := indexAlreadyRecordingSkillLoads(t)
+
+	// When it is opened
+	s := reopen(t, path)
+
+	// Then the log of the skill load recorded is still known
+	if got := logsToReadAgain(t, s, "/logs/s1.jsonl"); len(got) != 0 {
+		t.Errorf("logs to read again = %v", got)
+	}
+}
+
+func TestAnIndexUpgradedByANewerBuildWhileOpeningIsNotDowngraded(t *testing.T) {
+	// Given an index whose upgrade another process is making when this one wants to open it
+	s := open(t)
+	if _, err := s.db.Exec(`PRAGMA user_version = 0`); err != nil {
+		t.Fatal(err)
+	}
+	other, err := sql.Open("sqlite", pathOf(t, s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	other.SetMaxOpenConns(1)
+	if _, err := other.Exec(`BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	opened := make(chan error, 1)
+	go func() { opened <- migrate(s.db, migrations) }()
+	time.Sleep(100 * time.Millisecond)
+
+	// When the other process finishes with a version this build does not know
+	if _, err := other.Exec(`PRAGMA user_version = 99; COMMIT`); err != nil {
+		t.Fatal(err)
+	}
+
+	// Then this build leaves its listing of sessions and its version as they are
+	if err := <-opened; err != nil {
+		t.Fatal(err)
+	}
+	var v int
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 99 {
+		t.Errorf("version after opening = %d, %v", v, err)
 	}
 }
 

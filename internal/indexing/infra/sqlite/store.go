@@ -197,11 +197,15 @@ func migrate(db *sql.DB, migrations []migration) (err error) {
 			conn.ExecContext(ctx, `ROLLBACK`)
 		}
 	}()
-	v, err := userVersion()
+	v, err := userVersion() // read again under the lock: another process may have migrated, or a newer build upgraded, meanwhile
 	if err != nil {
 		return err
 	}
-	for ; v < len(migrations); v++ { // v is re-read under the lock: the other process may have migrated meanwhile
+	if v >= len(migrations) {
+		_, err = conn.ExecContext(ctx, `COMMIT`)
+		return err
+	}
+	for ; v < len(migrations); v++ {
 		if err := migrations[v](ctx, conn); err != nil {
 			return err
 		}
