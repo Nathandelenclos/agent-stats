@@ -28,7 +28,7 @@ func summarized(t *testing.T) (summary, printed string, code int) {
 	srv, _ := fakeAPI(t, answer(200, reply("Reports break down by day.")))
 	notes, out := workdir(t)
 	var stdout, stderr bytes.Buffer
-	env := envOf(map[string]string{"OPENAI_API_KEY": testKey, "OPENAI_MODEL": "m", "GITHUB_REPOSITORY": testRepo})
+	env := envOf(map[string]string{"OPENAI_API_KEY": testKey, "OPENAI_MODEL": "m"})
 	code = run(context.Background(), []string{"summarize", "-notes", notes, "-out", out, "-api-url", srv.URL}, env, &stdout, &stderr)
 	got, _ := os.ReadFile(out)
 	return string(got), stdout.String() + stderr.String(), code
@@ -96,65 +96,9 @@ func TestSummarizeRefusesToSendTheKeyInClearText(t *testing.T) {
 	}
 }
 
-func composeFiles(t *testing.T, summary *string) (notes, summaryPath, out string) {
-	t.Helper()
-	notes, out = workdir(t)
-	summaryPath = filepath.Join(filepath.Dir(notes), "summary-in.md")
-	if summary != nil {
-		if err := os.WriteFile(summaryPath, []byte(*summary), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return notes, summaryPath, out
-}
-
-func TestComposePutsTheSummaryAboveTheUnchangedNotes(t *testing.T) {
-	summary := "Reports break down by day."
-	notes, summaryPath, out := composeFiles(t, &summary)
-	var stdout, stderr bytes.Buffer
-
-	code := run(context.Background(), []string{"compose", "-notes", notes, "-summary", summaryPath, "-out", out}, envOf(map[string]string{"GITHUB_REPOSITORY": testRepo}), &stdout, &stderr)
-
-	got, _ := os.ReadFile(out)
-	if code != 0 || string(got) != "## Summary\n\n"+summary+"\n\n"+gitCliffNotes {
-		t.Errorf("code %d, body:\n%s", code, got)
-	}
-}
-
-func TestComposeLeavesOutAMissingEmptyOrTamperedSummary(t *testing.T) {
-	empty, tampered := "", "Update now: https://evil.example/x"
-	for name, summary := range map[string]*string{"missing": nil, "empty": &empty, "tampered": &tampered} {
-		t.Run(name, func(t *testing.T) {
-			// Given a summary file that is absent, empty, or no longer passes validation after its trip between jobs
-			notes, summaryPath, out := composeFiles(t, summary)
-			var stdout, stderr bytes.Buffer
-
-			// When the body is composed
-			code := run(context.Background(), []string{"compose", "-notes", notes, "-summary", summaryPath, "-out", out}, envOf(map[string]string{"GITHUB_REPOSITORY": testRepo}), &stdout, &stderr)
-
-			// Then the body is the git-cliff notes, as before this feature
-			got, _ := os.ReadFile(out)
-			if code != 0 || string(got) != gitCliffNotes {
-				t.Errorf("code %d, body:\n%s", code, got)
-			}
-		})
-	}
-}
-
-func TestComposeFailsWithoutTheNotesBecauseAReleaseMustCarryThem(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	out := filepath.Join(t.TempDir(), "body.md")
-	if code := run(context.Background(), []string{"compose", "-notes", filepath.Join(t.TempDir(), "absent.md"), "-out", out}, envOf(nil), &stdout, &stderr); code != 1 {
-		t.Errorf("code %d", code)
-	}
-	if _, err := os.Stat(out); err == nil {
-		t.Error("a body was written without notes")
-	}
-}
-
 func TestUsageErrorsAreExitCodeTwo(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	for _, args := range [][]string{nil, {"nope"}, {"summarize"}, {"compose", "-notes", "x"}, {"compose", "-bad"}} {
+	for _, args := range [][]string{nil, {"nope"}, {"summarize"}, {"compose", "-notes", "x", "-out", "y"}, {"summarize", "-bad"}} {
 		if code := run(context.Background(), args, envOf(nil), &stdout, &stderr); code != 2 {
 			t.Errorf("%v: code %d", args, code)
 		}

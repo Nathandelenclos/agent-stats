@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/url"
 	"os"
-	"strings"
 	"unicode/utf8"
 )
 
@@ -19,18 +18,15 @@ func main() {
 // run is main without the process: the environment, the streams and the context are passed in.
 func run(ctx context.Context, args []string, env func(string) string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: releasenotes summarize|compose [flags]")
+		fmt.Fprintln(stderr, "usage: releasenotes summarize [flags]")
 		return 2
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	notes := fs.String("notes", "", "git-cliff notes of the release")
 	out := fs.String("out", "", "file to write")
-	summaryPath := fs.String("summary", "", "compose: summary file, may be missing or empty")
 	apiURL := fs.String("api-url", defaultAPIURL, "summarize: Responses API endpoint")
-	switch args[0] {
-	case "summarize", "compose":
-	default:
+	if args[0] != "summarize" {
 		fmt.Fprintf(stderr, "unknown command %q\n", args[0])
 		return 2
 	}
@@ -40,9 +36,6 @@ func run(ctx context.Context, args []string, env func(string) string, stdout, st
 	if *notes == "" || *out == "" {
 		fmt.Fprintln(stderr, "-notes and -out are required")
 		return 2
-	}
-	if args[0] == "compose" {
-		return runCompose(*notes, *summaryPath, *out, env("GITHUB_REPOSITORY"), stdout, stderr)
 	}
 	return runSummarize(ctx, *notes, *out, *apiURL, env, stdout, stderr)
 }
@@ -63,7 +56,7 @@ func runSummarize(ctx context.Context, notesPath, out, apiURL string, env func(s
 		if model == "" {
 			return "", skip("no model")
 		}
-		return newSummarizer(apiURL, model, env("OPENAI_API_KEY"), env("GITHUB_REPOSITORY")).summarize(ctx, string(notes))
+		return newSummarizer(apiURL, model, env("OPENAI_API_KEY")).summarize(ctx, string(notes))
 	}()
 	if err != nil {
 		var s skip
@@ -76,29 +69,6 @@ func runSummarize(ctx context.Context, notesPath, out, apiURL string, env func(s
 	}
 	if err := os.WriteFile(out, []byte(summary), 0o644); err != nil {
 		fmt.Fprintln(stderr, "cannot write the summary file")
-		return 1
-	}
-	return 0
-}
-
-// runCompose fails only when the git-cliff notes cannot be read: a release must carry its notes. A summary that is
-// missing or does not pass validation again is left out, as if it had not been written.
-func runCompose(notesPath, summaryPath, out, repo string, stdout, stderr io.Writer) int {
-	notes, err := os.ReadFile(notesPath)
-	if err != nil {
-		fmt.Fprintln(stderr, "cannot read the release notes")
-		return 1
-	}
-	var summary string
-	if raw, err := os.ReadFile(summaryPath); summaryPath != "" && err == nil && strings.TrimSpace(string(raw)) != "" {
-		// The file crossed a step boundary: it is checked again before it enters the body.
-		if summary, err = validate(string(raw), repo); err != nil {
-			fmt.Fprintf(stdout, "::notice::AI release summary left out: %s\n", err)
-			summary = ""
-		}
-	}
-	if err := os.WriteFile(out, []byte(compose(string(notes), summary)), 0o644); err != nil {
-		fmt.Fprintln(stderr, "cannot write the release body")
 		return 1
 	}
 	return 0
