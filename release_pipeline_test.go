@@ -783,6 +783,9 @@ func TestTheReleaseWaitsForNativeLinuxPackageChecks(t *testing.T) {
 	if !strings.Contains(smoke, "permissions: {}") {
 		t.Error("the Linux package checks have repository permissions")
 	}
+	if !strings.Contains(publish, "GH_REPO: ${{ github.repository }}") {
+		t.Error("the publication job does not select a repository for gh when there is no checkout")
+	}
 	if strings.Contains(release, "--draft=false") ||
 		!strings.Contains(publish, "needs: [plan, linux-packages]") ||
 		!strings.Contains(publish, "--draft=false") ||
