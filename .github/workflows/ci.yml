@@ -30,6 +30,10 @@ jobs:
           go-version-file: go.mod
       - name: Vet
         run: go vet ./...
+      # Known vulnerabilities in the code the module actually calls, in its dependencies and in the standard library.
+      # Run from a pinned version with `go run`: nothing is installed.
+      - name: Vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
       - name: Test (race detector)
         run: go test -race ./...
       - name: Build
