@@ -5,6 +5,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -175,6 +176,16 @@ type Entry struct {
 	// pending marks an item whose Tracked is false because its usage is not settled yet, not because the logs cannot
 	// tell it apart: a plugin that carries one is not reported unused either.
 	pending bool
+	servers []string
+}
+
+// ObservedServers gives the exact log names counted for this MCP entry.
+func (e Entry) ObservedServers() []string { return slices.Clone(e.servers) }
+
+func (e *Entry) addServer(server string) {
+	if !slices.Contains(e.servers, server) {
+		e.servers = append(e.servers, server)
+	}
 }
 
 // Unit is what Uses counts for this kind of entry.
@@ -229,6 +240,7 @@ func Link(items []Item, a Activity) []Entry {
 		case MCPServer:
 			for i, t := range a.Tools {
 				if t.Harness == it.Harness && t.Server != "" && serverMatches(it, t.Server) {
+					e.addServer(t.Server)
 					e.add(t.Calls, t.Last)
 					claimedTool[i] = true
 				}
@@ -274,6 +286,7 @@ func Link(items []Item, a Activity) []Entry {
 				servers[k] = i
 				entries = append(entries, logged(t.Harness, MCPServer, t.Server, 0, time.Time{}))
 			}
+			entries[i].addServer(t.Server)
 			entries[i].add(t.Calls, t.Last)
 		}
 	}

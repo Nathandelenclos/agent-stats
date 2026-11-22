@@ -102,10 +102,10 @@ func TestClaudeNamesTheServersOfPluginsAndConnectorsInItsOwnWay(t *testing.T) {
 	entries := Link([]Item{plugin, dotted}, act)
 
 	// Then the calls are found under the names Claude Code logs
-	if e := find(t, entries, kernel.Claude, MCPServer, "chrome-devtools"); e.Uses != 4 {
+	if e := find(t, entries, kernel.Claude, MCPServer, "chrome-devtools"); e.Uses != 4 || strings.Join(e.ObservedServers(), ",") != "plugin_chrome-devtools-mcp_chrome-devtools" {
 		t.Errorf("plugin server: %+v", e)
 	}
-	if e := find(t, entries, kernel.Claude, MCPServer, "claude.ai Docs"); e.Uses != 2 {
+	if e := find(t, entries, kernel.Claude, MCPServer, "claude.ai Docs"); e.Uses != 2 || strings.Join(e.ObservedServers(), ",") != "claude_ai_Docs" {
 		t.Errorf("dotted server: %+v", e)
 	}
 	if len(entries) != 2 {
