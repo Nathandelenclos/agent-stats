@@ -253,20 +253,34 @@ func publishCondition(t *testing.T) string {
 	return strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(m[1]), "${{"), "}}"))
 }
 
-// runs evaluates the condition for the results of the jobs it needs. It only understands what the condition is made of
-// today: `&&`, `!cancelled()` and comparisons of needs.<job>.result or needs.plan.outputs.release with a string. A term it
-// does not know (an `||`, `always()`…) fails the test: a new shape of condition must be read again, not waved through.
-func runs(t *testing.T, cond string, front, plan, notes, release string) bool {
+// runState is what a run looks like to the publishing job: the result of each job it needs, the plan's decision, and
+// whether the run was cancelled.
+type runState struct {
+	front, plan, notes, release string
+	cancelled                   bool
+}
+
+// runs evaluates the condition. It only understands what the condition is made of today: `&&`, `!cancelled()` and
+// comparisons of needs.<job>.result or needs.plan.outputs.release with a string. A term it does not know (an `||`,
+// `always()`…) fails the test: a new shape of condition must be read again, not waved through. Without a status
+// function GitHub adds success(): every needed job succeeded. `!cancelled()` replaces it, so it is a term the
+// condition must state: it is what lets the release run when the optional job was skipped or failed.
+func runs(t *testing.T, cond string, s runState) bool {
 	t.Helper()
 	values := map[string]string{
-		"needs.front.result":         front,
-		"needs.plan.result":          plan,
-		"needs.release-notes.result": notes,
-		"needs.plan.outputs.release": release,
+		"needs.front.result":         s.front,
+		"needs.plan.result":          s.plan,
+		"needs.release-notes.result": s.notes,
+		"needs.plan.outputs.release": s.release,
 	}
+	statusFunction := false
 	for _, term := range strings.Split(cond, "&&") {
 		term = strings.TrimSpace(term)
 		if term == "!cancelled()" {
+			statusFunction = true
+			if s.cancelled {
+				return false
+			}
 			continue
 		}
 		m := regexp.MustCompile(`^(needs\.[a-z.-]+) == '([a-z]*)'$`).FindStringSubmatch(term)
@@ -279,16 +293,34 @@ func runs(t *testing.T, cond string, front, plan, notes, release string) bool {
 			return false
 		}
 	}
+	if !statusFunction && (s.cancelled || s.front != "success" || s.plan != "success" || s.notes != "success") {
+		return false
+	}
 	return true
 }
 
 var jobResults = []string{"success", "failure", "skipped", "cancelled"}
 
+func TestThePublishingJobStatesItsStatusFunction(t *testing.T) {
+	if !strings.Contains(" "+publishCondition(t)+" ", " !cancelled() ") {
+		t.Error("without !cancelled(), GitHub applies success() and a skipped or failed summary job stops the release")
+	}
+}
+
 func TestThePublishingJobRunsWhateverTheSummaryJobDid(t *testing.T) {
 	cond := publishCondition(t)
 	for _, notes := range jobResults {
-		if !runs(t, cond, "success", "success", notes, "true") {
+		if !runs(t, cond, runState{"success", "success", notes, "true", false}) {
 			t.Errorf("the release does not run when the release-notes job ended %s", notes)
+		}
+	}
+}
+
+func TestThePublishingJobDoesNotRunInACancelledRun(t *testing.T) {
+	cond := publishCondition(t)
+	for _, notes := range jobResults {
+		if runs(t, cond, runState{"success", "success", notes, "true", true}) {
+			t.Errorf("the release runs in a cancelled run (release-notes %s)", notes)
 		}
 	}
 }
@@ -296,10 +328,10 @@ func TestThePublishingJobRunsWhateverTheSummaryJobDid(t *testing.T) {
 func TestThePublishingJobDoesNotRunWithoutTheFrontOrThePlan(t *testing.T) {
 	cond := publishCondition(t)
 	for _, result := range jobResults[1:] {
-		if runs(t, cond, result, "success", "success", "true") {
+		if runs(t, cond, runState{result, "success", "success", "true", false}) {
 			t.Errorf("the release runs when the front job ended %s", result)
 		}
-		if runs(t, cond, "success", result, "success", "true") {
+		if runs(t, cond, runState{"success", result, "success", "true", false}) {
 			t.Errorf("the release runs when the plan job ended %s", result)
 		}
 	}
@@ -308,7 +340,7 @@ func TestThePublishingJobDoesNotRunWithoutTheFrontOrThePlan(t *testing.T) {
 func TestThePublishingJobDoesNotRunWhenThereIsNothingToRelease(t *testing.T) {
 	cond := publishCondition(t)
 	for _, release := range []string{"false", ""} {
-		if runs(t, cond, "success", "success", "success", release) {
+		if runs(t, cond, runState{"success", "success", "success", release, false}) {
 			t.Errorf("the release runs when the plan says release=%q", release)
 		}
 	}
