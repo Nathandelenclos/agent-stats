@@ -41,8 +41,11 @@ func NewRates(r RatesPerToken) (Rates, error) {
 // the input rate instead of the list's 5-minute cache-write rate.
 func (r Rates) Cost(t kernel.Tokens) (kernel.Cost, error) {
 	c, p := t.Counts(), r.perToken
-	return kernel.NewCost(float64(c.Input)*p.Input + float64(c.Output)*p.Output + float64(c.CacheRead)*p.CacheRead +
-		float64(t.CacheWrite5m())*p.CacheWrite + float64(c.CacheWrite1h)*2*p.Input)
+	// Each product is converted explicitly so the compiler cannot fuse it with the sum (FMA on arm64 but not
+	// on amd64): the same tokens must cost the same on every CPU.
+	return kernel.NewCost(float64(float64(c.Input)*p.Input) + float64(float64(c.Output)*p.Output) +
+		float64(float64(c.CacheRead)*p.CacheRead) + float64(float64(t.CacheWrite5m())*p.CacheWrite) +
+		float64(float64(c.CacheWrite1h)*2*p.Input))
 }
 
 // PriceList maps a model name to its rates.
