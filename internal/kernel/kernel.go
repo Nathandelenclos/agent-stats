@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 )
 
@@ -21,14 +22,16 @@ var (
 	OMP    = Harness{"omp"}
 	Pi     = Harness{"pi"}
 	// OpenCode and Kilo Code share one storage format, a SQLite database of sessions.
-	OpenCode = Harness{"opencode"}
-	Kilo     = Harness{"kilo"}
-	Gemini   = Harness{"gemini"}
-	Copilot  = Harness{"copilot"}
-	Zed      = Harness{"zed"}
-	Grok     = Harness{"grok"}
-	Cursor   = Harness{"cursor"}
-	Goose    = Harness{"goose"}
+	OpenCode   = Harness{"opencode"}
+	Kilo       = Harness{"kilo"}
+	Gemini     = Harness{"gemini"}
+	Copilot    = Harness{"copilot"}
+	Zed        = Harness{"zed"}
+	Grok       = Harness{"grok"}
+	Cursor     = Harness{"cursor"}
+	Goose      = Harness{"goose"}
+	VSCodeChat = Harness{"vscode-chat"}
+	Cline      = Harness{"cline"}
 )
 
 // String returns the harness name.
@@ -38,7 +41,16 @@ func (h Harness) String() string { return h.name }
 func (h Harness) IsZero() bool { return h.name == "" }
 
 // Harnesses lists every supported harness.
-var Harnesses = []Harness{Claude, Codex, OMP, Pi, OpenCode, Kilo, Gemini, Copilot, Zed, Grok, Cursor, Goose}
+var Harnesses = []Harness{Claude, Codex, OMP, Pi, OpenCode, Kilo, Gemini, Copilot, Zed, Grok, Cursor, Goose, VSCodeChat, Cline}
+
+// HarnessNames lists the accepted names in their presentation order.
+func HarnessNames() []string {
+	names := make([]string, 0, len(Harnesses))
+	for _, h := range Harnesses {
+		names = append(names, h.String())
+	}
+	return names
+}
 
 // ErrUnknownHarness reports a harness name outside Harnesses.
 var ErrUnknownHarness = errors.New("unknown harness")
@@ -50,7 +62,7 @@ func ParseHarness(name string) (Harness, error) {
 			return h, nil
 		}
 	}
-	return Harness{}, fmt.Errorf("%w %q: use claude, codex, omp, pi, opencode, kilo, gemini, copilot, zed, grok, cursor or goose", ErrUnknownHarness, name)
+	return Harness{}, fmt.Errorf("%w %q: use %s", ErrUnknownHarness, name, strings.Join(HarnessNames(), ", "))
 }
 
 // MaxTokenCount bounds one count of one request: far above any model's window (largest seen on real

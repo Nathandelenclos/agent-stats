@@ -40,7 +40,7 @@ func DefaultSources(home string) []Source {
 	data := envOr("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 	openCodeData, kiloData := filepath.Join(data, "opencode"), filepath.Join(data, "kilo")
 	copilot := filepath.Join(envOr("COPILOT_HOME", filepath.Join(home, ".copilot")), "session-state")
-	return []Source{
+	sources := []Source{
 		{Harness: kernel.Claude, Root: filepath.Join(claude, "projects"), Match: jsonl, Parse: ParseClaude},
 		{Harness: kernel.Codex, Root: filepath.Join(codex, "sessions"), Match: rollout, Parse: ParseCodex},
 		{Harness: kernel.Codex, Root: filepath.Join(codex, "archived_sessions"), Match: rollout, Parse: ParseCodex},
@@ -57,6 +57,9 @@ func DefaultSources(home string) []Source {
 		{Harness: kernel.Cursor, Root: filepath.Join(home, ".cursor", "projects"), cursorUser: cursorUserDir(home)},
 		{Harness: kernel.Goose, Root: filepath.Join(home, ".local", "share", "goose", "sessions"), Database: gooseDatabase{}},
 	}
+	codeUser := codeUserDir(home)
+	sources = append(sources, vscodeChatSources(codeUser)...)
+	return append(sources, clineSources(home, codeUser)...)
 }
 
 // GeminiSource reads the conversations of Gemini CLI under root, the "tmp" directory of its home.

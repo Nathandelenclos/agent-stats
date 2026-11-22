@@ -171,9 +171,7 @@ func (s *Server) meta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m := metaJSON{Harnesses: make([]string, 0, len(kernel.Harnesses))}
-	for _, h := range kernel.Harnesses {
-		m.Harnesses = append(m.Harnesses, h.String())
-	}
+	m.Harnesses = kernel.HarnessNames()
 	m.Defaults.Since, m.Defaults.Harness, m.Defaults.Scope = s.opts.Since, s.opts.Harness.String(), s.defaultScope()
 	if project, _ := s.coverage(); !project.IsZero() {
 		m.Project = project.Name()

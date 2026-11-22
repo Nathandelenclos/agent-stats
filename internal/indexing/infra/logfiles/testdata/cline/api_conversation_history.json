@@ -1,0 +1,6 @@
+[
+  {"role":"user","content":[{"type":"text","text":"Synthetic task wrapping"}]},
+  {"role":"assistant","content":[{"type":"tool_use","id":"call-1","name":"read_file","input":{"path":"demo"}}]},
+  {"role":"user","content":[{"type":"tool_result","tool_use_id":"call-1","content":[{"type":"text","text":"The demo result"}],"is_error":true}]},
+  {"role":"assistant","content":[{"type":"text","text":"Task output"}]}
+]

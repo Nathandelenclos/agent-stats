@@ -1,0 +1,6 @@
+{
+  "version":1,"sessionId":"modern__worker","agent":"subagent","taskType":"subagent_task",
+  "origin":{"source":"cli","mode":"user","sessionId":"modern__worker","parentThreadId":"modern","subagent":"worker"},
+  "messages":[{"id":"delegated","ts":1773216000800,"role":"user","content":"Check the second sample"},
+    {"id":"worker-model","ts":1773216000900,"role":"assistant","content":"Done","modelInfo":{"id":"worker-model","provider":"test"},"metrics":{"inputTokens":6,"outputTokens":2,"cost":0.01}}]
+}

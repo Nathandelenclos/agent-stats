@@ -1,0 +1,14 @@
+{
+  "version":1, "sessionId":"modern", "agent":"lead", "origin":{"source":"cli","mode":"user","sessionId":"modern"},
+  "messages":[
+    {"id":"prompt-1","ts":1773216000100,"role":"user","content":"Inspect the sample"},
+    {"id":"assistant-1","ts":1773216000200,"role":"assistant","content":[{"type":"tool_use","id":"call","name":"read_file","input":{"path":"demo"}}],"modelInfo":{"id":"effective-model","provider":"test"},"metrics":{"inputTokens":15,"outputTokens":4,"cacheReadTokens":3,"cacheWriteTokens":2,"cost":0.02}},
+    {"id":"tool-result","ts":1773216000300,"role":"user","content":[{"type":"tool_result","tool_use_id":"call","name":"read_file","content":"contents"}]},
+    {"id":"assistant-2","ts":1773216000400,"role":"assistant","content":[{"type":"text","text":"Done"}],"modelInfo":{"id":"effective-model","provider":"test"},"metrics":{"inputTokens":10,"outputTokens":2,"cacheReadTokens":1,"cost":0.01}},
+    {"id":"prompt-2","ts":1773216000500,"role":"user","content":[{"type":"text","text":"Check another sample"}]},
+    {"id":"assistant-3","ts":1773216000600,"role":"assistant","content":[{"type":"tool_use","id":"another-call","name":"read_file","input":{"path":"other"}}]},
+    {"id":"tool-result-2","ts":1773216000700,"role":"user","content":[{"type":"tool_result","tool_use_id":"another-call","name":"read_file","content":"unavailable","is_error":true}]},
+    {"id":"assistant-4","ts":1773216000800,"role":"assistant","content":[{"type":"text","text":"Unavailable"}],"metrics":{"inputTokens":999,"outputTokens":999,"cost":0.99}},
+    {"id":"display","ts":1773216000900,"role":"assistant","content":"UI notice","metadata":{"displayOnly":true}}
+  ]
+}
