@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"testing"
 
 	"github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
@@ -12,9 +13,11 @@ type shiftingIndex struct {
 	requests int64
 	frozen   bool
 	asked    []domain.Dimension
+	ctx      context.Context // the one the last snapshot was asked under
 }
 
-func (x *shiftingIndex) Snapshot(fn func(UsageReader) error) error {
+func (x *shiftingIndex) Snapshot(ctx context.Context, fn func(UsageReader) error) error {
+	x.ctx = ctx
 	x.frozen = true
 	defer func() { x.frozen = false }()
 	return fn(x)
@@ -47,7 +50,7 @@ func TestReportDescribesOneStateOfTheIndexBeingWritten(t *testing.T) {
 	idx := &shiftingIndex{requests: 1}
 
 	// When a report is built
-	r, err := BuildReport{Queries: idx}.Run(Query{})
+	r, err := BuildReport{Queries: idx}.Run(context.Background(), Query{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +66,7 @@ func TestReportDescribesOneStateOfTheIndexBeingWritten(t *testing.T) {
 
 func TestBuildReportAsksEveryDimension(t *testing.T) {
 	q := &shiftingIndex{requests: 3}
-	r, err := BuildReport{Queries: q}.Run(Query{})
+	r, err := BuildReport{Queries: q}.Run(context.Background(), Query{})
 	if err != nil || r.Total.Requests != 3 || len(r.ByAgent) != 1 || len(r.Tools) != 1 {
 		t.Fatalf("report = %+v %v", r, err)
 	}
@@ -78,5 +81,29 @@ func TestCacheRate(t *testing.T) {
 	}
 	if r := (domain.Usage{}).CacheRate(); r != 0 {
 		t.Errorf("empty rate = %v", r)
+	}
+}
+
+type ctxKey struct{}
+
+func TestTheReportsAreBuiltUnderTheCallersContext(t *testing.T) {
+	// Given a caller whose context carries a mark, as the context of a request carries its cancellation
+	ctx := context.WithValue(context.Background(), ctxKey{}, "request")
+	for name, run := range map[string]func(*shiftingIndex) error{
+		"report":   func(x *shiftingIndex) error { _, err := BuildReport{Queries: x}.Run(ctx, Query{}); return err },
+		"timeline": func(x *shiftingIndex) error { _, err := BuildTimelineReport{Queries: x}.Run(ctx, Query{}); return err },
+	} {
+		t.Run(name, func(t *testing.T) {
+			// When the report is built
+			idx := &shiftingIndex{}
+			if err := run(idx); err != nil {
+				t.Fatal(err)
+			}
+
+			// Then the index was asked under that very context, so that it can stop when the caller gives up
+			if idx.ctx != ctx {
+				t.Errorf("snapshot context = %v, want the caller's", idx.ctx)
+			}
+		})
 	}
 }

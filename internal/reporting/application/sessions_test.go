@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -12,18 +13,21 @@ import (
 // recordedSessions is a session index that remembers what it was asked.
 type recordedSessions struct {
 	filter domain.Filter
+	ctx    context.Context
 	asked  domain.SessionID
 	list   []domain.SessionSummary
 	detail domain.SessionDetail
 	err    error
 }
 
-func (r *recordedSessions) Sessions(f domain.Filter) ([]domain.SessionSummary, error) {
+func (r *recordedSessions) Sessions(ctx context.Context, f domain.Filter) ([]domain.SessionSummary, error) {
+	r.ctx = ctx
 	r.filter = f
 	return r.list, r.err
 }
 
-func (r *recordedSessions) Session(id domain.SessionID) (domain.SessionDetail, error) {
+func (r *recordedSessions) Session(ctx context.Context, id domain.SessionID) (domain.SessionDetail, error) {
+	r.ctx = ctx
 	r.asked = id
 	return r.detail, r.err
 }
@@ -35,7 +39,7 @@ func TestListSessionsAsksForTheRangeOfTheQuery(t *testing.T) {
 	since := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	// When the sessions of a harness since a date are listed
-	got, err := ListSessions{Queries: idx}.Run(Query{Since: since, Harness: kernel.Codex})
+	got, err := ListSessions{Queries: idx}.Run(context.Background(), Query{Since: since, Harness: kernel.Codex})
 
 	// Then the index is asked for exactly that range, and its sessions come back
 	if err != nil || len(got.Sessions) != 1 || got.Sessions[0].Title != "fix the build" {
@@ -52,7 +56,7 @@ func TestShowSessionDescribesTheSessionAskedFor(t *testing.T) {
 	idx := &recordedSessions{detail: domain.SessionDetail{SessionSummary: domain.SessionSummary{ID: id}, Prompts: []domain.Prompt{{Text: "hi"}}}}
 
 	// When that session is shown
-	d, err := ShowSession{Queries: idx}.Run(id)
+	d, err := ShowSession{Queries: idx}.Run(context.Background(), id)
 
 	// Then the index was asked about it and its prompts are in the answer
 	if err != nil || idx.asked != id || len(d.Prompts) != 1 {
@@ -66,7 +70,7 @@ func TestShowSessionReportsAnUnknownSession(t *testing.T) {
 	id, _ := NewSessionID("claude:gone")
 
 	// When it is shown, then the caller can tell it is missing
-	if _, err := (ShowSession{Queries: idx}).Run(id); !errors.Is(err, ErrSessionNotFound) {
+	if _, err := (ShowSession{Queries: idx}).Run(context.Background(), id); !errors.Is(err, ErrSessionNotFound) {
 		t.Errorf("err = %v", err)
 	}
 }
@@ -80,7 +84,7 @@ func TestTheListedSessionsAreAddedUp(t *testing.T) {
 	}}
 
 	// When they are listed
-	got, err := ListSessions{Queries: idx}.Run(Query{})
+	got, err := ListSessions{Queries: idx}.Run(context.Background(), Query{})
 
 	// Then the list carries the totals of what its sessions used
 	if err != nil || got.Total.Requests != 15 || got.Total.Failed != 1 || got.Total.Cost != 3 || got.Total.Unpriced != 3 {
@@ -141,5 +145,21 @@ func TestASessionLastsFromItsFirstToItsLastEntry(t *testing.T) {
 	}
 	if _, ok := (domain.SessionSummary{}).Duration(); ok {
 		t.Error("a session without timestamps has a duration")
+	}
+}
+
+func TestSessionsAreReadUnderTheCallersContext(t *testing.T) {
+	// Given a caller whose context carries a mark
+	ctx := context.WithValue(context.Background(), ctxKey{}, "request")
+	id, _ := domain.NewSessionID("claude:s1")
+	idx := &recordedSessions{}
+
+	// When it lists the sessions, then shows one
+	if _, err := (ListSessions{Queries: idx}).Run(ctx, Query{}); err != nil || idx.ctx != ctx {
+		t.Errorf("list: context = %v, err = %v, want the caller's context", idx.ctx, err)
+	}
+	idx.ctx = nil
+	if _, err := (ShowSession{Queries: idx}).Run(ctx, id); err != nil || idx.ctx != ctx {
+		t.Errorf("show: context = %v, err = %v, want the caller's context", idx.ctx, err)
 	}
 }

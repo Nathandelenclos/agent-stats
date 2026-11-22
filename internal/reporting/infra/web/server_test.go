@@ -39,7 +39,7 @@ type index struct {
 	ledger  []request
 }
 
-func (x *index) Snapshot(fn func(reporting.UsageReader) error) error {
+func (x *index) Snapshot(_ context.Context, fn func(reporting.UsageReader) error) error {
 	if x.err != nil {
 		return x.err
 	}
@@ -81,7 +81,7 @@ type sessionIndex struct {
 	err error
 }
 
-func (x sessionIndex) Sessions(domain.Filter) ([]domain.SessionSummary, error) {
+func (x sessionIndex) Sessions(context.Context, domain.Filter) ([]domain.SessionSummary, error) {
 	var out []domain.SessionSummary
 	for i := 0; i < x.n; i++ {
 		id, _ := domain.NewSessionID(fmt.Sprintf("s%d", i))
@@ -91,7 +91,7 @@ func (x sessionIndex) Sessions(domain.Filter) ([]domain.SessionSummary, error) {
 	return out, x.err
 }
 
-func (x sessionIndex) Session(domain.SessionID) (domain.SessionDetail, error) {
+func (x sessionIndex) Session(context.Context, domain.SessionID) (domain.SessionDetail, error) {
 	return domain.SessionDetail{}, domain.ErrSessionNotFound
 }
 

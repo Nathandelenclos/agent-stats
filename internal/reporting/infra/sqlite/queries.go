@@ -3,6 +3,7 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/url"
@@ -32,6 +33,24 @@ type querier interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
+// scoped runs the queries of a database or a transaction under a context: each stops when ctx does, which a plain
+// Query on a transaction does not.
+type scoped struct {
+	ctx context.Context
+	db  interface {
+		QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+		QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	}
+}
+
+func (s scoped) Query(query string, args ...any) (*sql.Rows, error) {
+	return s.db.QueryContext(s.ctx, query, args...)
+}
+
+func (s scoped) QueryRow(query string, args ...any) *sql.Row {
+	return s.db.QueryRowContext(s.ctx, query, args...)
+}
+
 // reader answers the usage questions through q.
 type reader struct{ q querier }
 
@@ -52,19 +71,19 @@ func OpenReadOnly(path string) (*SQLiteUsage, error) {
 		db.Close()
 		return nil, err
 	}
-	return &SQLiteUsage{db: db, reader: reader{db}}, nil
+	return &SQLiteUsage{db: db, reader: reader{scoped{context.Background(), db}}}, nil
 }
 
 // Snapshot runs fn inside one read transaction. The index is in WAL mode, so the transaction keeps the state
 // of its first read until it ends and the indexing writer is never blocked; the reader fn gets cannot see
-// anything indexing commits meanwhile.
-func (s *SQLiteUsage) Snapshot(fn func(reporting.UsageReader) error) error {
-	tx, err := s.db.Begin()
+// anything indexing commits meanwhile. The transaction and every query of the reader stop when ctx does.
+func (s *SQLiteUsage) Snapshot(ctx context.Context, fn func(reporting.UsageReader) error) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() // nothing was written: ending the transaction is all it takes
-	return fn(reader{tx})
+	return fn(reader{scoped{ctx, tx}})
 }
 
 // Close closes the database.

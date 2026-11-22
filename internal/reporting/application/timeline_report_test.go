@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"testing"
 
 	"github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
@@ -11,7 +12,7 @@ func TestTimelineReportAddsTheDaysToTheSameStateOfTheIndex(t *testing.T) {
 	idx := &shiftingIndex{requests: 1}
 
 	// When the report with its timeline is built
-	r, err := BuildTimelineReport{Queries: idx}.Run(Query{})
+	r, err := BuildTimelineReport{Queries: idx}.Run(context.Background(), Query{})
 	if err != nil {
 		t.Fatal(err)
 	}

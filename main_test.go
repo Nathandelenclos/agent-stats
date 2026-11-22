@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -79,7 +80,7 @@ func TestReportApproved(t *testing.T) {
 		"omp":         {Harness: kernel.OMP},
 		"since-jan-2": {Since: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
 	} {
-		r, err := reporting.BuildReport{Queries: usage}.Run(f)
+		r, err := reporting.BuildReport{Queries: usage}.Run(context.Background(), f)
 		if err != nil {
 			t.Fatal(err)
 		}

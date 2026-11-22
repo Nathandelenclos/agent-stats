@@ -1,6 +1,10 @@
 package application
 
-import "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
+import (
+	"context"
+
+	"github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
+)
 
 // TimelineReport is the usage report with its usage per local calendar day, oldest first.
 type TimelineReport struct {
@@ -14,10 +18,11 @@ type BuildTimelineReport struct {
 	Queries UsageQueries
 }
 
-// Run builds the report for the activity q asks for, its days included, all from one state of the index.
-func (uc BuildTimelineReport) Run(q Query) (TimelineReport, error) {
+// Run builds the report for the activity q asks for, its days included, all from one state of the index; it gives up
+// when ctx ends.
+func (uc BuildTimelineReport) Run(ctx context.Context, q Query) (TimelineReport, error) {
 	var r TimelineReport
-	err := uc.Queries.Snapshot(func(u UsageReader) (err error) {
+	err := uc.Queries.Snapshot(ctx, func(u UsageReader) (err error) {
 		f := domain.Filter{Since: q.Since, Harness: q.Harness}
 		if r.Report, err = build(u, f); err != nil {
 			return err

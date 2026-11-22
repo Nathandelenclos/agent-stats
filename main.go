@@ -140,7 +140,7 @@ func run() error {
 		}
 		return tui.Run(o)
 	}
-	rep, err := reporting.BuildReport{Queries: usage}.Run(reporting.Query{Since: from, Harness: only})
+	rep, err := reporting.BuildReport{Queries: usage}.Run(context.Background(), reporting.Query{Since: from, Harness: only})
 	if err != nil {
 		return err
 	}

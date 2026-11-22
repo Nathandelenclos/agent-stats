@@ -1,7 +1,9 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -152,7 +154,7 @@ func TestSnapshotReadsOneStateWhileTheIndexIsWritten(t *testing.T) {
 	// When indexing commits another request between two questions of the same snapshot
 	var total report.Usage
 	var groups []report.UsageGroup
-	err = r.Snapshot(func(q reporting.UsageReader) error {
+	err = r.Snapshot(context.Background(), func(q reporting.UsageReader) error {
 		var err error
 		if total, err = q.Total(report.Filter{}); err != nil {
 			return err
@@ -171,7 +173,7 @@ func TestSnapshotReadsOneStateWhileTheIndexIsWritten(t *testing.T) {
 	if total.Requests != 1 || len(groups) != 1 || groups[0].Requests != 1 {
 		t.Errorf("total of %d requests but %+v by harness: one report mixes two states", total.Requests, groups)
 	}
-	if err := r.Snapshot(func(q reporting.UsageReader) error {
+	if err := r.Snapshot(context.Background(), func(q reporting.UsageReader) error {
 		u, err := q.Total(report.Filter{})
 		if u.Requests != 2 {
 			t.Errorf("next snapshot sees %d requests, want 2", u.Requests)
@@ -233,5 +235,36 @@ func TestUsageByDayFollowsTheLocalCalendarOldestFirst(t *testing.T) {
 	}
 	if len(recent) != 1 || recent[0].Group != "2026-01-05" {
 		t.Errorf("days since the 4th = %+v", recent)
+	}
+}
+
+func TestAReportStopsWhenItsContextEnds(t *testing.T) {
+	// Given an index and a caller that gives up while its snapshot is open
+	r, err := OpenReadOnly(indexed(t, time.UnixMilli(1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// When the caller's context ends between two questions
+	err = r.Snapshot(ctx, func(q reporting.UsageReader) error {
+		if _, err := q.Total(report.Filter{}); err != nil {
+			t.Errorf("a question before the cancellation failed: %v", err)
+		}
+		cancel()
+		_, err := q.Total(report.Filter{})
+		return err
+	})
+
+	// Then the next question fails with the context's error instead of reading on
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want context.Canceled", err)
+	}
+	// And a snapshot asked under an ended context does not start
+	called := false
+	err = r.Snapshot(ctx, func(reporting.UsageReader) error { called = true; return nil })
+	if !errors.Is(err, context.Canceled) || called {
+		t.Errorf("snapshot under an ended context: err = %v, ran = %v", err, called)
 	}
 }

@@ -72,7 +72,7 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request) {
 		bad.write(w)
 		return
 	}
-	rep, err := s.opts.Reports.Run(p.query)
+	rep, err := s.opts.Reports.Run(r.Context(), p.query)
 	if err != nil {
 		s.fail(w, "building the report", err)
 		return
@@ -129,7 +129,7 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 		bad.write(w)
 		return
 	}
-	list, err := s.opts.Sessions.Run(p.query)
+	list, err := s.opts.Sessions.Run(r.Context(), p.query)
 	if err != nil {
 		s.fail(w, "listing the sessions", err)
 		return
