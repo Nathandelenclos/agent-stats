@@ -51,7 +51,7 @@ class AgentStats < Formula
   end
 
   test do
-    assert_match "agent-stats", shell_output("#{bin}/agent-stats --help")
+    assert_match "agent-stats", shell_output("#{bin}/agent-stats --help 2>&1")
   end
 end
 RUBY
