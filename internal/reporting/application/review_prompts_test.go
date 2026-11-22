@@ -134,6 +134,9 @@ func TestAnAskTypedInSeveralSessionsIsRecurring(t *testing.T) {
 	if a.Count != 2 || a.Sessions != 2 || a.Text != second.Text || !a.First.Equal(first.At) || !a.Last.Equal(second.At) {
 		t.Errorf("ask = %+v", a)
 	}
+	if got := r.Occurrences(a); !slices.Equal(got, []FlaggedPrompt{second, first}) {
+		t.Errorf("occurrences did not use the grouping key and dates: %+v", got)
+	}
 }
 
 func TestAnAskRepeatedInOneSessionIsNotRecurring(t *testing.T) {

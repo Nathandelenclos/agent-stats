@@ -17,7 +17,11 @@ import (
 // SQLiteUsage it comes from, and each question it answers reads one state of the index.
 type SQLiteSessions struct{ db *sql.DB }
 
-var _ reporting.SessionQueries = (*SQLiteSessions)(nil)
+var (
+	_ reporting.SessionQueries      = (*SQLiteSessions)(nil)
+	_ reporting.SessionPromptQuery  = (*SQLiteSessions)(nil)
+	_ reporting.RelatedSessionQuery = (*SQLiteSessions)(nil)
+)
 
 // Sessions gives access to the sessions of the same index.
 func (s *SQLiteUsage) Sessions() *SQLiteSessions { return &SQLiteSessions{s.db} }
@@ -38,8 +42,8 @@ func (s *SQLiteSessions) snapshot(ctx context.Context, fn func(querier) error) e
 // what the report of the project counts; a subagent that worked in the project whose root did not stands for a run of
 // its own. Without a project a run is the root and all its subagents, as the index's session_overview places them.
 //
-// runs is the WITH clause that gives the queries two tables: unit(id, run_id), the run each session is in, and
-// run(id, harness, started, ended), each run by the id of the session that heads it (and its harness).
+// runs is the WITH clause that gives the queries two tables: unit, each session with the run it belongs
+// to and its own metadata, and run, the harness and time span of each run keyed by its head session.
 type runs struct {
 	with string
 	args []any
@@ -53,15 +57,15 @@ const runTable = `run(id, harness, started, ended) AS (
 // runsOf places the sessions of the index, or the ones that worked in project p, in runs.
 func runsOf(q querier, p kernel.Project) (runs, error) {
 	if p.IsZero() { // the view already spans each run
-		return runs{with: `WITH unit(id, run_id) AS (SELECT id, root_id FROM session_overview),
+		return runs{with: `WITH unit(id, run_id, harness, agent_type, folder) AS (SELECT id, root_id, harness, agent_type, folder FROM session_overview),
 			run(id, harness, started, ended) AS (SELECT id, harness, run_started_at, run_ended_at FROM session_overview WHERE id = root_id)`}, nil
 	}
 	list, err := projectfolders.List(q, p)
 	if err != nil {
 		return runs{}, err
 	}
-	return runs{`WITH unit(id, run_id) AS (
-		SELECT o.id, CASE WHEN h.folder IN (SELECT value FROM json_each(?)) THEN o.root_id ELSE o.id END
+	return runs{`WITH unit(id, run_id, harness, agent_type, folder) AS (
+		SELECT o.id, CASE WHEN h.folder IN (SELECT value FROM json_each(?)) THEN o.root_id ELSE o.id END, o.harness, o.agent_type, o.folder
 		FROM session_overview o JOIN session_overview h ON h.id = o.root_id
 		WHERE o.folder IN (SELECT value FROM json_each(?))), ` + runTable, []any{list, list}}, nil
 }
@@ -164,6 +168,8 @@ func sessionRows(q querier, r runs, cond string, args []any) ([]report.SessionSu
 	return out, rows.Err()
 }
 
+const runRequests = "session_requests r JOIN unit u ON u.id = r.session_id"
+
 // addUsage fills the usage of each session from the requests of its run, and the models it used.
 // cond selects the runs (aliased u, by u.run_id) whose requests (aliased r) count.
 func addUsage(q querier, sessions []report.SessionSummary, r runs, cond string, args []any) error {
@@ -171,16 +177,15 @@ func addUsage(q querier, sessions []report.SessionSummary, r runs, cond string, 
 	for i, s := range sessions {
 		at[s.ID.String()] = i
 	}
-	from := "session_requests r JOIN unit u ON u.id = r.session_id"
 	args = append(slices.Clone(r.args), args...)
-	if err := usageGroups(q, r.with, "u.run_id", from, cond, args, func(keys []string, u report.Usage) {
+	if err := usageGroups(q, r.with, "u.run_id", runRequests, cond, args, func(keys []string, u report.Usage) {
 		if i, ok := at[keys[0]]; ok {
 			sessions[i].Usage = u
 		}
 	}); err != nil {
 		return err
 	}
-	return usageGroups(q, r.with, "u.run_id, r.model", from, cond, args, func(keys []string, u report.Usage) {
+	return usageGroups(q, r.with, "u.run_id, r.model", runRequests, cond, args, func(keys []string, u report.Usage) {
 		if i, ok := at[keys[0]]; ok {
 			sessions[i].Models = append(sessions[i].Models, report.UsageGroup{Group: keys[1], Usage: u})
 		}
@@ -254,9 +259,30 @@ func subagentRows(q querier, r runs, root report.SessionID) (ids []string, out [
 	return ids, out, rows.Err()
 }
 
+// SessionPrompt opens a single prompt from a session in the project's listing.
+func (s *SQLiteSessions) SessionPrompt(ctx context.Context, id report.SessionID, position int64, project kernel.Project) (p report.Prompt, err error) {
+	err = s.snapshot(ctx, func(q querier) error {
+		r, err := runsOf(q, project)
+		if err != nil {
+			return err
+		}
+		row := q.QueryRow(r.with+` SELECT p.text, `+promptCols+`
+			FROM session_prompts p JOIN run ON run.id = p.session_id
+			WHERE p.session_id = ? AND p.position = ?`, append(slices.Clone(r.args), id.String(), position)...)
+		p, err = scanPrompt(row)
+		if err == sql.ErrNoRows {
+			return report.ErrPromptNotFound
+		}
+		return err
+	})
+	return p, err
+}
+
+const promptCols = `p.position, p.ts, p.chars, p.words, p.yelling, p.profanity, p.anguish, p.negation, p.repetition, p.blame`
+
 // prompts lists the session's own prompts in log order, each cut to report.PromptTextLimit characters.
 func prompts(q querier, id report.SessionID) ([]report.Prompt, error) {
-	rows, err := q.Query(`SELECT p.ts, substr(p.text, 1, ?), p.chars, p.words, p.yelling, p.profanity, p.anguish, p.negation, p.repetition, p.blame
+	rows, err := q.Query(`SELECT substr(p.text, 1, ?), `+promptCols+`
 		FROM session_prompts p WHERE p.session_id = ? ORDER BY p.position`, report.PromptTextLimit, id.String())
 	if err != nil {
 		return nil, err
@@ -264,15 +290,19 @@ func prompts(q querier, id report.SessionID) ([]report.Prompt, error) {
 	defer rows.Close()
 	var out []report.Prompt
 	for rows.Next() {
-		var p report.Prompt
-		var ts int64
-		var repeated int
-		if err := rows.Scan(&ts, &p.Text, &p.Chars, &p.Words, &p.Signals.Yelling, &p.Signals.Profanity, &p.Signals.Anguish,
-			&p.Signals.Negation, &repeated, &p.Signals.Blame); err != nil {
+		p, err := scanPrompt(rows)
+		if err != nil {
 			return nil, err
 		}
-		p.At, p.Signals.Repeated = fromMillis(ts), repeated != 0
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+func scanPrompt(row interface{ Scan(...any) error }) (p report.Prompt, err error) {
+	var ts, repeated int64
+	err = row.Scan(&p.Text, &p.Position, &ts, &p.Chars, &p.Words, &p.Signals.Yelling, &p.Signals.Profanity, &p.Signals.Anguish,
+		&p.Signals.Negation, &repeated, &p.Signals.Blame)
+	p.At, p.Signals.Repeated = fromMillis(ts), repeated != 0
+	return p, err
 }

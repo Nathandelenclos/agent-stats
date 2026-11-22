@@ -122,6 +122,19 @@ func NewPromptReview(prompts []FlaggedPrompt) PromptReview {
 	return r
 }
 
+// Occurrences returns the flagged prompts counted in ask, most recent first.
+func (r PromptReview) Occurrences(ask RecurringAsk) []FlaggedPrompt {
+	key := askKey(ask.Text)
+	var out []FlaggedPrompt
+	for _, p := range r.Prompts {
+		if askKey(p.Text) == key {
+			out = append(out, p)
+		}
+	}
+	slices.SortStableFunc(out, func(a, b FlaggedPrompt) int { return b.At.Compare(a.At) })
+	return out
+}
+
 func distinctSessions(prompts []FlaggedPrompt) int {
 	seen := map[SessionID]bool{}
 	for _, p := range prompts {

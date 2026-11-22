@@ -22,6 +22,7 @@ type (
 var (
 	NewSessionID       = domain.NewSessionID
 	ErrSessionNotFound = domain.ErrSessionNotFound
+	ErrPromptNotFound  = domain.ErrPromptNotFound
 )
 
 // SessionQueries answers questions about indexed sessions. Each answer describes one state of the index, which
@@ -53,4 +54,19 @@ type ShowSession struct {
 // Run describes the session id names, as the listing that q asked for shows it: q's project is the scope of its figures.
 func (uc ShowSession) Run(ctx context.Context, id SessionID, q Query) (SessionDetail, error) {
 	return uc.Queries.Session(ctx, id, q.Project)
+}
+
+// SessionPromptQuery reads a full prompt of a visible session by its indexed position.
+type SessionPromptQuery interface {
+	SessionPrompt(context.Context, domain.SessionID, int64, kernel.Project) (domain.Prompt, error)
+}
+
+// ShowSessionPrompt loads the prompt selected in a session, with its full text.
+type ShowSessionPrompt struct {
+	Queries SessionPromptQuery
+}
+
+// Run opens just the selected prompt, including newlines and indentation.
+func (uc ShowSessionPrompt) Run(ctx context.Context, id SessionID, position int64, q Query) (Prompt, error) {
+	return uc.Queries.SessionPrompt(ctx, id, position, q.Project)
 }

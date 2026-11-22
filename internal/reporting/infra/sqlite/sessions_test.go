@@ -84,7 +84,12 @@ func sessionsIndexed(t *testing.T) string {
 
 func openSessions(t *testing.T) *SQLiteSessions {
 	t.Helper()
-	r, err := OpenReadOnly(sessionsIndexed(t))
+	return readTestSessions(t, sessionsIndexed(t))
+}
+
+func readTestSessions(t *testing.T, path string) *SQLiteSessions {
+	t.Helper()
+	r, err := OpenReadOnly(path)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -18,6 +18,9 @@ var ErrEmptySessionID = errors.New("empty session id")
 // ErrSessionNotFound reports a session the index does not list: unknown, or a subagent (those belong to their session).
 var ErrSessionNotFound = errors.New("session not found")
 
+// ErrPromptNotFound reports a prompt that is absent from the requested session and project.
+var ErrPromptNotFound = errors.New("prompt not found in this session")
+
 // NewSessionID returns the identity id names.
 func NewSessionID(id string) (SessionID, error) {
 	if id == "" {
@@ -42,6 +45,7 @@ type SessionSummary struct {
 	AgentType  string // "main", or what the harness calls a subagent that has no indexed parent
 	Start, End time.Time
 	Usage
+	RelatedTool   *ToolUsage   // populated only when the listing matches tool or MCP calls
 	Models        []UsageGroup // the models the run used, most expensive first
 	SubagentCount int
 	PromptCount   int64 // typed by the user in the session itself, not the briefs sent to its subagents
@@ -118,11 +122,12 @@ func (s PromptSignals) Any() bool {
 
 // Prompt is one message the user typed in a session.
 type Prompt struct {
-	At      time.Time
-	Text    string // the first PromptTextLimit characters
-	Chars   int
-	Words   int
-	Signals PromptSignals
+	Position int64 // position in the indexed session, scoped to the current index snapshot
+	At       time.Time
+	Text     string // full text when opened individually, limited to PromptTextLimit in a session summary
+	Chars    int
+	Words    int
+	Signals  PromptSignals
 }
 
 // SessionDetail is what one session did: its summary, the tools it called, the subagents it started and its prompts in order.
