@@ -74,6 +74,9 @@ func main() {
 }
 
 func run() error {
+	if len(os.Args) > 1 && os.Args[1] == "serve" {
+		return runServe(os.Args[2:])
+	}
 	termquiet.Restore()
 	if len(os.Args) > 1 && os.Args[1] == "catalog" {
 		return runCatalog(os.Args[2:], os.Stdout, os.Stderr)
@@ -140,7 +143,7 @@ func run() error {
 		}
 		return tui.Run(o)
 	}
-	rep, err := reporting.BuildReport{Queries: usage}.Run(reporting.Query{Since: from, Harness: only})
+	rep, err := reporting.BuildReport{Queries: usage}.Run(context.Background(), reporting.Query{Since: from, Harness: only})
 	if err != nil {
 		return err
 	}

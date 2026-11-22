@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"path/filepath"
@@ -104,7 +105,7 @@ func TestSessionsListEachRunWithItsSubagentsAndModels(t *testing.T) {
 	s := openSessions(t)
 
 	// When every session is listed
-	list, err := s.Sessions(report.Filter{})
+	list, err := s.Sessions(context.Background(), report.Filter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,13 +162,13 @@ func TestSessionsFollowThePeriodAndHarnessFilters(t *testing.T) {
 		{"harness and period", report.Filter{Harness: kernel.Claude, Since: time.UnixMilli(t0)}, "claude:main"},
 	} {
 		// When the sessions are listed with the filter
-		list, err := s.Sessions(c.f)
+		list, err := s.Sessions(context.Background(), c.f)
 		// Then only the matching ones come back, each with the usage of its whole run
 		if err != nil || ids(list) != c.want {
 			t.Errorf("%s: %q, %v; want %q", c.name, ids(list), err, c.want)
 		}
 	}
-	list, _ := s.Sessions(report.Filter{Harness: kernel.Claude, Since: time.UnixMilli(t0)})
+	list, _ := s.Sessions(context.Background(), report.Filter{Harness: kernel.Claude, Since: time.UnixMilli(t0)})
 	if len(list) != 1 || list[0].Requests != 3 || list[0].Cost != 4.5 {
 		t.Errorf("filtered usage = %+v", list)
 	}
@@ -178,7 +179,7 @@ func TestSessionDetailTellsWhatTheSessionDid(t *testing.T) {
 	id, _ := report.NewSessionID("claude:main")
 
 	// When the session is described
-	d, err := s.Session(id)
+	d, err := s.Session(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,14 +229,14 @@ func TestSessionDetailRefusesWhatTheListingDoesNotShow(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = s.Session(id)
+		_, err = s.Session(context.Background(), id)
 
 		// Then it is not found, and the value was only ever data
 		if !errors.Is(err, report.ErrSessionNotFound) {
 			t.Errorf("%q: err = %v", raw, err)
 		}
 	}
-	if list, err := s.Sessions(report.Filter{}); err != nil || len(list) != 3 {
+	if list, err := s.Sessions(context.Background(), report.Filter{}); err != nil || len(list) != 3 {
 		t.Errorf("after hostile identities: %d sessions, %v", len(list), err)
 	}
 }
@@ -261,7 +262,7 @@ func TestSessionsAnEmptyIndexListsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.Close()
-	if list, err := r.Sessions().Sessions(report.Filter{}); err != nil || len(list) != 0 {
+	if list, err := r.Sessions().Sessions(context.Background(), report.Filter{}); err != nil || len(list) != 0 {
 		t.Errorf("sessions = %+v, %v", list, err)
 	}
 }
@@ -270,5 +271,30 @@ func TestSessionsReaderCannotWrite(t *testing.T) {
 	s := openSessions(t)
 	if _, err := s.db.Exec(`DELETE FROM session_requests`); err == nil {
 		t.Error("read-only index accepted a write")
+	}
+}
+
+func TestNoSessionIsListedForACallerThatGaveUp(t *testing.T) {
+	// Given a caller that already gave up
+	s := openSessions(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// When it lists the sessions, then the index answers with the context's error
+	if _, err := s.Sessions(ctx, report.Filter{}); !errors.Is(err, context.Canceled) {
+		t.Errorf("Sessions error = %v, want context.Canceled", err)
+	}
+}
+
+func TestNoSessionIsShownToACallerThatGaveUp(t *testing.T) {
+	// Given a caller that already gave up
+	s := openSessions(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	id, _ := report.NewSessionID("claude:s1")
+
+	// When it asks for a session, then the index answers with the context's error
+	if _, err := s.Session(ctx, id); !errors.Is(err, context.Canceled) {
+		t.Errorf("Session error = %v, want context.Canceled", err)
 	}
 }

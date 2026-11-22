@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"cmp"
+	"context"
 	"database/sql"
 	"slices"
 	"strings"
@@ -21,13 +22,13 @@ var _ reporting.SessionQueries = (*SQLiteSessions)(nil)
 func (s *SQLiteUsage) Sessions() *SQLiteSessions { return &SQLiteSessions{s.db} }
 
 // snapshot runs fn inside one read transaction, so the several queries of one answer agree with each other.
-func (s *SQLiteSessions) snapshot(fn func(querier) error) error {
-	tx, err := s.db.Begin()
+func (s *SQLiteSessions) snapshot(ctx context.Context, fn func(querier) error) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() // nothing was written: ending the transaction is all it takes
-	return fn(tx)
+	return fn(scoped{ctx, tx})
 }
 
 // sessionCols selects the listed sessions: a session, or a subagent whose parent was never indexed (a root).
@@ -40,7 +41,7 @@ const sessionCols = `SELECT s.id, s.harness, s.agent_type, COALESCE(s.title, '')
 	FROM session_overview s WHERE s.id = s.root_id`
 
 // Sessions lists the sessions whose last activity is in the filter's range, most recent first.
-func (s *SQLiteSessions) Sessions(f report.Filter) (out []report.SessionSummary, err error) {
+func (s *SQLiteSessions) Sessions(ctx context.Context, f report.Filter) (out []report.SessionSummary, err error) {
 	var cond string // narrows the roots (aliased s); every value is a bound parameter
 	var args []any
 	if !f.Since.IsZero() {
@@ -49,7 +50,7 @@ func (s *SQLiteSessions) Sessions(f report.Filter) (out []report.SessionSummary,
 	if !f.Harness.IsZero() {
 		cond, args = cond+" AND s.harness = ?", append(args, f.Harness.String())
 	}
-	err = s.snapshot(func(q querier) error {
+	err = s.snapshot(ctx, func(q querier) error {
 		var err error
 		if out, err = sessionRows(q, cond, args); err != nil {
 			return err
@@ -61,9 +62,9 @@ func (s *SQLiteSessions) Sessions(f report.Filter) (out []report.SessionSummary,
 }
 
 // Session describes one session of the listing.
-func (s *SQLiteSessions) Session(id report.SessionID) (d report.SessionDetail, err error) {
+func (s *SQLiteSessions) Session(ctx context.Context, id report.SessionID) (d report.SessionDetail, err error) {
 	root := []any{id.String()}
-	err = s.snapshot(func(q querier) error {
+	err = s.snapshot(ctx, func(q querier) error {
 		rows, err := sessionRows(q, " AND s.id = ?", root)
 		if err != nil {
 			return err

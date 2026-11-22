@@ -2,7 +2,8 @@
 #
 # It is called by ci.yml, after every check passed, on each push to main. So the commit this run is for (GITHUB_SHA)
 # is the commit CI validated, and it is also the one that is tagged, built and named by the provenance attestation.
-# The binaries are built once, by GoReleaser, from that commit.
+# The binaries are built once, by GoReleaser, from that commit. The web front is built from the same commit by a job that
+# can only read, and the job that tags, publishes and signs receives the result as an artifact: it runs no front tooling.
 #
 # Catch-up design: the next version and the notes are computed from ALL the Conventional Commits since the last tag
 # (git-cliff, see cliff.toml), up to this run's commit. A run therefore releases everything releasable up to its own
@@ -42,8 +43,40 @@ concurrency:
   queue: max
 
 jobs:
+  # Builds web/dist. vite, tailwind and tsc are third-party programs: they run here, in a clone that holds no token, with
+  # read-only rights and no signing identity, never in the job below. No npm cache, so nothing a pull request could have
+  # left is restored. The build is a pure function of the lockfile (npm ci, install scripts off through web/.npmrc).
+  front:
+    name: Build the web front
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+      - name: Test and build the front
+        working-directory: web
+        run: |
+          npm ci
+          npm test
+          npm run build
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-dist
+          path: web/dist
+          if-no-files-found: error
+          # Re-running only the failed publish job reads this artifact again, and GitHub allows a re-run for 30 days: keep it
+          # that long. Past it, the manual run on the tag rebuilds the front (see the header). It holds no secret.
+          retention-days: 30
+
   release:
     name: Tag and publish
+    needs: front
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -52,7 +85,8 @@ jobs:
       attestations: write
     steps:
       # The commit CI validated (the default ref is the pushed commit), with the whole history and the tags
-      # (git-cliff needs both). The token is kept to push the tag; no step runs code that is not pinned below.
+      # (git-cliff needs both). The token is kept to push the tag; no step builds or installs third-party code (the front
+      # comes from the job above).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -61,6 +95,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      # The front built above, from this same commit. It is embedded by the web build tag (.goreleaser.yaml): the build
+      # fails if it is missing, and nothing in this job builds it.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: web-dist
+          path: web/dist
       # syft generates the SBOM of each archive (sboms in .goreleaser.yaml).
       - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
@@ -240,4 +280,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.plan.outputs.version }}
-        run: gh release edit "$VERSION" --draft=false --verify-tag
+        run: |
+          set -euo pipefail
+          # A release must carry its notes: refuse to publish an empty body.
+          body=$(gh release view "$VERSION" --json body --jq '.body')
+          [ -n "${body//[[:space:]]/}" ] || { echo "::error::The draft release $VERSION has no notes."; exit 1; }
+          gh release edit "$VERSION" --draft=false --verify-tag

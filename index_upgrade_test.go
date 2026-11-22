@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"slices"
 	"testing"
@@ -23,7 +24,7 @@ func sessionsListed(t *testing.T, path string) int {
 		t.Fatal(err)
 	}
 	defer r.Close()
-	list, err := r.Sessions().Sessions(report.Filter{})
+	list, err := r.Sessions().Sessions(context.Background(), report.Filter{})
 	if err != nil {
 		t.Fatal(err)
 	}
