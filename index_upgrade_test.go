@@ -201,3 +201,32 @@ func TestAnIndexUpgradedByThisBuildIsStillWrittenByTheStatementsOfMain(t *testin
 		})
 	}
 }
+
+func TestAnIndexALaterBuildGaveANewColumnToEveryTableIsStillWrittenByThisBuild(t *testing.T) {
+	// Given an index in which a later build added a column to each table, as the build before this one could not
+	path := t.TempDir() + "/index.db"
+	openIndex(t, path).Close()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, table := range []string{"files", "sessions", "requests", "tool_calls", "tool_call_skills", "prompts"} {
+		if _, err := db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN added_later TEXT`); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// When this build writes a log holding a Skill call and a prompt
+	w := openIndex(t, path)
+	saveLogWithAPrompt(t, w, "/logs/s1.jsonl", skillCall("t1", "review"))
+
+	// Then the log is indexed and the skill it loaded is counted
+	known, err := w.IndexedFiles()
+	if err != nil || len(known) != 1 {
+		t.Fatalf("indexed files = %+v, %v", known, err)
+	}
+	if a := activityOf(t, path); len(a.Skills) != 1 || a.Skills[0].Skill != "review" {
+		t.Errorf("activity: %+v", a)
+	}
+}

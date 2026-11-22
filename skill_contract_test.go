@@ -33,12 +33,24 @@ func openIndex(t *testing.T, path string) *sqlite.SQLiteIndex {
 // saveLog saves a Claude log holding the given tool calls.
 func saveLog(t *testing.T, w *sqlite.SQLiteIndex, file string, tools ...domain.ToolCall) {
 	t.Helper()
+	saveLogHolding(t, w, file, nil, tools)
+}
+
+// saveLogWithAPrompt saves a Claude log holding the given tool calls and one prompt.
+func saveLogWithAPrompt(t *testing.T, w *sqlite.SQLiteIndex, file string, tools ...domain.ToolCall) {
+	t.Helper()
+	saveLogHolding(t, w, file, []domain.Prompt{{Key: "p1", At: skillCallTime, Text: "hello"}}, tools)
+}
+
+func saveLogHolding(t *testing.T, w *sqlite.SQLiteIndex, file string, prompts []domain.Prompt, tools []domain.ToolCall) {
+	t.Helper()
 	id, err := domain.NewSessionID(kernel.Claude, filepath.Base(file))
 	if err != nil {
 		t.Fatal(err)
 	}
 	log := indexing.IndexedLog{File: indexing.LogFile{Path: file, Harness: kernel.Claude, Size: 1}, Transcript: indexing.IndexedTranscript{
-		Transcript: domain.Transcript{Session: domain.Session{ID: id, Harness: kernel.Claude, AgentType: domain.MainAgent, Start: skillCallTime, End: skillCallTime}, Tools: tools},
+		Transcript: domain.Transcript{Session: domain.Session{ID: id, Harness: kernel.Claude, AgentType: domain.MainAgent, Start: skillCallTime, End: skillCallTime}, Tools: tools, Prompts: prompts},
+		Signals:    domain.AnalyzeSession(prompts),
 	}}
 	if err := w.Save([]indexing.IndexedLog{log})[0]; err != nil {
 		t.Fatal(err)

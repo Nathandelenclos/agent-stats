@@ -316,12 +316,17 @@ func prepare(tx *sql.Tx) (st statements, err error) {
 	for i, table := range deletedTables {
 		st.deletes[i] = prep(`DELETE FROM ` + table + ` WHERE file = ?`)
 	}
-	st.session = prep(`INSERT OR REPLACE INTO sessions VALUES (?,?,?,?,?,?,?,?,?,?)`)
-	st.request = prep(`INSERT OR REPLACE INTO requests VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-	st.tool = prep(`INSERT OR REPLACE INTO tool_calls VALUES (?,?,?,?,?,?,?,?,?,?)`)
-	st.skill = prep(`INSERT OR REPLACE INTO tool_call_skills VALUES (?,?,?,?)`)
-	st.prompt = prep(`INSERT OR REPLACE INTO prompts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-	st.file = prep(`INSERT OR REPLACE INTO files VALUES (?,?,?,?)`)
+	// Columns are named, so that a column another build adds to a table does not break these statements.
+	st.session = prep(`INSERT OR REPLACE INTO sessions (id, file, harness, parent_id, agent_type, title, folder, user, started_at, ended_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?)`)
+	st.request = prep(`INSERT OR REPLACE INTO requests (file, key, session_id, ts, model, provider, input, output, cache_read, cache_write, reasoning,
+		cost, priced, duration_ms, ttft_ms, stop_reason, error) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+	st.tool = prep(`INSERT OR REPLACE INTO tool_calls (file, key, session_id, ts, name, server, args_chars, result_chars, is_error, duration_ms)
+		VALUES (?,?,?,?,?,?,?,?,?,?)`)
+	st.skill = prep(`INSERT OR REPLACE INTO tool_call_skills (file, session_id, key, skill) VALUES (?,?,?,?)`)
+	st.prompt = prep(`INSERT OR REPLACE INTO prompts (file, key, session_id, ts, text, chars, words, yelling, profanity, anguish, negation, repetition, blame)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+	st.file = prep(`INSERT OR REPLACE INTO files (path, harness, size, mtime) VALUES (?,?,?,?)`)
 	return st, err
 }
 
