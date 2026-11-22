@@ -51,7 +51,7 @@ go generate ./web && go build -tags web .   # with the web page (needs Node 22.1
 ```sh
 agent-stats                          # on a terminal: open the interactive view, indexing new logs in the background
 agent-stats --since 7d               # last 7 days (also 24h, 30d, or a date: 2026-11-01)
-agent-stats --harness codex          # one harness: claude, codex, omp, pi, opencode, kilo or gemini
+agent-stats --harness codex          # one harness: claude, codex, omp, pi, opencode, kilo, gemini or goose
 agent-stats --harness claude --json  # machine-readable report
 agent-stats --no-sync                # report from the existing index, skip re-reading the logs
 agent-stats --all                    # every project, even from inside one
@@ -99,7 +99,7 @@ The sessions are not part of `--json` or the plain-text report. Both modes follo
 | Flag | Meaning |
 |------|---------|
 | `--since` | Only count activity after this point: `24h`, `7d` (days), any Go duration, or a `2006-01-02` date. |
-| `--harness` | Restrict the report to `claude`, `codex`, `omp`, `pi`, `opencode`, `kilo` or `gemini`. |
+| `--harness` | Restrict the report to `claude`, `codex`, `omp`, `pi`, `opencode`, `kilo`, `gemini` or `goose`. |
 | `--all` | Count every project, not only the one of the current folder, see [Per-project view](#per-project-view). |
 | `--project DIR` | Count only the project at `DIR` (folder or below), see [Per-project view](#per-project-view). |
 | `--json` | Print the report as JSON instead of tables. |
@@ -176,7 +176,7 @@ no toggle.
 
 The page reads a small JSON API, which is also usable with `curl`. Every route is a `GET`; errors are
 [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem documents (`application/problem+json`) with a stable `type`.
-`since` and `harness` take what the command line takes (`7d`, `24h`, `2006-01-02`; `claude`, `codex`, `omp`, `pi`, `opencode`, `kilo`, `gemini`) and
+`since` and `harness` take what the command line takes (`7d`, `24h`, `2006-01-02`; `claude`, `codex`, `omp`, `pi`, `opencode`, `kilo`, `gemini`, `goose`) and
 may be omitted. `project` is `current` (the project the server runs in) or `all`, and when omitted is what the page opens
 on; `current` is refused with `400` when the server found no project, as is any other value, a folder included.
 Unknown or repeated parameters are refused with `400`.
@@ -255,7 +255,7 @@ what the usage covers.
 | oh-my-pi    | `~/.omp/agent/mcp.json`, skills (`~/.omp/agent/skills`, `~/.agents/skills`), agents (`~/.omp/agent/agents`), plugins (`~/.omp/plugins`) |
 | pi          | skills (`~/.pi/agent/skills`, `~/.agents/skills`), packages of `~/.pi/agent/settings.json`                           |
 
-OpenCode, Kilo Code and Gemini CLI have no configuration reader yet: their tools show up with the `logs` scope, from the
+OpenCode, Kilo Code, Gemini CLI and Goose have no configuration reader yet: their tools show up with the `logs` scope, from the
 usage their sessions record, and nothing of them is listed as installed (so none is reported unused).
 
 The per-project MCP servers of `~/.claude.json` are listed for every project it names, not only for `--project`.
@@ -299,13 +299,14 @@ file, a name with control characters) is left out and noted on stderr (`skipped`
 | OpenCode | the SQLite databases `opencode.db` and `opencode-<channel>.db` of `$XDG_DATA_HOME/opencode` (`~/.local/share/opencode`), or the file named by `$OPENCODE_DB` |
 | Kilo Code | `kilo.db` and `kilo-<channel>.db` of `$XDG_DATA_HOME/kilo` (`~/.local/share/kilo`), or `$KILO_DB`; an `opencode-<channel>.db` there (the old name) only when the channel has no `kilo-<channel>.db` |
 | Gemini CLI | `~/.gemini/tmp/<project>/chats/*.json` and `*.jsonl` (under `$GEMINI_CLI_HOME` when set), including subagent journals |
+| Goose | `~/.local/share/goose/sessions/sessions.db` |
 
 A harness that is not installed is simply skipped. The index lives in the user cache directory
 (`agent-stats/index.db`). Only changed log files are re-read, and indexed rows survive when a harness deletes its
 old logs. When two logs name the same session (a copy of a conversation, or one saved in two formats), the session is
 that of the log that goes on last, the later path when both stop together, whichever was indexed first.
 
-What each of the three newer readers counts, and what it does not:
+How the SQLite and Gemini CLI readers count activity:
 
 - **OpenCode and Kilo Code** share one reader. Both schema generations are read (`session`/`message`/`part`, and
   `session_v2` or `session` with `session_message`/`session_part`); a database with none of those tables is skipped and
@@ -328,15 +329,19 @@ What each of the three newer readers counts, and what it does not:
   Gemini CLI logs no cost, duration or time to first token, so costs are priced from the table (the model ids it logs,
   such as `gemini-2.5-pro` or `gemini-3.1-pro-preview`, are in it) and latencies stay unknown. A subagent journal in the
   directory of its parent session is linked to it; a subagent file elsewhere is a subagent with no known parent.
+- **Goose** reads the working directory, session dates, parent links, prompts, and tool requests and results from
+  `sessions` and `messages`. Older SQLite schemas provide activity without per-message usage. When present, message
+  metadata provides the model, tokens, logged cost, request duration and time to first token. Cache reads and writes
+  are part of Goose's input count and reported separately. Compaction, aggregate usage and pre-migration JSONL are
+  excluded. Tool durations are unknown.
 
 A SQLite database holds many sessions, while the index keeps one record per log: each session of a database is a log of its
-own, named `<database>#<session id>`, and it is read again when what its tables hold of it changes: for its messages and
-for its parts, the number of rows, the sum of their update times and the bytes of their data, with the time the session
+own, named `<database>#<session id>`, and it is read again when what its tables hold of it changes. For its messages and parts, OpenCode and Kilo use the number of rows, the sum of their update times and the bytes of their data, with the time the session
 was updated (one grouped query per table, which reads the data of every row). The sum of the times, not the latest,
 because a row stamped in the future would hide every later update; the bytes, because a tool call that goes from running to
 error keeps its row. A session with no message is listed too, as an empty session: one that lost its last message is read
-again and loses its rows. The size and modification time of the database file would
-not do, as they change whenever any session is written and every session would be read again. Databases are opened
+again and loses its rows. Goose checks the size and modification time of the database and its WAL. A change
+refreshes all Goose sessions because a message can be edited without changing the session timestamp. Databases are opened
 read-only (`mode=ro`) and the database file is never written. A database in write-ahead mode (how OpenCode keeps its
 own) needs its `-shm` file, and SQLite creates it, and a `-wal` file, beside the database when they are missing: the
 directory must be writable, or the database is reported as unreadable. A database is never opened as immutable, as a
