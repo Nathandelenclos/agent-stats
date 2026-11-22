@@ -286,10 +286,11 @@ A SQLite database holds many sessions, while the index keeps one record per log:
 own, named `<database>#<session id>`, and it is read again when its message count or the time of its last update changes
 (one grouped query per table, not a read of the parts). The size and modification time of the database file would
 not do, as they change whenever any session is written and every session would be read again. Databases are opened
-read-only and never written; when nobody has one open (no `-wal` or `-shm` file beside it) it is opened immutable,
-which leaves no file behind, otherwise through SQLite, which reads the `-wal` file too. A session deleted from a
-database keeps its indexed rows, as for any other log. If a harness starts while an idle database is being read (immutable), that
-read may fail or see the earlier state; the session is reported and read again by the next run.
+read-only (`mode=ro`) and the database file is never written. A database in write-ahead mode (how OpenCode keeps its
+own) needs its `-shm` file, and SQLite creates it, and a `-wal` file, beside the database when they are missing: the
+directory must be writable, or the database is reported as unreadable. A database is never opened as immutable, as a
+harness may start writing to it at any time. A session deleted from a database keeps its indexed rows, as for any
+other log.
 
 ## Pricing
 

@@ -150,10 +150,10 @@ func channelOf(name, prefix string) (channel string, ok bool) {
 // connect opens the read-only connection pool of a database for a listing, replacing the one of the previous
 // listing. The file is checked first: opening a FIFO or a device by name would block.
 //
-// A database nobody has open (no -wal and no -shm file, which a cleanly closed one leaves none of) is opened
-// immutable: SQLite then neither locks it nor creates the -wal and -shm files a reader of a database in
-// write-ahead mode would leave next to it. A database in use is opened with mode=ro, which reads the -wal file too
-// and never writes the database. An immutable pool never outlives its listing, as the database may be opened later.
+// The database is opened with mode=ro, never immutable: no -wal or -shm file beside a database does not mean that
+// nobody writes to it, and an immutable connection would neither see what a harness that starts later commits nor
+// notice that the file changed under it. mode=ro never writes the database. For a database in write-ahead mode
+// SQLite may create or need the -shm and -wal side files, so the directory must be writable (see the README).
 func (d *OpenCodeDatabase) connect(path string) (*sql.DB, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -166,13 +166,7 @@ func (d *OpenCodeDatabase) connect(path string) (*sql.DB, error) {
 		return nil, err
 	}
 	f.Close()
-	_, noWAL := os.Stat(path + "-wal")
-	_, noSHM := os.Stat(path + "-shm")
-	mode := "mode=ro"
-	if os.IsNotExist(noWAL) && os.IsNotExist(noSHM) {
-		mode = "mode=ro&immutable=1"
-	}
-	uri := (&url.URL{Scheme: "file", Path: path}).String() + "?" + mode + "&_pragma=query_only(true)&_pragma=busy_timeout(3000)"
+	uri := (&url.URL{Scheme: "file", Path: path}).String() + "?mode=ro&_pragma=query_only(true)&_pragma=busy_timeout(3000)"
 	db, err := sql.Open("sqlite", uri)
 	if err != nil {
 		return nil, err

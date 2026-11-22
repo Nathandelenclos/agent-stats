@@ -394,10 +394,37 @@ func TestASessionThatAnOlderAndANewerOpenCodeBothWroteToIsReadFromTheNewerOneOnl
 	}
 }
 
+func TestAChangeCommittedAfterTheListingIsSeenWhenTheSessionIsRead(t *testing.T) {
+	// Given a database its harness has closed, listed once
+	logs, db := newOpenCode(t, "messages.sql")
+	listed := existingLogs(t, logs)["ses_child"]
+
+	// When the harness starts and commits a new prompt to that session, before the session is read
+	w, err := sql.Open("sqlite", db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	for _, q := range []string{
+		`INSERT INTO message VALUES ('msg_99', 'ses_child', 1767225700000, 1767225700000, '{"role":"user","time":{"created":1767225700000}}')`,
+		`INSERT INTO part VALUES ('prt_99a', 'msg_99', 'ses_child', 1767225700000, 1767225700000, '{"type":"text","text":"One more thing"}')`,
+	} {
+		if _, err := w.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, err := logs.Read(listed)
+
+	// Then the prompt is in the transcript
+	if err != nil || len(p.Prompts) != 2 || p.Prompts[1].Text != "One more thing" {
+		t.Errorf("prompts = %+v, %v", p.Prompts, err)
+	}
+}
+
 func TestReadingADatabaseNeverChangesIt(t *testing.T) {
 	for name, kept := range map[string]bool{"a database kept the usual way": false, "a database kept the way OpenCode keeps it": true} {
 		t.Run(name, func(t *testing.T) {
-			// Given a database nobody has open, in a directory nobody may write to
+			// Given a database nobody has open, in a directory nobody may write to when the database does not need side files
 			root := t.TempDir()
 			db := filepath.Join(root, "opencode.db")
 			buildDB(t, db, "messages.sql")
@@ -419,10 +446,12 @@ func TestReadingADatabaseNeverChangesIt(t *testing.T) {
 				return sha256.Sum256(raw)
 			}
 			before := sum()
-			if err := os.Chmod(root, 0o500); err != nil {
-				t.Fatal(err)
+			if !kept { // a database in write-ahead mode needs side files, hence a directory that may be written to
+				if err := os.Chmod(root, 0o500); err != nil {
+					t.Fatal(err)
+				}
+				defer os.Chmod(root, 0o700)
 			}
-			defer os.Chmod(root, 0o700)
 			logs := harnessLogs(kernel.OpenCode, root, &OpenCodeDatabase{Prefix: "opencode"})
 
 			// When every session is listed and read
@@ -437,43 +466,6 @@ func TestReadingADatabaseNeverChangesIt(t *testing.T) {
 				t.Error("the database changed")
 			}
 		})
-	}
-}
-
-func TestReadingADatabaseNobodyHasOpenLeavesNothingBesideIt(t *testing.T) {
-	// Given a database its harness has closed, in a directory that may be written to
-	root := t.TempDir()
-	db := filepath.Join(root, "opencode.db")
-	buildDB(t, db, "messages.sql")
-	w, err := sql.Open("sqlite", db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := w.Exec(`PRAGMA journal_mode = WAL`); err != nil {
-		t.Fatal(err)
-	}
-	w.Close()
-	names := func() []string {
-		entries, _ := os.ReadDir(root)
-		var out []string
-		for _, e := range entries {
-			out = append(out, e.Name())
-		}
-		return out
-	}
-	before := names()
-	logs := harnessLogs(kernel.OpenCode, root, &OpenCodeDatabase{Prefix: "opencode"})
-
-	// When it is listed and read
-	for _, f := range existingLogs(t, logs) {
-		if _, err := logs.Read(f); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	// Then no file appeared beside it
-	if after := names(); !slices.Equal(before, after) {
-		t.Errorf("files %v, then %v", before, after)
 	}
 }
 
