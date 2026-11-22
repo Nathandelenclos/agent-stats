@@ -51,7 +51,7 @@ go generate ./web && go build -tags web .   # with the web page (needs Node 22.1
 ```sh
 agent-stats                          # on a terminal: open the interactive view, indexing new logs in the background
 agent-stats --since 7d               # last 7 days (also 24h, 30d, or a date: 2026-11-01)
-agent-stats --harness codex          # one harness: claude, codex, omp or pi
+agent-stats --harness codex          # one harness: claude, codex, omp, pi, opencode, kilo or gemini
 agent-stats --harness claude --json  # machine-readable report
 agent-stats --no-sync                # report from the existing index, skip re-reading the logs
 agent-stats serve                    # the same report in a browser, at http://127.0.0.1:7373 (see Web interface)
@@ -73,7 +73,7 @@ The sessions are not part of `--json` or the plain-text report.
 | Flag | Meaning |
 |------|---------|
 | `--since` | Only count activity after this point: `24h`, `7d` (days), any Go duration, or a `2006-01-02` date. |
-| `--harness` | Restrict the report to `claude`, `codex`, `omp` or `pi`. |
+| `--harness` | Restrict the report to `claude`, `codex`, `omp`, `pi`, `opencode`, `kilo` or `gemini`. |
 | `--json` | Print the report as JSON instead of tables. |
 | `--no-sync` | Skip the indexing step and read the index as it is. |
 | `--prices file.json` | Override or add model prices, see [Pricing](#pricing). |
@@ -141,7 +141,7 @@ Press Ctrl-C to stop it.
 
 The page reads a small JSON API, which is also usable with `curl`. Every route is a `GET`; errors are
 [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem documents (`application/problem+json`) with a stable `type`.
-`since` and `harness` take what the command line takes (`7d`, `24h`, `2006-01-02`; `claude`, `codex`, `omp`, `pi`) and
+`since` and `harness` take what the command line takes (`7d`, `24h`, `2006-01-02`; `claude`, `codex`, `omp`, `pi`, `opencode`, `kilo`, `gemini`) and
 may be omitted. Unknown or repeated parameters are refused with `400`.
 
 | Route | Answer |
@@ -212,6 +212,9 @@ Like the report, it indexes new logs first unless you pass `--no-sync`.
 | oh-my-pi    | `~/.omp/agent/mcp.json`, skills (`~/.omp/agent/skills`, `~/.agents/skills`), agents (`~/.omp/agent/agents`), plugins (`~/.omp/plugins`) |
 | pi          | skills (`~/.pi/agent/skills`, `~/.agents/skills`), packages of `~/.pi/agent/settings.json`                           |
 
+OpenCode, Kilo Code and Gemini CLI have no configuration reader yet: their tools show up with the `logs` scope, from the
+usage their sessions record, and nothing of them is listed as installed (so none is reported unused).
+
 The per-project MCP servers of `~/.claude.json` are listed for every project it names, not only for `--project`.
 Project-level files (`.claude/`, `.agents/skills`, `.codex/`, `.omp/`, `.pi/`, `.mcp.json`) are read under `--project`.
 `CLAUDE_CONFIG_DIR` and `CODEX_HOME` are honoured.
@@ -249,16 +252,57 @@ file, a name with control characters) is left out and noted on stderr (`skipped`
 | Codex | `~/.codex/sessions` and `~/.codex/archived_sessions` (or under `$CODEX_HOME`), `.jsonl` and `.jsonl.zst` rollouts |
 | oh-my-pi | `~/.omp/agent/sessions` |
 | pi | `~/.pi/agent/sessions` |
+| OpenCode | the SQLite databases `opencode.db` and `opencode-<channel>.db` of `$XDG_DATA_HOME/opencode` (`~/.local/share/opencode`), or the file named by `$OPENCODE_DB` |
+| Kilo Code | `kilo.db` and `kilo-<channel>.db` of `$XDG_DATA_HOME/kilo` (`~/.local/share/kilo`), or `$KILO_DB`; an `opencode-<channel>.db` there (the old name) only when the channel has no `kilo-<channel>.db` |
+| Gemini CLI | `~/.gemini/tmp/<project>/chats/*.json` and `*.jsonl` (under `$GEMINI_CLI_HOME` when set), including subagent journals |
 
 A harness that is not installed is simply skipped. The index lives in the user cache directory
 (`agent-stats/index.db`). Only changed log files are re-read, and indexed rows survive when a harness deletes its
-old logs.
+old logs. When two logs name the same session (a copy of a conversation, or one saved in two formats), the session is
+that of the log that goes on last, the later path when both stop together, whichever was indexed first.
+
+What each of the three newer readers counts, and what it does not:
+
+- **OpenCode and Kilo Code** share one reader. Both schema generations are read (`session`/`message`/`part`, and
+  `session_v2` or `session` with `session_message`/`session_part`); a database with none of those tables is skipped and
+  reported. A request is an assistant message with its tokens (input, output with the reasoning, cache reads and writes),
+  its model and provider, the cost the harness logged, its stop reason and its error name. Where the database records
+  them (the events generation), the time to first token and the duration of the stream are read too; the messages
+  generation has neither. Prompts are the text of the user's messages, minus synthetic and ignored parts. Tool calls
+  count their argument and result sizes, errors and durations; an MCP tool is listed under the name OpenCode gives it
+  (`<server>_<tool>`), with no server, as that name cannot be split reliably. A child session (with a parent) is a
+  subagent. A forked session (one that names the session it was forked from, or, in the older generation, whose title ends with
+  `(fork #N)`) counts only what was said since the fork: the messages it copied from the original were made before it,
+  by the time in their data, and are dropped. A session that is not a fork keeps all its messages. Compactions of the events generation count as requests, those that failed too (with what they used and their error). Not read: the session totals and
+  `step-finish` parts (they repeat the usage of the messages), Kilo's former extension tasks, and shared or archived state.
+- **Gemini CLI** conversations are JSON documents or JSONL journals; a journal is replayed (`$patch`, `$rewindTo`,
+  `$set`) before it is counted. A request is a `gemini` message that states its tokens, counted once whatever the
+  number of its tool calls; the cached tokens are part of its input and are counted as cache reads, not added to it, and
+  the thoughts are counted as output. Prompts are the `user` messages and tool calls come with their sizes and status.
+  The folder is read from the `.project_root` file Gemini CLI keeps beside the chats, when it is a regular file (a link
+  is not followed) that holds an absolute path; the conversations of the project are read again when that file appears or changes.
+  Gemini CLI logs no cost, duration or time to first token, so costs are priced from the table (the model ids it logs,
+  such as `gemini-2.5-pro` or `gemini-3.1-pro-preview`, are in it) and latencies stay unknown. A subagent journal in the
+  directory of its parent session is linked to it; a subagent file elsewhere is a subagent with no known parent.
+
+A SQLite database holds many sessions, while the index keeps one record per log: each session of a database is a log of its
+own, named `<database>#<session id>`, and it is read again when what its tables hold of it changes: for its messages and
+for its parts, the number of rows, the sum of their update times and the bytes of their data, with the time the session
+was updated (one grouped query per table, which reads the data of every row). The sum of the times, not the latest,
+because a row stamped in the future would hide every later update; the bytes, because a tool call that goes from running to
+error keeps its row. A session with no message is listed too, as an empty session: one that lost its last message is read
+again and loses its rows. The size and modification time of the database file would
+not do, as they change whenever any session is written and every session would be read again. Databases are opened
+read-only (`mode=ro`) and the database file is never written. A database in write-ahead mode (how OpenCode keeps its
+own) needs its `-shm` file, and SQLite creates it, and a `-wal` file, beside the database when they are missing: the
+directory must be writable, or the database is reported as unreadable. A database is never opened as immutable, as a
+harness may start writing to it at any time. A session deleted from a database keeps its indexed rows, as for any
+other log.
 
 ## Pricing
 
 Costs come from an embedded copy of the [LiteLLM](https://github.com/BerriAI/litellm) price table
-(`internal/pricing/infra/pricetable/prices.json`), unless the harness logged a positive cost itself (oh-my-pi and pi
-do). Requests on a model with no known price are counted as *unpriced* and flagged in the report.
+(`internal/pricing/infra/pricetable/prices.json`), unless the harness logged a positive cost itself (oh-my-pi, pi, OpenCode and Kilo Code do; Gemini CLI does not). Requests on a model with no known price are counted as *unpriced* and flagged in the report.
 
 Override or add models with `--prices file.json`, a JSON object of USD **per token**:
 

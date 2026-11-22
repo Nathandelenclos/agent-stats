@@ -2,29 +2,32 @@
 package application
 
 import (
-	"time"
+	"fmt"
 
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
 )
 
-// LogFile is one session log as found on disk. Size and ModTime tell whether it changed since it was indexed.
+// LogFile is one session log as found on disk. A log is a file, or one session of a database that holds many:
+// Path is then "<database path>#<session id>".
 type LogFile struct {
 	Path    string
 	Harness kernel.Harness
-	Size    int64
-	ModTime time.Time
-	// Weight is what reading the log may hold in memory, in bytes of log text: the decompressed size of a
-	// compressed log, which Size understates tenfold. Zero means Size. Only List sets it.
-	Weight int64
+	// Revision says whether the log changed since it was indexed: the index keeps the one it saw, and reads the log
+	// again when the reader reports another. Only the reader that produced a revision knows what it is made of (the
+	// size and modification time of a file, what a database says of a session), so nothing else compares parts of it.
+	Revision string
+	// WeightBytes is what reading the log may hold in memory, in bytes of log text: the decompressed size of a
+	// compressed log, which the file understates tenfold. It only paces the readers ahead of the writer and is not
+	// part of the revision.
+	WeightBytes int64
 }
 
-// weight is what the log counts for in the window that bounds what is read ahead.
-func (f LogFile) weight() int64 {
-	if f.Weight > 0 {
-		return f.Weight
-	}
-	return f.Size
+// FileRevision is the revision of a log that is a file: its size and its modification time in nanoseconds since the
+// epoch. The readers of files give it, and the index gives it to a log an earlier version indexed, which it knows by
+// those two: this is the only place that says how they make a revision.
+func FileRevision(size, modTimeNanos int64) string {
+	return fmt.Sprintf("%d:%d", size, modTimeNanos)
 }
 
 // SessionLogs finds and reads the session logs that harnesses write.

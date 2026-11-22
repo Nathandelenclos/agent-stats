@@ -58,7 +58,7 @@ func (uc IndexSessions) RunContext(ctx context.Context, progress func(IndexRepor
 	var changed []LogFile
 	for _, f := range files {
 		rep.Scanned++
-		if k, ok := known[f.Path]; !ok || k.Size != f.Size || !k.ModTime.Equal(f.ModTime) {
+		if k, ok := known[f.Path]; !ok || k.Revision != f.Revision {
 			changed = append(changed, f)
 		}
 	}
@@ -83,7 +83,7 @@ func (uc IndexSessions) RunContext(ctx context.Context, progress func(IndexRepor
 			saved = uc.Store.Save(toSave)
 		}
 		for _, p := range pending {
-			ahead.leave(p.file.weight()) // only now is the transcript gone from memory
+			ahead.leave(p.file.WeightBytes) // only now is the transcript gone from memory
 			err := p.err
 			if err == nil {
 				err, saved = saved[0], saved[1:]
@@ -212,7 +212,7 @@ func (uc IndexSessions) readAhead(ctx context.Context, files []LogFile, ahead *w
 	go func() {
 		defer close(next)
 		for i, f := range files {
-			if !ahead.enter(f.weight()) {
+			if !ahead.enter(f.WeightBytes) {
 				return
 			}
 			select {

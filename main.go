@@ -88,7 +88,7 @@ func run() error {
 	dbPath := flag.String("db", defaultDB, "index database (default: agent-stats/index.db in the user cache directory)")
 	pricesPath := flag.String("prices", "", "JSON file overriding embedded prices: {\"model\": [input, output, cacheRead, cacheWrite]} in USD per token")
 	since := flag.String("since", "", "only count activity after this: 24h, 7d, 30d or 2006-01-02")
-	harness := flag.String("harness", "", "only one harness: claude, codex, omp, pi")
+	harness := flag.String("harness", "", "only one harness: claude, codex, omp, pi, opencode, kilo, gemini")
 	asJSON := flag.Bool("json", false, "print the report as JSON")
 	noSync := flag.Bool("no-sync", false, "skip re-reading the logs")
 	flag.Parse()

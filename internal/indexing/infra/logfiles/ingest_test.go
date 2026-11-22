@@ -244,16 +244,16 @@ func TestListWeighsACompressedLogByItsDecompressedSize(t *testing.T) {
 	for _, f := range files {
 		weights[filepath.Base(f.Path)] = f
 	}
-	if f := weights["declared.jsonl.zst"]; f.Weight < int64(len(text)) || f.Weight > int64(len(text))+maxZstdMemory {
-		t.Errorf("declared: weight %d for a log of %d bytes and a file of %d", f.Weight, len(text), f.Size)
+	if f := weights["declared.jsonl.zst"]; f.WeightBytes < int64(len(text)) || f.WeightBytes > int64(len(text))+maxZstdMemory {
+		t.Errorf("declared: weight %d for a log of %d bytes", f.WeightBytes, len(text))
 	}
 	for _, name := range []string{"streamed.jsonl.zst", "garbage.jsonl.zst"} {
-		if f := weights[name]; f.Weight != f.Size*unknownZstdRatio {
-			t.Errorf("%s: weight %d, want %d times its size of %d", name, f.Weight, unknownZstdRatio, f.Size)
+		if f := weights[name]; f.WeightBytes != fileSize(t, root, name)*unknownZstdRatio {
+			t.Errorf("%s: weight %d, want %d times its size", name, f.WeightBytes, unknownZstdRatio)
 		}
 	}
-	if f := weights["plain.jsonl"]; f.Weight != 0 {
-		t.Errorf("plain: weight %d, want 0 (its size counts)", f.Weight)
+	if f := weights["plain.jsonl"]; f.WeightBytes != int64(len(text)) {
+		t.Errorf("plain: weight %d, want its size of %d", f.WeightBytes, len(text))
 	}
 }
 
@@ -380,4 +380,13 @@ func TestAClaudeLogUnderSubagentsStaysASubagentWhateverItsMetaDeclares(t *testin
 	if p.Session.AgentType != domain.Subagent || p.Session.ParentID.String() != "claude:sess1" {
 		t.Errorf("session = %+v", p.Session)
 	}
+}
+
+func fileSize(t *testing.T, dir, name string) int64 {
+	t.Helper()
+	info, err := os.Stat(filepath.Join(dir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info.Size()
 }
