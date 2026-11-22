@@ -35,6 +35,15 @@ export interface Tool {
   lastTs: number;
 }
 
+export interface CostBreakdown {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cacheSavings: number | null;
+  coveredRequests: number;
+}
+
 export interface Report {
   /** The scope the figures cover: the report says it, so that what names them is never the filter chosen since. */
   scope: Scope;
@@ -48,6 +57,7 @@ export interface Report {
   /** One group per local day with activity, oldest first; key is 2006-01-02. */
   daily: UsageGroup[];
   hourly?: UsageGroup[];
+  costBreakdown?: CostBreakdown;
 }
 
 /** The projects a report covers: the one the server runs in, or every one. The server alone knows which folder "current" is. */

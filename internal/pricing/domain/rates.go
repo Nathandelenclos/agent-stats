@@ -37,6 +37,9 @@ func NewRates(r RatesPerToken) (Rates, error) {
 	return Rates{r}, nil
 }
 
+// PerToken returns the published USD rates without request-specific adjustments.
+func (r Rates) PerToken() RatesPerToken { return r.perToken }
+
 // Cost prices the tokens of one request. Writes with Anthropic's 1-hour TTL are billed at twice
 // the input rate instead of the list's 5-minute cache-write rate.
 func (r Rates) Cost(t kernel.Tokens) (kernel.Cost, error) {

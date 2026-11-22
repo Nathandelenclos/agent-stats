@@ -26,6 +26,7 @@ type logf func(format string, args ...any)
 // Options configures the server.
 type Options struct {
 	Reports         reporting.BuildTimelineReport
+	TokenRates      func(string) (TokenRates, bool)
 	Sessions        reporting.ListSessions
 	RelatedSessions reporting.ListRelatedSessions
 	SessionRequests reporting.ListSessionRequests

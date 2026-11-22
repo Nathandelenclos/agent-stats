@@ -75,16 +75,17 @@ func toolSummary(t reporting.ToolUsage) toolJSON {
 
 // reportJSON is the usage report of the command line's --json, with the usage per local day added.
 type reportJSON struct {
-	Scope      string      `json:"scope"` // what the figures cover: "current" (the project of the server) or "all"
-	Total      usageJSON   `json:"total"`
-	ByHarness  []groupJSON `json:"byHarness"`
-	ByProvider []groupJSON `json:"byProvider"`
-	ByModel    []groupJSON `json:"byModel"`
-	ByFolder   []groupJSON `json:"byFolder"`
-	ByAgent    []groupJSON `json:"byAgentType"`
-	Tools      []toolJSON  `json:"tools"`
-	Hourly     []groupJSON `json:"hourly,omitempty"`
-	Daily      []groupJSON `json:"daily"` // key: the local day, 2006-01-02, oldest first
+	Scope         string             `json:"scope"` // what the figures cover: "current" (the project of the server) or "all"
+	Total         usageJSON          `json:"total"`
+	ByHarness     []groupJSON        `json:"byHarness"`
+	ByProvider    []groupJSON        `json:"byProvider"`
+	ByModel       []groupJSON        `json:"byModel"`
+	ByFolder      []groupJSON        `json:"byFolder"`
+	ByAgent       []groupJSON        `json:"byAgentType"`
+	Tools         []toolJSON         `json:"tools"`
+	CostBreakdown *costBreakdownJSON `json:"costBreakdown,omitempty"`
+	Hourly        []groupJSON        `json:"hourly,omitempty"`
+	Daily         []groupJSON        `json:"daily"` // key: the local day, 2006-01-02, oldest first
 }
 
 // report answers GET /api/report?since=&harness=&project=.
@@ -102,7 +103,8 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := reportJSON{Scope: p.scope, Total: usage(rep.Total), ByHarness: groups(rep.ByHarness), ByProvider: groups(rep.ByProvider), ByModel: groups(rep.ByModel),
-		ByFolder: groups(rep.ByFolder), ByAgent: groups(rep.ByAgent), Daily: groups(rep.Daily), Hourly: groups(rep.Hourly), Tools: tools(rep.Tools)}
+		ByFolder: groups(rep.ByFolder), ByAgent: groups(rep.ByAgent), Daily: groups(rep.Daily), Hourly: groups(rep.Hourly), Tools: tools(rep.Tools),
+		CostBreakdown: costBreakdown(rep.ByModel, s.opts.TokenRates)}
 	writeJSON(w, s.log, out)
 }
 

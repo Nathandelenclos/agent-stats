@@ -27,6 +27,7 @@ import { SyncBanner, useSyncStatus } from "./features/sync";
 import { Catalog, useCatalog } from "./features/catalog/Catalog";
 import { Quotas, useQuotas } from "./features/quotas/Quotas";
 import { Overview } from "./features/overview/Overview";
+import { CostBreakdown } from "./features/report/CostBreakdown";
 import { SessionRequests } from "./features/sessions/SessionRequests";
 import { RelatedSessions } from "./features/overview/RelatedSessions";
 import { readRelation, readView, relationKeys, useLocation, views, type Metric, type Relation, type View } from "./features/overview/navigation";
@@ -120,6 +121,7 @@ function Report({ report, explore }: {
       {hasCharts && (
         <Section id="charts" title="Cost">
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {r.costBreakdown && <div className="lg:col-span-2"><CostBreakdown cost={r.costBreakdown} requests={r.total.requests} /></div>}
             <div className="lg:col-span-2">{zone("The cost over time chart", <DailyCostChart daily={r.daily} select={select("day")} />)}</div>
             {zone("The cost by harness chart", <CostByChart title="Estimated cost by coding agent" tableName="Harness" groups={r.byHarness} peers={[r.byModel]} select={select("harness")} />)}
             {zone("The cost by model chart", <CostByChart title="Cost by model" tableName="Model" groups={r.byModel} peers={[r.byHarness]} select={select("model")} />)}

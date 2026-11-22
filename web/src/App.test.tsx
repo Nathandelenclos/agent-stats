@@ -462,3 +462,13 @@ it("filters the error journal by a normalized signature", async () => {
     expect.any(Object),
   ));
 });
+
+it("labels the current-rate cost breakdown separately and shows rate coverage", async () => {
+  serveReports(() => report({ costBreakdown: {
+    input: 0.5, output: 0.3, cacheRead: 0.1, cacheWrite: 0.2, cacheSavings: 0.25, coveredRequests: 8,
+  } }));
+  const { container } = render(withQueries(testQueryClient(), <App />));
+  await eventually(() => expect(container.textContent).toContain("API cost at current rates"));
+  expect(container.textContent).toContain("Rates available for 8 of 10 requests");
+  expect(container.textContent).toContain("Input cost saved by caching25%");
+});
