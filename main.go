@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -32,8 +33,15 @@ func newIndexRun(index *sqlite.SQLiteIndex, prices indexing.PriceList) (indexRun
 	if err != nil {
 		return nil, err
 	}
-	uc := indexing.IndexSessions{Logs: logfiles.NewFileSessionLogs(logfiles.DefaultSources(home)), Store: index, Prices: prices}
+	uc := indexing.IndexSessions{Logs: logfiles.NewFileSessionLogs(logfiles.DefaultSources(home)), Store: index, Prices: prices, Workers: indexWorkers()}
 	return uc.Run, nil
+}
+
+// indexWorkers is how many logs are read at once: three quarters of the CPUs the program may use (at least one),
+// which leaves the writer, the garbage collector and an interface that is drawing a core to run on.
+func indexWorkers() int {
+	cpus := runtime.GOMAXPROCS(0)
+	return max(1, cpus-cpus/4)
 }
 
 // indexBeforeReport indexes while the plain-text report waits, narrating on stderr so stdout stays the report.

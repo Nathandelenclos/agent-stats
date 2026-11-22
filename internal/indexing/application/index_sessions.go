@@ -2,7 +2,6 @@ package application
 
 import (
 	"fmt"
-	"runtime"
 	"sync"
 
 	"github.com/Nathandelenclos/agent-stats/internal/indexing/domain"
@@ -19,8 +18,8 @@ type IndexSessions struct {
 	Logs   SessionLogs
 	Store  TranscriptStore
 	Prices PriceList
-	// Workers is how many logs are read at once; zero means three quarters of GOMAXPROCS (at least one),
-	// which leaves the writer, the garbage collector and an interface that is drawing a core to run on.
+	// Workers is how many logs are read at once; zero or less means one. The composition root decides how many
+	// the machine affords: the use case does not look at the machine.
 	Workers int
 	// ReadAhead is how many bytes of logs may be read ahead of the writer; zero means 512 MiB.
 	ReadAhead int64
@@ -140,12 +139,7 @@ func (w *window) leave(size int64) {
 // the results one at a time in the order of files; take must be called once per file. The workers run ahead
 // of the caller within readAheadBytes.
 func (uc IndexSessions) readAhead(files []LogFile) (take func() readResult) {
-	workers := uc.Workers
-	if workers <= 0 {
-		cpus := runtime.GOMAXPROCS(0)
-		workers = max(1, cpus-cpus/4)
-	}
-	workers = min(workers, len(files))
+	workers := min(max(uc.Workers, 1), len(files))
 	results := make([]chan readResult, len(files)) // one per file, so results come out in order
 	for i := range results {
 		results[i] = make(chan readResult, 1)

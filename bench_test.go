@@ -42,7 +42,7 @@ func BenchmarkRealLogs(b *testing.B) {
 	}
 	index := func(db *sqlite.SQLiteIndex) indexing.IndexReport {
 		logs := logfiles.NewFileSessionLogs(logfiles.DefaultSources(home))
-		rep, err := indexing.IndexSessions{Logs: logs, Store: db, Prices: prices}.Run(nil)
+		rep, err := indexing.IndexSessions{Logs: logs, Store: db, Prices: prices, Workers: indexWorkers()}.Run(nil)
 		if err != nil {
 			b.Fatal(err)
 		}
