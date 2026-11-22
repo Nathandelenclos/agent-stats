@@ -55,9 +55,11 @@ never goes out past an unfinished one; re-run those afterwards.
 
 GitHub only allows a re-run for 30 days. Past that, or for a tag pushed by hand, run the `release` workflow **on the
 tag**: Actions, `release`, "Run workflow", "Use workflow from": Tag `vX.Y.Z` (or `gh workflow run release.yml --ref
-vX.Y.Z`). It rebuilds, attests and publishes that tag from its own commit, and refuses a branch or a tag that is not on
-`main`. The tag must carry the workflow file with this entry, which is the case for every tag the pipeline creates.
-A tag is never moved or deleted.
+vX.Y.Z`). It rebuilds, attests and publishes that tag from its own commit, like a re-run but without the Go checks (a
+commit on `main` passed them when it was merged). It refuses a branch, a tag that is not on `main`, and a version that
+git-cliff would not have computed for that commit. Those checks come from the workflow file of the tag itself, so
+consumers verify the attestation as the README says rather than trust them. The tag must carry the workflow file with
+this entry, which is the case for every tag the pipeline creates. A tag is never moved or deleted.
 
 **1.0.0** is a deliberate decision, and goes through the same pipeline: do not create the tag or the release by hand,
 a hand-made release has no binaries and no attestation. In the pull request that declares the CLI and `--json`
@@ -76,8 +78,8 @@ The workflows assume these settings, which live on GitHub and not in the reposit
   which cannot be added to a bypass list: a creation rule makes that push fail with `GH013`, even with GitHub Actions
   in the bypass list (see [oras-go#1361](https://github.com/oras-project/oras-go/issues/1361)). Anyone with write access
   can therefore push a `v*` tag. It publishes nothing by itself, but until it is published (see "Releases") the release
-  job of every later commit fails, and the manual run publishes any strict `vX.Y.Z` tag on `main` without checking its
-  version number: keep write access to maintainers.
+  job of every later commit fails. The manual run only accepts the version the pipeline would have computed for that
+  commit, but it can be started by anyone with write access: keep write access to maintainers.
 - **Immutable releases** are enabled, so a published release and its assets cannot be modified.
 - The default `GITHUB_TOKEN` permission is read-only; each workflow asks for what it needs.
 

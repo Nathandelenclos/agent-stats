@@ -18,10 +18,9 @@ go install github.com/Nathandelenclos/agent-stats@latest
 Or download a binary from the [Releases](https://github.com/Nathandelenclos/agent-stats/releases) page
 (Linux, macOS and Windows, on amd64 and arm64), check it against `checksums.txt`, and put it on your `PATH`.
 The binaries are static (no cgo): the SQLite driver is pure Go. Each release also carries an SBOM per archive and a
-signed build provenance attestation (built by the release workflow, from `main`), which you can check with the
-GitHub CLI. `--source-digest` pins the commit of the release tag (run it in a clone of the repository), and
-`--source-ref` the ref the workflow ran on: `refs/heads/main` for a release published by the pipeline. A release the
-maintainers finished by hand runs the same workflow on its tag, so check it with `--source-ref refs/tags/<tag>`:
+signed build provenance attestation (built by the release workflow), which you can check with the GitHub CLI.
+`--source-digest` pins the commit of the release tag (run it in a clone of the repository), and `--source-ref` the ref
+the workflow ran on: `refs/heads/main` for a release published by the pipeline.
 
 ```sh
 gh attestation verify agent-stats_<version>_<os>_<arch>.tar.gz \
@@ -29,6 +28,15 @@ gh attestation verify agent-stats_<version>_<os>_<arch>.tar.gz \
   --signer-workflow Nathandelenclos/agent-stats/.github/workflows/release.yml \
   --source-ref refs/heads/main \
   --source-digest "$(git rev-parse '<tag>^{commit}')"
+```
+
+A release the maintainers finished by hand runs the same workflow on its tag, so its attestation names
+`refs/tags/<tag>` instead. Accept that only together with a commit that is on `main`, since anyone who can push a tag
+can name a ref like that:
+
+```sh
+gh attestation verify ... --source-ref refs/tags/<tag> ...   # same command as above
+git merge-base --is-ancestor "$(git rev-parse '<tag>^{commit}')" origin/main && echo "on main"
 ```
 
 To build from a checkout:
