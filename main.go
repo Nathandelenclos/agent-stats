@@ -104,7 +104,7 @@ func run() error {
 			return err
 		}
 	}
-	ui := interactive(*asJSON, os.Stdin, os.Stdout)
+	ui := interactive(*asJSON, os.Stdout)
 	if indexLogs != nil && !ui { // the interface indexes in the background instead
 		if err := indexBeforeReport(indexLogs); err != nil {
 			return err

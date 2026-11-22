@@ -11,10 +11,11 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/reporting/infra/tui"
 )
 
-// interactive reports whether to open the interface: only when the user did not ask for JSON
-// and both ends of the session are a terminal, so pipes and redirections keep the plain report.
-func interactive(asJSON bool, in, out *os.File) bool {
-	return !asJSON && isatty.IsTerminal(in.Fd()) && isatty.IsTerminal(out.Fd())
+// interactive reports whether to open the interface: whenever the report would be shown on a terminal and
+// the user did not ask for JSON. Only stdout counts: the interface reads the keyboard from the controlling
+// terminal when stdin is redirected, while a piped or redirected stdout keeps the plain report.
+func interactive(asJSON bool, out *os.File) bool {
+	return !asJSON && isatty.IsTerminal(out.Fd())
 }
 
 // tuiSync adapts the indexing run to the interface's Sync port: the counts become progress and what

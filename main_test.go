@@ -136,11 +136,11 @@ func TestInteractiveOnlyOnATerminalWithoutJSON(t *testing.T) {
 	}
 	defer r.Close()
 	defer w.Close()
-	// Given a pipe on both ends (not a terminal), when no flag is set, then the plain report is kept.
-	if interactive(false, r, w) {
+	// Given stdout on a pipe (not a terminal), when no flag is set, then the plain report is kept.
+	if interactive(false, w) {
 		t.Error("a pipe was taken for a terminal")
 	}
-	if interactive(true, r, w) {
+	if interactive(true, w) {
 		t.Error("--json opened the interface")
 	}
 }
