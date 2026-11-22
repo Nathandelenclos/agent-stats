@@ -542,7 +542,8 @@ func TestHeadIsAnswered(t *testing.T) {
 // refusedWithoutData checks the API answered a refusal and that no figure was read to answer it.
 func refusedWithoutData(t *testing.T, r *rig, rec *httptest.ResponseRecorder) {
 	t.Helper()
-	wantProblem(t, rec, http.StatusForbidden, problemCrossSite)
+	// the type names no particular value of Sec-Fetch-Site: same-site and unknown values get it too
+	wantProblem(t, rec, http.StatusForbidden, "urn:agent-stats:problem:foreign-origin")
 	if len(r.idx.filters) != 0 || strings.Contains(rec.Body.String(), "total") || strings.Contains(rec.Body.String(), "Bash") {
 		t.Errorf("a refused request got data: %s (index asked %d times)", rec.Body.String(), len(r.idx.filters))
 	}

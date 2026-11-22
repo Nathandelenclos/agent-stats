@@ -101,7 +101,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/api/") {
 		h.Set("Cache-Control", "no-store")
 		if !fromOwnPage(r.Header.Get("Sec-Fetch-Site")) {
-			problem{Type: problemCrossSite, Title: "Request from another origin refused", Status: http.StatusForbidden}.write(w)
+			problem{Type: problemForeignOrigin, Title: "Request not made by this page refused", Status: http.StatusForbidden}.write(w)
 			return
 		}
 	}

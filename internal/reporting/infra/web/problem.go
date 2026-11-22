@@ -19,7 +19,7 @@ type problem struct {
 const (
 	problemInvalidParameter = "urn:agent-stats:problem:invalid-parameter"
 	problemHostNotAllowed   = "urn:agent-stats:problem:host-not-allowed"
-	problemCrossSite        = "urn:agent-stats:problem:cross-site"
+	problemForeignOrigin    = "urn:agent-stats:problem:foreign-origin"
 	problemMethodNotAllowed = "urn:agent-stats:problem:method-not-allowed"
 	problemNotFound         = "urn:agent-stats:problem:not-found"
 	problemInternal         = "urn:agent-stats:problem:internal"
