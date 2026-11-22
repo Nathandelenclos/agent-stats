@@ -65,3 +65,11 @@ func TestExcerptIsOneNeutralLine(t *testing.T) {
 		t.Errorf("cut = %q", got)
 	}
 }
+
+func TestPlural(t *testing.T) {
+	for n, want := range map[int]string{0: "0 sessions", 1: "1 session", 2: "2 sessions"} {
+		if got := Plural(n, "session", "sessions"); got != want {
+			t.Errorf("Plural(%d) = %q, want %q", n, got, want)
+		}
+	}
+}

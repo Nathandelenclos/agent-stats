@@ -58,6 +58,18 @@ type RecurringAsk struct {
 	First, Last time.Time
 }
 
+// Hint suggests what to do about the ask: write it down once, where the agent reads its instructions.
+func (a RecurringAsk) Hint() string {
+	return fmt.Sprintf("Repeated %s in %s: consider writing this down.", times(a.Count, "time"), times(a.Sessions, "session"))
+}
+
+func times(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
+}
+
 // FolderFrustration is how many flagged prompts a working folder gathered.
 type FolderFrustration struct {
 	Folder   string // empty when the log named none

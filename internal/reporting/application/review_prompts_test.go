@@ -220,3 +220,18 @@ func TestSignalTagsNameWhatAPromptShows(t *testing.T) {
 		t.Error("a calm prompt has tags")
 	}
 }
+
+func TestAnAskHintsAtWritingItDown(t *testing.T) {
+	// Given an ask repeated three times in two sessions, and one repeated twice in one session
+	many := domain.RecurringAsk{Count: 3, Sessions: 2}
+	one := domain.RecurringAsk{Count: 2, Sessions: 1}
+
+	// When their hints are read
+	// Then they say how often and in how many sessions, with the right plural
+	if got := many.Hint(); got != "Repeated 3 times in 2 sessions: consider writing this down." {
+		t.Errorf("hint = %q", got)
+	}
+	if got := one.Hint(); got != "Repeated 2 times in 1 session: consider writing this down." {
+		t.Errorf("hint = %q", got)
+	}
+}

@@ -64,3 +64,11 @@ func Printable(s string) string {
 func Excerpt(s string, n int) string {
 	return Head(Printable(strings.Join(strings.Fields(s), " ")), n)
 }
+
+// Plural writes n with the noun in its form: "1 session", "3 sessions".
+func Plural(n int, one, many string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, one)
+	}
+	return fmt.Sprintf("%d %s", n, many)
+}

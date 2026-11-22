@@ -86,20 +86,13 @@ func promptReviewJSON(r reporting.PromptReview) jsonPromptReview {
 	return out
 }
 
-func plural(n int, one, many string) string {
-	if n == 1 {
-		return fmt.Sprintf("%d %s", n, one)
-	}
-	return fmt.Sprintf("%d %s", n, many)
-}
-
 // printPromptReview writes the review as text: the asks that came back, the folders, then the flagged prompts.
 func printPromptReview(w io.Writer, r reporting.PromptReview) {
 	if len(r.Prompts) == 0 {
 		fmt.Fprintln(w, "No flagged prompts in this range.")
 		return
 	}
-	fmt.Fprintf(w, "%s in %s\n", plural(len(r.Prompts), "flagged prompt", "flagged prompts"), plural(r.Sessions, "session", "sessions"))
+	fmt.Fprintf(w, "%s in %s\n", textfmt.Plural(len(r.Prompts), "flagged prompt", "flagged prompts"), textfmt.Plural(r.Sessions, "session", "sessions"))
 
 	if len(r.Recurring) > 0 {
 		fmt.Fprintln(w, "\nRECURRING")
@@ -108,8 +101,7 @@ func printPromptReview(w io.Writer, r reporting.PromptReview) {
 				fmt.Fprintf(w, "… %d more\n", len(r.Recurring)-maxAsks)
 				break
 			}
-			fmt.Fprintf(w, "  %s\n    Repeated %s in %s: consider writing this down.\n", textfmt.Excerpt(a.Text, excerptRunes),
-				plural(a.Count, "time", "times"), plural(a.Sessions, "session", "sessions"))
+			fmt.Fprintf(w, "  %s\n    %s\n", textfmt.Excerpt(a.Text, excerptRunes), a.Hint())
 		}
 	}
 
