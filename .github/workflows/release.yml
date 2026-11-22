@@ -240,4 +240,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.plan.outputs.version }}
-        run: gh release edit "$VERSION" --draft=false --verify-tag
+        run: |
+          set -euo pipefail
+          # A release must carry its notes: refuse to publish an empty body.
+          body=$(gh release view "$VERSION" --json body --jq '.body')
+          [ -n "${body//[[:space:]]/}" ] || { echo "::error::The draft release $VERSION has no notes."; exit 1; }
+          gh release edit "$VERSION" --draft=false --verify-tag

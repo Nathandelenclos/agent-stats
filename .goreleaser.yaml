@@ -1,6 +1,6 @@
 # GoReleaser configuration, run by .github/workflows/release.yml on a tag it has just created.
 # The version comes from the git tag (computed by git-cliff); the release notes are supplied with
-# --release-notes, so GoReleaser's own changelog is disabled.
+# --release-notes, which replaces GoReleaser's own changelog.
 version: 2
 
 project_name: agent-stats
@@ -43,8 +43,8 @@ checksum:
 sboms:
   - artifacts: archive
 
-changelog:
-  disable: true
+# No changelog section: --release-notes supplies the notes git-cliff wrote. (`changelog: disable: true` would also
+# drop that file and publish an empty release body, as v0.1.0 and v0.2.0 were.)
 
 # The release is created as a draft after the workflow pushed the tag; the workflow publishes it once the
 # build provenance is attested. A draft left by a failed run is replaced by the next one.
