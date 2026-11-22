@@ -115,10 +115,11 @@ func TestFirstReportShowsTotalsAndHarnesses(t *testing.T) {
 	// When the interface opens
 	m := start(t, reports)
 
-	// Then the totals line and the harness table are shown
+	// Then the overview shows totals before the harness table
 	view := m.View()
 	for _, want := range []string{
-		"30 requests (2 failed) · $12.50", "1 000 in / 300 out · cache 40% · 2026-01-01 → 2026-02-01",
+		"Overview", "Requests    30 (2 failed)", "Tokens              1 300", "Known cost         $12.50",
+		"Input 1 000 · Output 300 · Input from cache 40%",
 		"HARNESS", "claude", "codex", "$9.00", "$3.50",
 	} {
 		if !strings.Contains(view, want) {
@@ -257,25 +258,25 @@ func order(view string, names ...string) string {
 func TestSortingByColumnFromTheKeyboard(t *testing.T) {
 	m := start(t, &fakeReports{report: sortReport()})
 	names := []string{"zed", "amy", "Bob"}
-	if got := order(m.View(), names...); got != "zed amy Bob" {
+	if got := order(m.table.View(), names...); got != "zed amy Bob" {
 		t.Fatalf("initial order = %q, want the report's", got)
 	}
 
 	// When the user sorts by the name column, then rows are alphabetical regardless of case
 	m = press(t, m, "s")
-	if got, view := order(m.View(), names...), m.View(); got != "amy Bob zed" || !strings.Contains(view, "HARNESS▲") {
+	if got, view := order(m.table.View(), names...), m.View(); got != "amy Bob zed" || !strings.Contains(view, "HARNESS▲") {
 		t.Errorf("by name: %q\n%s", got, view)
 	}
 
 	// When the user moves to the REQUESTS column, then the busiest comes first
 	m = press(t, m, "s")
-	if got, view := order(m.View(), names...), m.View(); got != "amy Bob zed" || !strings.Contains(view, "REQUESTS▼") {
+	if got, view := order(m.table.View(), names...), m.View(); got != "amy Bob zed" || !strings.Contains(view, "REQUESTS▼") {
 		t.Errorf("by requests: %q\n%s", got, view)
 	}
 
 	// When the user reverses the order, then the least busy comes first
 	m = press(t, m, "o")
-	if got, view := order(m.View(), names...), m.View(); got != "zed Bob amy" || !strings.Contains(view, "REQUESTS▲") {
+	if got, view := order(m.table.View(), names...), m.View(); got != "zed Bob amy" || !strings.Contains(view, "REQUESTS▲") {
 		t.Errorf("reversed: %q\n%s", got, view)
 	}
 }
@@ -288,7 +289,7 @@ func TestSortingCyclesBackToTheReportOrder(t *testing.T) {
 	if view := m.View(); !strings.Contains(view, "COST▼") {
 		t.Fatalf("after 7 presses, want the cost column sorted:\n%s", view)
 	}
-	if got := order(m.View(), "zed", "amy", "Bob"); got != "zed amy Bob" { // COST descending is the report's order here
+	if got := order(m.table.View(), "zed", "amy", "Bob"); got != "zed amy Bob" { // COST descending is the report's order here
 		t.Errorf("by cost: %q", got)
 	}
 	m = press(t, m, "s")
@@ -299,7 +300,7 @@ func TestSortingCyclesBackToTheReportOrder(t *testing.T) {
 
 func TestReverseWithoutASortedColumnChangesNothing(t *testing.T) {
 	m := press(t, start(t, &fakeReports{report: sortReport()}), "o")
-	if got := order(m.View(), "zed", "amy", "Bob"); got != "zed amy Bob" {
+	if got := order(m.table.View(), "zed", "amy", "Bob"); got != "zed amy Bob" {
 		t.Errorf("order = %q", got)
 	}
 }
@@ -307,7 +308,7 @@ func TestReverseWithoutASortedColumnChangesNothing(t *testing.T) {
 func TestEachTabKeepsItsOwnSort(t *testing.T) {
 	m := start(t, &fakeReports{report: sortReport()})
 	m = press(t, m, "s", "2", "3", "1") // sort harnesses by name, visit two other tabs, come back
-	if got := order(m.View(), "zed", "amy", "Bob"); got != "amy Bob zed" {
+	if got := order(m.table.View(), "zed", "amy", "Bob"); got != "amy Bob zed" {
 		t.Errorf("harness tab lost its sort: %q", got)
 	}
 	if m = press(t, m, "2"); strings.ContainsAny(m.View(), "▲▼") {

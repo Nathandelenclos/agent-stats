@@ -31,8 +31,10 @@ export function continuousDays(daily: UsageGroup[]): DayPoint[] {
 }
 
 /** The groups that carry the most cost, the rest folded into one "other" row, so a chart stays readable. */
-export function topGroups(groups: UsageGroup[], limit: number): { name: string; cost: number; requests: number }[] {
-  const rows = groups.map((g) => ({ name: g.key || "(none)", cost: g.cost, requests: g.requests }));
+type CostRow = { name: string; cost: number; requests: number; unpriced: number };
+
+export function topGroups(groups: UsageGroup[], limit: number): CostRow[] {
+  const rows = groups.map((g) => ({ name: g.key || "(none)", cost: g.cost, requests: g.requests, unpriced: g.unpriced }));
   if (rows.length <= limit) return rows;
   const rest = rows.slice(limit - 1);
   return [
@@ -41,6 +43,7 @@ export function topGroups(groups: UsageGroup[], limit: number): { name: string; 
       name: `${rest.length} others`,
       cost: rest.reduce((sum, r) => sum + r.cost, 0),
       requests: rest.reduce((sum, r) => sum + r.requests, 0),
+      unpriced: rest.reduce((sum, r) => sum + r.unpriced, 0),
     },
   ];
 }
@@ -72,7 +75,7 @@ export function buildCostOverTime(daily: UsageGroup[]): CostOverTimeModel | null
 
 /** What a cost-by-group chart shows. */
 export interface CostByModel {
-  rows: { name: string; cost: number; requests: number }[];
+  rows: CostRow[];
   groupCount: number;
   unpriced: number;
 }

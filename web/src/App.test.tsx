@@ -28,6 +28,27 @@ describe("the report page", () => {
     expect(page.text()).toContain("Bash");
   });
 
+  it("shows estimated costs beside proportional bars by coding agent", async () => {
+    serveReports(() => report({
+      byHarness: [
+        group("codex", { cost: 9.20 }),
+        group("claude", { cost: 5.60 }),
+        group("gemini", { requests: 1, cost: 0, unpriced: 1 }),
+      ],
+      byModel: [],
+    }));
+    const { container } = render(withQueries(testQueryClient(), <App />));
+    const byAgent = () => container.querySelector('[role="list"][aria-label="Estimated cost by coding agent"]');
+    await eventually(() => expect(byAgent()?.querySelectorAll("li")).toHaveLength(3));
+
+    const rows = [...byAgent()!.querySelectorAll("li")];
+    expect(rows.map((row) => row.textContent)).toEqual(["Codex$9.20", "Claude Code$5.60", "geminiUnavailable"]);
+    const width = (row: HTMLLIElement) => parseFloat(row.querySelector<HTMLElement>('[aria-hidden="true"] > span')!.style.width);
+    expect(width(rows[0]!)).toBe(100);
+    expect(width(rows[1]!)).toBeCloseTo(100 * 5.60 / 9.20);
+    expect(width(rows[2]!)).toBe(0);
+  });
+
   it("shows only the empty totals when the period has nothing at all", async () => {
     // Given a period with no request and no tool call
     serveReports(() => emptyReport());

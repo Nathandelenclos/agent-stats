@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -65,6 +66,61 @@ func TestDailyGraphsAndValuesFitTheTerminal(t *testing.T) {
 	if !strings.Contains(m.View(), selected) || !strings.Contains(m.View(), "g daily") {
 		t.Errorf("return from daily values lost the selected row:\n%s", m.View())
 	}
+}
+
+func TestOverviewKeepsTotalsWhenTheSelectedBreakdownIsEmpty(t *testing.T) {
+	r := sampleReport()
+	r.Tools = nil
+	r.Total.Unpriced = r.Total.Requests
+	daily := sampleDaily()
+	daily[0].Unpriced = daily[0].Requests
+	daily[0].Cost = 0
+	m := start(t, &fakeReports{report: r, daily: daily})
+	m = send(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = press(t, m, "5")
+
+	view := m.View()
+	for _, want := range []string{"Overview", "Known cost", "Unavailable", "No tool calls in this range.", "q quit"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("overview lacks %q:\n%s", want, view)
+		}
+	}
+	if !slices.ContainsFunc(strings.Split(view, "\n"), func(line string) bool {
+		return strings.HasPrefix(line, "Known cost") && strings.Contains(line, "Unavailable") && strings.Contains(line, "?·?")
+	}) {
+		t.Errorf("unknown cost should be marked on the same row as its trend:\n%s", view)
+	}
+	assertTrendSize(t, view, 80, 24)
+
+	m = send(t, m, tea.WindowSizeMsg{Width: 40, Height: 15})
+	view = m.View()
+	if !strings.Contains(view, "Unavailable") || !strings.Contains(view, "g daily") || strings.Contains(view, "?·?") {
+		t.Errorf("narrow view should keep the total and access to daily values:\n%s", view)
+	}
+	assertTrendSize(t, view, 40, 15)
+}
+
+func TestCostByCodingAgentShowsValuesAndRelativeBars(t *testing.T) {
+	r := sampleReport()
+	r.ByHarness = []reporting.UsageGroup{
+		group("codex", usage(20, 0, 1, 1, 0, 9.20)),
+		group("claude", usage(10, 0, 1, 1, 0, 5.60)),
+	}
+	m := send(t, start(t, &fakeReports{report: r}), tea.WindowSizeMsg{Width: 80, Height: 24})
+	view := m.View()
+	section := strings.SplitN(view, "Estimated cost by coding agent", 2)
+	if len(section) != 2 {
+		t.Fatalf("missing bar chart:\n%s", view)
+	}
+	rows := strings.Split(section[1], "\n")[1:3]
+	if !strings.Contains(rows[0], "Codex") || !strings.Contains(rows[0], "$9.20") ||
+		!strings.Contains(rows[1], "Claude Code") || !strings.Contains(rows[1], "$5.60") {
+		t.Errorf("missing agent name or exact cost: %v", rows)
+	}
+	if first, second := strings.Count(rows[0], "━"), strings.Count(rows[1], "━"); first != 34 || second != 21 {
+		t.Errorf("unexpected bar lengths: %d and %d", first, second)
+	}
+	assertTrendSize(t, view, 80, 24)
 }
 
 func TestDailyValuesScrollAndIgnoreOlderReportAnswers(t *testing.T) {

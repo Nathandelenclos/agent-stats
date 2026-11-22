@@ -19,27 +19,138 @@ const (
 	costLegend = "  ? unknown"
 )
 
-// trendPreview reserves room for a row of the selected table and the keyboard help.
-func (m Model) trendPreview() []string {
-	if !m.loaded || m.width < 40 || m.height < chromeLines+m.extraTitleLines()+8 {
-		return nil
+// overview puts the totals and the recent daily series on the same rows.
+func (m Model) overview() []string {
+	if !m.loaded {
+		return []string{"loading…"}
 	}
-	if len(m.daily) == 0 {
-		if m.report.Total.Requests == 0 {
-			return nil
+	total := m.report.Total
+	if total.Requests == 0 {
+		if m.tab == toolsTab && len(m.report.Tools) == 0 {
+			return []string{noToolCalls}
 		}
-		return []string{"Daily usage is unavailable without request dates."}
+		return []string{noRequests}
 	}
 
-	start, end, days := recentDays(m.daily, min(trendDays, m.width-12-lipgloss.Width(costLegend)))
-	if len(days) == 0 {
+	requests := textfmt.Number(total.Requests)
+	if total.Failed > 0 {
+		requests += " (" + textfmt.Number(total.Failed) + " failed)"
+	}
+
+	metrics := []struct {
+		label string
+		total string
+		value func(reporting.Usage) float64
+	}{
+		{"Requests", requests, func(u reporting.Usage) float64 { return float64(u.Requests) }},
+		{"Tokens", textfmt.Number(total.InputWithCache() + total.Output), func(u reporting.Usage) float64 {
+			return float64(u.InputWithCache()) + float64(u.Output)
+		}},
+		{"Known cost", displayCost(total), knownCost},
+	}
+	valueWidth := len("Total")
+	for _, metric := range metrics {
+		valueWidth = max(valueWidth, lipgloss.Width(metric.total))
+	}
+
+	const labelWidth = 12
+	const heading = "Daily usage · "
+	chartColumn := labelWidth + valueWidth + 4
+	chartWidth := m.width - chartColumn
+	available := m.height - m.extraTitleLines() - chromeLines + 2 - 4 // reserve the footer and table
+	var from, to string
+	var days []reporting.Usage
+	if len(m.daily) > 0 && chartWidth >= lipgloss.Width(heading+"2006-01-02 to 2006-01-02") && available >= 4 {
+		from, to, days = recentDays(m.daily, min(trendDays, chartWidth-lipgloss.Width(costLegend)))
+	}
+
+	title := titleStyle.Render(fmt.Sprintf("%-*s%s", labelWidth, "Overview", pad("Total", valueWidth, true)))
+	if len(days) > 0 {
+		title += strings.Repeat(" ", chartColumn-lipgloss.Width(title)) + heading + from + " to " + to
+	}
+	lines := []string{title}
+	for _, metric := range metrics {
+		line := fmt.Sprintf("%-*s%s", labelWidth, metric.label, pad(metric.total, valueWidth, true))
+		if len(days) > 0 {
+			graph := sparkline(days, metric.value)
+			line += strings.Repeat(" ", chartColumn-lipgloss.Width(line)) + chartStyle.Render(graph)
+			if strings.Contains(graph, "?") {
+				line += costLegend
+			}
+		}
+		lines = append(lines, line)
+	}
+
+	if available >= 5 {
+		mix := fmt.Sprintf("Input %s · Output %s · Input from cache %.0f%%",
+			textfmt.Number(total.InputWithCache()), textfmt.Number(total.Output), total.CacheRate()*100)
+		if lipgloss.Width(mix) > m.width {
+			mix = fmt.Sprintf("Input from cache %.0f%%", total.CacheRate()*100)
+		}
+		lines = append(lines, mix)
+	}
+	return append(lines, m.costByHarness(available-len(lines))...)
+}
+
+// costByHarness shows the leading rows of the report's cost-ordered harness breakdown.
+func (m Model) costByHarness(available int) []string {
+	const title = "Estimated cost by coding agent"
+	count := min(len(m.report.ByHarness), 3, available-1)
+	if count < 1 || m.width < lipgloss.Width(title) {
 		return nil
 	}
-	return []string{
-		titleStyle.Render("Daily usage") + fmt.Sprintf(" · %s to %s", start, end),
-		"Requests    " + chartStyle.Render(sparkline(days, func(u reporting.Usage) float64 { return float64(u.Requests) })),
-		"Tokens      " + chartStyle.Render(sparkline(days, func(u reporting.Usage) float64 { return float64(u.InputWithCache()) + float64(u.Output) })),
-		"Known cost  " + chartStyle.Render(sparkline(days, knownCost)) + costLegend,
+	groups := m.report.ByHarness[:count]
+	labels, amounts := make([]string, count), make([]string, count)
+	amountWidth := 0
+	peak := reporting.USD(0)
+	const labelWidth = 11
+	for i, group := range groups {
+		label := group.Group
+		switch label {
+		case "claude":
+			label = "Claude Code"
+		case "codex":
+			label = "Codex"
+		}
+		labels[i] = lipgloss.NewStyle().MaxWidth(labelWidth).Render(textfmt.Printable(label))
+		amounts[i] = displayCost(group.Usage)
+		amountWidth = max(amountWidth, lipgloss.Width(amounts[i]))
+		peak = max(peak, group.Cost)
+	}
+	barWidth := min(34, m.width-labelWidth-amountWidth-4)
+	if barWidth < 4 {
+		return nil
+	}
+
+	heading := title
+	if count < len(m.report.ByHarness) {
+		limited := fmt.Sprintf("%s · top %d", title, count)
+		if lipgloss.Width(limited) <= m.width {
+			heading = limited
+		}
+	}
+	lines := []string{titleStyle.Render(heading)}
+	for i, group := range groups {
+		length := 0
+		if peak > 0 && group.Cost > 0 {
+			length = max(1, int(math.Round(float64(group.Cost)/float64(peak)*float64(barWidth))))
+		}
+		bar := costBarStyle.Render(strings.Repeat("━", length))
+		label := labels[i] + strings.Repeat(" ", labelWidth-lipgloss.Width(labels[i]))
+		value := pad(amounts[i], amountWidth, true)
+		lines = append(lines, label+"  "+bar+strings.Repeat(" ", barWidth-length)+"  "+value)
+	}
+	return lines
+}
+
+func displayCost(u reporting.Usage) string {
+	switch {
+	case u.Requests > 0 && u.Requests == u.Unpriced:
+		return "Unavailable"
+	case u.Cost > 0 && u.Cost < 0.01:
+		return "<$0.01"
+	default:
+		return fmt.Sprintf("$%.2f", float64(u.Cost))
 	}
 }
 

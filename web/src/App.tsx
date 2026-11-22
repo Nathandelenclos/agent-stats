@@ -119,7 +119,7 @@ function Report({ report }: { report: UseQueryResult<ReportData, unknown> }) {
         <Section id="charts" title="Cost">
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div className="lg:col-span-2">{zone("The cost over time chart", <DailyCostChart daily={r.daily} />)}</div>
-            {zone("The cost by harness chart", <CostByChart title="Cost by harness" tableName="Harness" groups={r.byHarness} peers={[r.byModel]} />)}
+            {zone("The cost by harness chart", <CostByChart title="Estimated cost by coding agent" tableName="Harness" groups={r.byHarness} peers={[r.byModel]} />)}
             {zone("The cost by model chart", <CostByChart title="Cost by model" tableName="Model" groups={r.byModel} peers={[r.byHarness]} />)}
           </div>
         </Section>

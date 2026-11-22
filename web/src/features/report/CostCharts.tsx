@@ -93,7 +93,7 @@ function shortDay(day: string): string {
   return formatDay(day).replace(/,?\s*\d{4}$/, "");
 }
 
-/** Cost by group, biggest first; the same figures are in the table of that group below the charts. */
+/** Cost per group as a labelled bar and a value that is always visible. */
 export function CostBy({
   title,
   tableName,
@@ -103,35 +103,31 @@ export function CostBy({
   title: string;
   tableName: string;
   model: CostByModel;
-  /** The cost axis, shared with the charts shown beside this one. */
+  /** The cost scale shared with the chart shown beside this one. */
   domainMax: number;
 }) {
   if (rows.length === 0) return null;
-  const lead = rows[0]!;
-  const summary = `${formatUSD(lead.cost)} for ${lead.name}, the most expensive of ${groupCount}. Exact figures in the ${tableName} table below. Charts side by side share one cost scale.${unpricedNote(unpriced)}`;
+  const summary = `${formatInteger(groupCount)} ${tableName.toLowerCase()} groups. Both charts use the same scale.` +
+    (unpriced > 0 ? ` ${formatInteger(unpriced)} requests have no known price.` : "");
   return (
     <Figure title={title} summary={summary}>
-      <div style={{ height: Math.max(120, rows.length * 32 + 32) }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={rows} layout="vertical" margin={{ top: 0, right: 16, bottom: 0, left: 0 }}>
-            <CartesianGrid stroke="var(--rule)" horizontal={false} />
-            <XAxis type="number" domain={[0, domainMax]} tick={axisText} tickFormatter={(v: number) => formatUSD(v)} stroke="var(--border)" />
-            <YAxis type="category" dataKey="name" tick={axisText} width={132} tickFormatter={clip} interval={0} stroke="var(--border)" />
-            <Tooltip
-              cursor={{ fill: "var(--rule)" }}
-              content={({ active, payload }: TipProps<{ name: string; cost: number; requests: number }>) => {
-                const p = active ? payload?.[0]?.payload : undefined;
-                return p ? <Tip title={p.name} cost={p.cost} requests={p.requests} /> : null;
-              }}
-            />
-            <Bar dataKey="cost" fill="var(--mark)" isAnimationActive={false} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+      <ul role="list" aria-label={title} className="grid grid-cols-[minmax(0,2fr)_minmax(0,5fr)_auto] gap-x-3 gap-y-2 text-sm">
+        {rows.map((row, index) => {
+          const name = tableName === "Harness"
+            ? ({ claude: "Claude Code", codex: "Codex" } as Record<string, string>)[row.name] ?? row.name
+            : row.name;
+          const value = row.requests > 0 && row.requests === row.unpriced ? "Unavailable" : formatUSD(row.cost);
+          return (
+            <li key={index} className="col-span-3 grid grid-cols-subgrid items-center">
+              <span className="min-w-0 wrap-anywhere">{name}</span>
+              <span aria-hidden="true" className="min-w-0">
+                <span className="block h-2 bg-[var(--mark-2)]" style={{ width: `${domainMax > 0 ? 100 * row.cost / domainMax : 0}%` }} />
+              </span>
+              <strong className="text-right tabular-nums">{value}</strong>
+            </li>
+          );
+        })}
+      </ul>
     </Figure>
   );
-}
-
-function clip(name: string): string {
-  return name.length > 20 ? `${name.slice(0, 19)}…` : name;
 }

@@ -37,6 +37,7 @@ var (
 	activeTab     = lipgloss.NewStyle().Bold(true).Reverse(true).Padding(0, 1)
 	inactiveTab   = lipgloss.NewStyle().Padding(0, 1)
 	chartStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#10263D")).Background(lipgloss.Color("#B6EAFE"))
+	costBarStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#895016", Dark: "#FFCA84"})
 	errorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#7A1726")).Background(lipgloss.Color("#FFE1E5"))
 	headerStyle   = lipgloss.NewStyle().Bold(true).Padding(0, 1)
 	selectedStyle = lipgloss.NewStyle().Reverse(true).Transform(func(row string) string {
@@ -45,7 +46,7 @@ var (
 	})
 )
 
-// chromeLines is what the view draws besides the table: title, tabs, two summary lines, status and help.
+// chromeLines is the baseline outside the table, with two lines reserved for the summary.
 const chromeLines = 7
 
 // detailChromeLines is what a session's detail draws besides its body: title, heading, status and help, and a spare line.
@@ -510,7 +511,7 @@ func (m *Model) layout() {
 	if m.sorts[m.tab].col >= len(g.headers) {
 		m.sorts[m.tab] = reportOrder
 	}
-	fit(&m.table, g, m.sorts[m.tab], m.width, height-len(m.trendPreview()))
+	fit(&m.table, g, m.sorts[m.tab], m.width, height-(len(m.overview())-2))
 	if m.dailyOpen {
 		m.dailyPager.display = max(1, height-detailChromeLines)
 		if m.loaded {
@@ -630,16 +631,23 @@ func (m Model) View() string {
 	}
 	var b strings.Builder
 	b.WriteString(m.titleBar() + "\n")
-	b.WriteString(m.tabBar() + "\n")
-	b.WriteString(m.summary() + "\n")
-	preview := m.trendPreview()
-	for _, line := range preview {
+	overview := m.overview()
+	for _, line := range overview {
 		b.WriteString(line + "\n")
 	}
+	b.WriteString(m.tabBar() + "\n")
 	if m.loaded && !m.empty() {
 		b.WriteString(m.table.View() + "\n")
 	} else {
-		b.WriteString(m.emptyBody(len(preview)) + "\n")
+		if m.loaded && m.report.Total.Requests > 0 {
+			message := "No rows in this view."
+			if m.tab == toolsTab {
+				message = noToolCalls
+			}
+			b.WriteString(message + "\n")
+			overview = append(overview, "")
+		}
+		b.WriteString(m.emptyBody(len(overview)-2) + "\n")
 	}
 	b.WriteString(m.status() + "\n")
 	b.WriteString(m.help())
@@ -751,41 +759,17 @@ func (m Model) tabBar() string {
 	return parts[m.tab] + " · 1–5 switch"
 }
 
-// summary is the report's totals on two lines, in the words of the plain-text report.
-func (m Model) summary() string {
-	if !m.loaded {
-		return "loading…\n"
-	}
-	if m.empty() {
-		return emptyMessages[m.tab] + "\n"
-	}
-	t := m.report.Total
-	if t.Requests == 0 { // tool calls and requests are filtered by their own timestamps: only the former may be left
-		return noRequests + "\n"
-	}
-	first, last := "—", "—"
-	if !t.First.IsZero() {
-		first = t.First.Format("2006-01-02")
-	}
-	if !t.Last.IsZero() {
-		last = t.Last.Format("2006-01-02")
-	}
-	return fmt.Sprintf("%s requests (%s failed) · $%.2f\n%s in / %s out · cache %.0f%% · %s → %s",
-		textfmt.Number(t.Requests), textfmt.Number(t.Failed), float64(t.Cost), textfmt.Number(t.InputWithCache()),
-		textfmt.Number(t.Output), t.CacheRate()*100, first, last)
-}
-
-// emptyMessages say, per tab, what is missing when its table has no row.
-var emptyMessages = [tabCount]string{harnessTab: noRequests, modelTab: noRequests, folderTab: noRequests, agentTab: noRequests, toolsTab: "No tool calls in this range."}
-
-const noRequests = "No requests in this range."
+const (
+	noRequests  = "No requests in this range."
+	noToolCalls = "No tool calls in this range."
+)
 
 // empty reports whether the current tab has nothing to tabulate.
 func (m Model) empty() bool { return len(m.table.Rows()) == 0 }
 
 // emptyBody fills the table's place while there is nothing to tabulate.
-func (m Model) emptyBody(previewLines int) string {
-	return strings.Repeat("\n", max(0, m.height-m.extraTitleLines()-chromeLines-1-previewLines))
+func (m Model) emptyBody(extraOverviewLines int) string {
+	return strings.Repeat("\n", max(0, m.height-m.extraTitleLines()-chromeLines-1-extraOverviewLines))
 }
 
 // status lists what the user should know besides the table: failures, work in flight, notes.
