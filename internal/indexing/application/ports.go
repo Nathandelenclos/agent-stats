@@ -20,6 +20,7 @@ type LogFile struct {
 type SessionLogs interface {
 	// List returns every log file; problems are files that could not be inspected and were skipped.
 	List() (files []LogFile, problems []error, err error)
+	// Read parses a file List returned. IndexSessions calls it from several goroutines at once.
 	Read(LogFile) (domain.Transcript, error)
 }
 
