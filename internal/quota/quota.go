@@ -23,6 +23,9 @@ func validWindow(provider, label string, used float64, reset, observed time.Time
 		(!reset.IsZero() && !reset.After(observed)) {
 		return Window{}, false
 	}
+	if _, err := reset.MarshalJSON(); err != nil {
+		return Window{}, false
+	}
 	return Window{Provider: provider, Label: label, Remaining: 100 - used, ResetAt: reset, Observed: observed}, true
 }
 

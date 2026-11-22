@@ -72,7 +72,7 @@ From a project folder, agent-stats can select that project automatically when it
 
 ### Web interface
 
-`agent-stats serve` starts the dashboard at <http://127.0.0.1:7373>. Open it to compare costs by day, drill into sessions, and review recurring prompts. The terminal and browser dashboards also show [available Codex and Claude Code quota windows](docs/reference.md#account-quotas). See the [dashboard guide](docs/reference.md#web-interface) and the [HTTP API](docs/reference.md#api).
+`agent-stats serve` starts the dashboard at <http://127.0.0.1:7373>. Open it to compare costs by day, drill into sessions, and review recurring prompts. The terminal and browser dashboards also show [available provider quota windows](docs/reference.md#account-quotas). See the [dashboard guide](docs/reference.md#web-interface) and the [HTTP API](docs/reference.md#api).
 
 ### JSON output
 

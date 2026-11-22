@@ -22,5 +22,7 @@ func readQuotas(ctx context.Context) []quota.Window {
 	if path := quotaFile(); path != "" {
 		windows = append(windows, quota.ReadClaude(path, time.Now())...)
 	}
-	return windows
+	windows = append(windows, quota.ReadCopilot(ctx)...)
+	windows = append(windows, quota.ReadGrok(ctx)...)
+	return append(windows, quota.ReadOpenCodeGo(ctx, os.Getenv("AGENT_STATS_OPENCODE_URL"))...)
 }
