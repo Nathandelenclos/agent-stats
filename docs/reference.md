@@ -320,6 +320,17 @@ already have a status line, forward its input to this command from that script a
 display. The command stores the observed 5-hour and 7-day figures locally for up to 15 minutes, and
 discards windows once they reset. The rest of the status-line payload stays out of the cache.
 
+GitHub Copilot and Grok Build read the account of the installed CLI using its existing sign-in.
+The Copilot RPC was verified on CLI 1.0.83. Grok Build uses its ACP billing extension and returns
+the account's included usage window. Copilot's per-session caps and Grok's purchased credit balance
+are separate measures.
+
+OpenCode Go reads the 5-hour, weekly and monthly windows for the selected Console workspace from an
+existing local OpenCode server with the experimental usage API (verified against the v2.2.2 source).
+Set `AGENT_STATS_OPENCODE_URL` to that server's numeric loopback origin, for example
+`http://127.0.0.1:4096`, when launching agent-stats. The endpoint must be readable without additional
+HTTP credentials.
+
 ## Supported harnesses
 
 | Harness | Logs read |
