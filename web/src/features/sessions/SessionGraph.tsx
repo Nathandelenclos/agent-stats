@@ -122,9 +122,10 @@ export function SessionGraph({ detail }: { detail: SessionDetail }) {
           </button>
         ))}
       </div>
+      {!timeline && (subagents.length > 0 || forkedFrom) && <RelationDiagram source={layout.source} names={layout.names}
+        hasFork={!!forkedFrom} selectedIndex={selectedIndex}
+        onSelect={(index) => select(index > subagents.length && forkedFrom ? "fork" : subagents[index - 1])} />}
       <div className="min-w-0 space-y-2">
-        {!timeline && <RelationDiagram source={layout.source} names={layout.names} selectedIndex={selectedIndex}
-          onSelect={(index) => select(index > subagents.length && forkedFrom ? "fork" : subagents[index - 1])} />}
         <div className={`grid items-baseline gap-2 border border-transparent px-2 ${lane}`}>
           <h3 className="font-semibold">{timeline ? "Activity timeline" : "Recorded agents"}</h3>
           {range && timeline && (
@@ -166,7 +167,7 @@ export function SessionGraph({ detail }: { detail: SessionDetail }) {
           <p className="mt-1 text-sm"><code>{forkedFrom}</code></p>
         </> : current ? <AgentDetails agent={current} parent={parentOf(current)} /> : (
           <>
-            <h3 className="font-semibold">Session overview</h3>
+            <h3 className="font-semibold">{title}</h3>
             <p className="mt-1 text-sm text-muted">{formatInteger(session.usage.requests)} requests across the session and its subagents</p>
             {forkedFrom && <p className="mt-2 text-sm text-muted">Forked from <code>{forkedFrom}</code></p>}
             <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
