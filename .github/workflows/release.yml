@@ -12,7 +12,9 @@
 #
 # Idempotent: it does nothing when no commit is releasable, and never moves or re-creates a tag. The release is
 # created as a draft, its provenance is attested, and only then is it published: if a run fails after pushing the
-# tag, re-running that run rebuilds the draft for the same tag and finishes the release.
+# tag, re-running that run rebuilds the draft for the same tag and finishes the release. Until then, the runs of
+# later commits fail on purpose (they cannot rebuild an older commit and still attest it): they never publish a newer
+# version past an unfinished one. Re-run the failed run of the older commit first, then the later ones.
 name: release
 
 on:
@@ -73,6 +75,21 @@ jobs:
           latest=$(git describe --tags --abbrev=0 --match "$glob" 2>/dev/null || true)
           existing=$(git tag --points-at HEAD --list "$glob" --sort=-v:refname | sed -n 1p)
           covering=$(git tag --contains HEAD --list "$glob" --sort=v:refname | sed -n 1p)
+
+          # An earlier tag without a published release (a run pushed it, then failed) comes before anything new.
+          # It cannot be rebuilt from this commit: the attestation would name this commit, not the tagged one.
+          # So the run stops here, and the failed run of that commit is re-run (a re-run keeps its commit).
+          # Only the tag on HEAD is finished by this run, below.
+          stuck=false
+          while read -r tag; do
+            commit=$(git rev-list -n 1 "$tag")
+            [ "$commit" = "$(git rev-parse HEAD)" ] && continue
+            echo "::error::$tag (commit $commit) has no published release. Re-run the failed ci run of that commit to finish it; this run publishes nothing until then."
+            stuck=true
+          done < <(git tag --merged HEAD --list "$glob" --sort=v:refname | grep -vxFf "$published" || true)
+          if $stuck; then
+            exit 1
+          fi
 
           if [ -n "$existing" ]; then
             # This commit is already tagged: never re-tag. Only a published release ends the job early;

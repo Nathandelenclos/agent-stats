@@ -49,6 +49,10 @@ Do not bump a version, create a tag or edit a changelog by hand. When commits th
 `main` and CI passes, the release workflow computes the next version with git-cliff, tags it, builds the binaries
 with GoReleaser and publishes a GitHub release with generated notes.
 
+If a release fails after its tag was pushed, re-run the failed `ci` run of that commit (Actions, "Re-run failed
+jobs"). Until it is published, the release job of later commits fails with an error naming the tag, so a newer version
+never goes out past an unfinished one; re-run those afterwards.
+
 ### Repository settings (maintainers)
 
 The workflows assume these settings, which live on GitHub and not in the repository:
