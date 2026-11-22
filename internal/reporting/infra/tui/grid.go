@@ -20,7 +20,6 @@ type grid struct {
 	headers []string
 	numeric []bool // right-aligned columns
 	rows    [][]cell
-	ids     []string // what each row stands for, when it can be opened
 }
 
 func textCell(s string) cell { return cell{text: textfmt.Printable(s)} }
@@ -110,15 +109,6 @@ func (g grid) sorted(s sortState) [][]cell {
 		rows = append(rows, g.rows[i])
 	}
 	return rows
-}
-
-// sortedIDs returns the ids of the rows in the order sorted shows them.
-func (g grid) sortedIDs(s sortState) []string {
-	var ids []string
-	for _, i := range g.order(s) {
-		ids = append(ids, g.ids[i])
-	}
-	return ids
 }
 
 func cmpFloat(a, b float64) int {

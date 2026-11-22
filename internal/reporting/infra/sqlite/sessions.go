@@ -162,15 +162,15 @@ func usageGroups(q querier, keys, cond string, args []any, fn func(keys []string
 	return rows.Err()
 }
 
-// subagents lists the sessions the root session started, most expensive first.
+// subagents lists the subagents the session started, most expensive first.
 func subagents(q querier, root report.SessionID) ([]report.SubagentUsage, error) {
-	out, err := subagentRows(q, root)
+	ids, out, err := subagentRows(q, root)
 	if err != nil {
 		return nil, err
 	}
-	at := make(map[string]int, len(out))
-	for i, x := range out {
-		at[x.ID.String()] = i
+	at := make(map[string]int, len(ids))
+	for i, id := range ids {
+		at[id] = i
 	}
 	err = usageGroups(q, "r.session_id", "r.root_id = ? AND r.session_id <> r.root_id", []any{root.String()}, func(keys []string, u report.Usage) {
 		if i, ok := at[keys[0]]; ok {
@@ -178,31 +178,28 @@ func subagents(q querier, root report.SessionID) ([]report.SubagentUsage, error)
 		}
 	})
 	slices.SortStableFunc(out, func(a, b report.SubagentUsage) int {
-		return cmp.Or(cmp.Compare(b.Cost, a.Cost), cmp.Compare(b.Requests, a.Requests), strings.Compare(a.ID.String(), b.ID.String()))
+		return cmp.Or(cmp.Compare(b.Cost, a.Cost), cmp.Compare(b.Requests, a.Requests), strings.Compare(a.Title, b.Title))
 	})
 	return out, err
 }
 
-func subagentRows(q querier, root report.SessionID) ([]report.SubagentUsage, error) {
+// subagentRows reads the subagents of a session, with the identity the index gives each (needed to add up its requests).
+func subagentRows(q querier, root report.SessionID) (ids []string, out []report.SubagentUsage, err error) {
 	rows, err := q.Query(`SELECT o.id, o.agent_type, COALESCE(o.title, '') FROM session_overview o
 		WHERE o.root_id = ? AND o.id <> o.root_id ORDER BY o.id`, root.String())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer rows.Close()
-	var out []report.SubagentUsage
 	for rows.Next() {
 		var id string
 		var x report.SubagentUsage
 		if err := rows.Scan(&id, &x.AgentType, &x.Title); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		if x.ID, err = report.NewSessionID(id); err != nil {
-			return nil, err
-		}
-		out = append(out, x)
+		ids, out = append(ids, id), append(out, x)
 	}
-	return out, rows.Err()
+	return ids, out, rows.Err()
 }
 
 // prompts lists the session's own prompts in log order, each cut to report.PromptTextLimit characters.

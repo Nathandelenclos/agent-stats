@@ -38,7 +38,7 @@ func TestListSessionsAsksForTheRangeOfTheQuery(t *testing.T) {
 	got, err := ListSessions{Queries: idx}.Run(Query{Since: since, Harness: kernel.Codex})
 
 	// Then the index is asked for exactly that range, and its sessions come back
-	if err != nil || len(got) != 1 || got[0].Title != "fix the build" {
+	if err != nil || len(got.Sessions) != 1 || got.Sessions[0].Title != "fix the build" {
 		t.Fatalf("sessions = %+v, %v", got, err)
 	}
 	if !idx.filter.Since.Equal(since) || idx.filter.Harness != kernel.Codex {
@@ -71,39 +71,75 @@ func TestShowSessionReportsAnUnknownSession(t *testing.T) {
 	}
 }
 
-func TestSessionFiguresFollowFromWhatTheIndexReports(t *testing.T) {
-	// Given a session run mostly on an expensive model, with a few long prompts
-	s := domain.SessionSummary{
+func TestTheListedSessionsAreAddedUp(t *testing.T) {
+	// Given three listed sessions, one with requests that have no known price
+	idx := &recordedSessions{list: []domain.SessionSummary{
+		{Usage: domain.Usage{Requests: 10, Failed: 1, Cost: 2.5}},
+		{Usage: domain.Usage{Requests: 5, Cost: 0.5, Unpriced: 3}},
+		{},
+	}}
+
+	// When they are listed
+	got, err := ListSessions{Queries: idx}.Run(Query{})
+
+	// Then the list carries the totals of what its sessions used
+	if err != nil || got.Total.Requests != 15 || got.Total.Failed != 1 || got.Total.Cost != 3 || got.Total.Unpriced != 3 {
+		t.Errorf("total = %+v, %v", got.Total, err)
+	}
+}
+
+// aSessionOnABigModel is a session of ten requests and ten dollars, mostly on an expensive model, with four long prompts.
+func aSessionOnABigModel() domain.SessionSummary {
+	return domain.SessionSummary{
 		Usage:       domain.Usage{Requests: 10, Cost: 10},
 		PromptCount: 4, PromptChars: 100,
 		Start: time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC), End: time.Date(2026, 1, 1, 10, 30, 0, 0, time.UTC),
 	}
-	big := domain.UsageGroup{Group: "big", Usage: domain.Usage{Requests: 2, Cost: 9}}
-	small := domain.UsageGroup{Group: "small", Usage: domain.Usage{Requests: 8, Cost: 1}}
+}
 
-	// Then the model share is by cost, the prompt average is per prompt and the duration is the time span
-	if got := s.ModelShare(big); got != 0.9 {
-		t.Errorf("big share = %v", got)
-	}
-	if got := s.ModelShare(small); got != 0.1 {
-		t.Errorf("small share = %v", got)
-	}
-	if got := s.AvgPromptChars(); got != 25 {
-		t.Errorf("average prompt = %v", got)
-	}
-	if d, ok := s.Duration(); !ok || d != 30*time.Minute {
-		t.Errorf("duration = %v %v", d, ok)
-	}
+var (
+	bigModel   = domain.UsageGroup{Group: "big", Usage: domain.Usage{Requests: 2, Cost: 9}}
+	smallModel = domain.UsageGroup{Group: "small", Usage: domain.Usage{Requests: 8, Cost: 1}}
+)
 
-	// And with nothing priced the share falls back to requests, and no prompt averages to zero
+func TestAModelsShareIsItsShareOfTheCost(t *testing.T) {
+	// Given a session where one model made 2 of 10 requests but cost 9 of 10 dollars
+	s := aSessionOnABigModel()
+
+	// Then the share tells where the money went
+	if got := s.ModelShare(bigModel); got != 0.9 {
+		t.Errorf("big model share = %v, want 0.9", got)
+	}
+	if got := s.ModelShare(smallModel); got != 0.1 {
+		t.Errorf("small model share = %v, want 0.1", got)
+	}
+}
+
+func TestAModelsShareFallsBackToRequestsWhenNothingIsPriced(t *testing.T) {
+	s := aSessionOnABigModel()
 	s.Cost = 0
-	if got := s.ModelShare(small); got != 0.8 {
-		t.Errorf("unpriced share = %v", got)
+	if got := s.ModelShare(smallModel); got != 0.8 {
+		t.Errorf("share without prices = %v, want 0.8", got)
+	}
+	if got := (domain.SessionSummary{}).ModelShare(smallModel); got != 0 {
+		t.Errorf("share of a session without requests = %v, want 0", got)
+	}
+}
+
+func TestThePromptsOfASessionAverageToTheirLength(t *testing.T) {
+	if got := aSessionOnABigModel().AvgPromptChars(); got != 25 {
+		t.Errorf("average prompt = %v, want 25", got)
 	}
 	if got := (domain.SessionSummary{}).AvgPromptChars(); got != 0 {
-		t.Errorf("average of no prompt = %v", got)
+		t.Errorf("average of no prompt = %v, want 0", got)
 	}
-	if got := (domain.SessionSummary{}).ModelShare(small); got != 0 {
-		t.Errorf("share of an empty session = %v", got)
+}
+
+func TestASessionLastsFromItsFirstToItsLastEntry(t *testing.T) {
+	if d, ok := aSessionOnABigModel().Duration(); !ok || d != 30*time.Minute {
+		t.Errorf("duration = %v %v, want 30m", d, ok)
+	}
+	if _, ok := (domain.SessionSummary{}).Duration(); ok {
+		t.Error("a session without timestamps has a duration")
 	}
 }

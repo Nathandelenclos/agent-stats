@@ -192,7 +192,7 @@ func TestSessionDetailTellsWhatTheSessionDid(t *testing.T) {
 		t.Errorf("tools = %+v", d.Tools)
 	}
 	// And the subagents with what each used, their type kept as data
-	if len(d.Subagents) != 1 || d.Subagents[0].AgentType != hostile || d.Subagents[0].Cost != 0.5 || d.Subagents[0].Title != "kid" || d.Subagents[0].ID.String() != "claude:main/kid" {
+	if len(d.Subagents) != 1 || d.Subagents[0].AgentType != hostile || d.Subagents[0].Cost != 0.5 || d.Subagents[0].Title != "kid" {
 		t.Errorf("subagents = %+v", d.Subagents)
 	}
 	// And the prompts in log order, whatever their time (the first logged carries the later time), with their signals

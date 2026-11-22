@@ -335,11 +335,10 @@ func (m Model) grid() grid {
 // layout fills the tables with the current report and fits them to the terminal.
 func (m *Model) layout() {
 	fit(&m.table, m.grid(), m.sorts[m.tab], m.width, m.height)
-	sg := sessionsGrid(m.sessions.list)
-	m.sessions.ids = nil
-	for _, id := range sg.sortedIDs(m.sessions.sort) {
-		sid, _ := reporting.NewSessionID(id) // listed sessions have an identity
-		m.sessions.ids = append(m.sessions.ids, sid)
+	sg := sessionsGrid(m.sessions.list.Sessions)
+	m.sessions.shown = nil
+	for _, i := range sg.order(m.sessions.sort) {
+		m.sessions.shown = append(m.sessions.shown, m.sessions.list.Sessions[i])
 	}
 	fit(&m.sessions.table, sg, m.sessions.sort, m.width, m.height)
 	if d := &m.sessions.detail; d.open {
@@ -566,9 +565,5 @@ func (m Model) unpriced() int64 {
 	if m.mode == usageMode {
 		return m.report.Total.Unpriced
 	}
-	var n int64
-	for _, s := range m.sessions.list {
-		n += s.Unpriced
-	}
-	return n
+	return m.sessions.list.Total.Unpriced
 }

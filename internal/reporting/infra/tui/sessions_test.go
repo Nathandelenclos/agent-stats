@@ -251,7 +251,7 @@ func detailOf(s reporting.SessionSummary) reporting.SessionDetail {
 	return reporting.SessionDetail{
 		SessionSummary: s,
 		Tools:          []domain.ToolUsage{{Name: "Bash", Calls: 42, Errors: 3}, {Name: "search", Server: "grace", Calls: 7}},
-		Subagents:      []domain.SubagentUsage{{ID: sid(s.ID.String() + "/kid"), AgentType: "Explore", Title: "look around", Usage: reporting.Usage{Requests: 5, Cost: 1.25}}},
+		Subagents:      []domain.SubagentUsage{{AgentType: "Explore", Title: "look around", Usage: reporting.Usage{Requests: 5, Cost: 1.25}}},
 		Prompts: []domain.Prompt{
 			{At: at(2, 11, 55), Text: "please fix the build", Chars: 20, Words: 4},
 			{At: at(2, 11, 58), Text: "WHY IS THIS STILL BROKEN?? no, stop", Chars: 35, Words: 7,
@@ -318,13 +318,16 @@ func TestEscapeGoesBackToTheSessions(t *testing.T) {
 	// When the user presses Esc
 	m, cmd := pressType(t, m, tea.KeyEsc)
 
-	// Then the list is back, with the same session selected, and nothing was requested
+	// Then the list is back and nothing was requested
 	view := m.View()
 	if cmd != nil || !strings.Contains(view, "TITLE") || strings.Contains(view, "esc back") {
 		t.Errorf("after Esc (cmd %v):\n%s", cmd != nil, view)
 	}
-	if got := m.sessions.ids[m.sessions.table.Cursor()].String(); got != "claude:dear" {
-		t.Errorf("selection moved to %s", got)
+
+	// And opening again the selected row shows the same session
+	m = openDetail(t, m)
+	if view := m.View(); !strings.Contains(view, "$12.50 · 6 requests") {
+		t.Errorf("another session was selected:\n%s", view)
 	}
 }
 
@@ -344,7 +347,7 @@ func TestDetailTextCannotDriveTheTerminal(t *testing.T) {
 	d.Title, d.Folder = evil, evil
 	d.Models = []domain.UsageGroup{{Group: evil, Usage: reporting.Usage{Requests: 1}}}
 	d.Tools = []domain.ToolUsage{{Name: evil, Server: evil, Calls: 1}}
-	d.Subagents = []domain.SubagentUsage{{ID: sid("x/y"), AgentType: evil, Title: evil}}
+	d.Subagents = []domain.SubagentUsage{{AgentType: evil, Title: evil}}
 	d.Prompts = []domain.Prompt{{Text: "hi\x1b]0;owned\x07\r\n\there \u009b31m", Chars: 5}}
 	sessions.details["codex:cheap"] = d
 	sessions.list[0].Title = evil
@@ -365,8 +368,9 @@ func TestDetailTextCannotDriveTheTerminal(t *testing.T) {
 	}
 }
 
-func TestDetailFitsAndScrolls(t *testing.T) {
-	// Given a session with sixty prompts on a small terminal
+// aLongSessionOnASmallTerminal opens the detail of a session with sixty prompts on a 60x14 terminal.
+func aLongSessionOnASmallTerminal(t *testing.T) Model {
+	t.Helper()
 	sessions := sampleSessions()
 	d := detailOf(sessions.list[0])
 	d.Prompts = nil
@@ -375,47 +379,61 @@ func TestDetailFitsAndScrolls(t *testing.T) {
 	}
 	sessions.details["codex:cheap"] = d
 	m := send(t, inSessions(t, sessions), tea.WindowSizeMsg{Width: 60, Height: 14})
-	m = openDetail(t, m)
+	return openDetail(t, m)
+}
 
-	// Then the view fits the terminal and shows the top of the session
-	fits := func(m Model) {
-		t.Helper()
-		lines := strings.Split(m.View(), "\n")
-		if len(lines) > 14 {
-			t.Errorf("view is %d lines on a 14-line terminal", len(lines))
-		}
-		for _, l := range lines {
-			if w := len([]rune(l)); w > 60 {
-				t.Errorf("line of %d cells on a 60-cell terminal: %q", w, l)
-			}
+// fitsA14By60Terminal fails when the view is taller or wider than the terminal.
+func fitsA14By60Terminal(t *testing.T, m Model) {
+	t.Helper()
+	lines := strings.Split(m.View(), "\n")
+	if len(lines) > 14 {
+		t.Errorf("view is %d lines on a 14-line terminal", len(lines))
+	}
+	for _, l := range lines {
+		if w := len([]rune(l)); w > 60 {
+			t.Errorf("line of %d cells on a 60-cell terminal: %q", w, l)
 		}
 	}
-	fits(m)
+}
+
+func TestALongSessionFitsASmallTerminalFromItsTop(t *testing.T) {
+	m := aLongSessionOnASmallTerminal(t)
+	fitsA14By60Terminal(t, m)
 	if view := m.View(); !strings.Contains(view, "refactor the billing module") || strings.Contains(view, "prompt number 60") {
 		t.Errorf("top of the detail:\n%s", view)
 	}
+}
 
-	// When the user goes to the end, then the last prompt is shown; Home brings the top back
+func TestEndAndHomeTakeTheDetailToItsLastPromptAndBack(t *testing.T) {
+	m := aLongSessionOnASmallTerminal(t)
+
+	// When the user goes to the end, then the last prompt is shown
 	m, _ = pressType(t, m, tea.KeyEnd)
-	fits(m)
+	fitsA14By60Terminal(t, m)
 	if view := m.View(); !strings.Contains(view, "prompt number 60") || strings.Contains(view, "TOOLS") {
 		t.Errorf("end of the detail:\n%s", view)
 	}
+
+	// When the user goes home, then the top is back
 	m, _ = pressType(t, m, tea.KeyHome)
-	if view := m.View(); !strings.Contains(view, "TOOLS") {
+	if view := m.View(); !strings.Contains(view, "TOOLS") || !strings.Contains(view, "refactor the billing module") {
 		t.Errorf("home:\n%s", view)
 	}
+}
 
-	// And paging down, then up, moves by a screen and comes back
+func TestPagingMovesTheDetailByAScreenAndBack(t *testing.T) {
+	m := aLongSessionOnASmallTerminal(t)
+
+	// When the user pages down, then the first lines are gone
 	m, _ = pressType(t, m, tea.KeyPgDown)
-	paged := m.sessions.detail.scroll
-	if paged != m.sessions.detail.display {
-		t.Errorf("a page down moved by %d, want %d", paged, m.sessions.detail.display)
+	if view := m.View(); strings.Contains(view, "refactor the billing module") || !strings.Contains(view, "SUBAGENTS") {
+		t.Errorf("after a page down:\n%s", view)
 	}
+
+	// When the user pages up, then the top is back
 	m, _ = pressType(t, m, tea.KeyPgUp)
-	m, _ = pressType(t, m, tea.KeyUp)
-	if m.sessions.detail.scroll != 0 {
-		t.Errorf("scroll = %d after paging back", m.sessions.detail.scroll)
+	if view := m.View(); !strings.Contains(view, "refactor the billing module") {
+		t.Errorf("after a page up:\n%s", view)
 	}
 }
 
@@ -436,23 +454,32 @@ func TestDetailOfAnUnknownSessionSaysSoAndEscapeStillWorks(t *testing.T) {
 	}
 }
 
-func TestStaleAnswersAreIgnored(t *testing.T) {
-	sessions := sampleSessions()
-	m := inSessions(t, sessions)
+func TestAnAnswerToAnEarlierSessionsRequestIsIgnored(t *testing.T) {
+	// Given a newer request for the sessions, asked by changing the period
+	m, cmd := pressCmd(t, inSessions(t, sampleSessions()), "p")
 
-	// When the answer to an earlier sessions request arrives after a newer filter was asked for
-	m, cmd := pressCmd(t, m, "p")
-	stale := sessionsMsg{seq: m.seq - 1, list: nil}
-	m = send(t, m, stale)
+	// When the answer to the earlier request arrives
+	m = send(t, m, sessionsMsg{seq: m.seq - 1})
 
 	// Then it does not replace the sessions on screen
 	if view := m.View(); !strings.Contains(view, "quick fix") {
 		t.Errorf("a stale answer emptied the list:\n%s", view)
 	}
 	m = answer(t, m, cmd)
+	if view := m.View(); !strings.Contains(view, "quick fix") {
+		t.Errorf("the answer to the newer request is lost:\n%s", view)
+	}
+}
 
-	// And the detail of a session that is no longer open is dropped
+func TestTheDetailOfASessionThatIsNoLongerOpenIsDropped(t *testing.T) {
+	// Given the list of sessions, no detail open
+	sessions := sampleSessions()
+	m := inSessions(t, sessions)
+
+	// When the detail of a session arrives late
 	m = send(t, m, detailMsg{id: sid("claude:dear"), detail: detailOf(sessions.list[1])})
+
+	// Then the detail does not open by itself
 	if view := m.View(); strings.Contains(view, "esc back") {
 		t.Errorf("a late detail opened itself:\n%s", view)
 	}
@@ -493,28 +520,26 @@ func TestSessionsViewFitsTheTerminal(t *testing.T) {
 	}
 }
 
-func TestIndexingRefreshesTheSessionsOnScreen(t *testing.T) {
-	// Given the sessions mode with indexing on
+func TestSessionsIndexedMeanwhileShowAfterIndexing(t *testing.T) {
+	// Given the sessions on screen while indexing runs
 	sessions := sampleSessions()
 	m := New(Options{Reports: build(&fakeReports{report: sampleReport()}), Sync: func(func(int)) (string, error) { return "", nil },
 		Sessions: reporting.ListSessions{Queries: sessions}, Session: reporting.ShowSession{Queries: sessions}})
+	m = send(t, m, tea.WindowSizeMsg{Width: 220, Height: 30})
 	m, cmd := pressCmd(t, send(t, m, m.load()()), "m")
 	m = answer(t, m, cmd)
-	before := len(sessions.filters)
+	if strings.Contains(m.View(), "fresh session") {
+		t.Fatalf("the new session is there before it was indexed:\n%s", m.View())
+	}
 
-	// When indexing is done
+	// When indexing brings a new session and is done
+	sessions.list = append([]reporting.SessionSummary{session("claude:new", "fresh session", kernel.Claude, 1, 1, 1, 10, at(4, 9, 0), time.Minute)}, sessions.list...)
 	next, cmd := m.Update(syncDoneMsg{})
-	m2 := next.(Model)
+	m = answer(t, next.(Model), cmd)
 
-	// Then the sessions are asked for again, not the usage report
-	if cmd == nil {
-		t.Fatal("no refresh after indexing")
-	}
-	if _, ok := cmd().(sessionsMsg); !ok || len(sessions.filters) != before+1 {
-		t.Errorf("refresh did not read the sessions (%d reads, was %d)", len(sessions.filters), before)
-	}
-	if !strings.Contains(m2.help(), "r re-index") {
-		t.Errorf("help: %s", m2.help())
+	// Then the sessions on screen include it
+	if view := m.View(); !strings.Contains(view, "fresh session") || !strings.Contains(view, "4 sessions") {
+		t.Errorf("the new session does not show:\n%s", view)
 	}
 }
 
@@ -531,14 +556,6 @@ func TestQuitKeysWorkInEveryScreen(t *testing.T) {
 		if _, ok := cmd().(tea.QuitMsg); !ok {
 			t.Errorf("q does not quit the %s", name)
 		}
-	}
-}
-
-func TestGridSortedIDsFollowTheRows(t *testing.T) {
-	g := sessionsGrid(sampleSessions().list)
-	got := g.sortedIDs(sortState{col: 5, desc: true}) // COST
-	if strings.Join(got, " ") != "claude:dear codex:cheap pi:bare" {
-		t.Errorf("ids = %v", got)
 	}
 }
 

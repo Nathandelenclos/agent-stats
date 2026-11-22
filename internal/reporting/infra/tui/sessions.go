@@ -27,7 +27,7 @@ var modeNames = [...]string{"Usage", "Sessions"}
 type sessionsMsg struct {
 	seq             int
 	period, harness int // the filters the list was asked for
-	list            []reporting.SessionSummary
+	list            reporting.SessionList
 	err             error
 }
 
@@ -40,11 +40,11 @@ type detailMsg struct {
 
 // sessionsState is the presentation state of the sessions mode.
 type sessionsState struct {
-	list   []reporting.SessionSummary
+	list   reporting.SessionList
 	loaded bool
 	sort   sortState
 	table  table.Model
-	ids    []reporting.SessionID // the session of each table row, in the order the table shows them
+	shown  []reporting.SessionSummary // the listed sessions in the order the table shows them
 	detail sessionDetail
 }
 
@@ -98,10 +98,10 @@ func (m Model) switchMode() (Model, tea.Cmd) {
 // openSelected opens the detail of the session on the selected row.
 func (m Model) openSelected() (Model, tea.Cmd) {
 	i := m.sessions.table.Cursor()
-	if i < 0 || i >= len(m.sessions.ids) {
+	if i < 0 || i >= len(m.sessions.shown) {
 		return m, nil
 	}
-	id := m.sessions.ids[i]
+	id := m.sessions.shown[i].ID
 	m.sessions.detail = sessionDetail{open: true, id: id}
 	m.layout()
 	return m, m.loadDetail(id)
@@ -124,7 +124,7 @@ func (m Model) sessionsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.harness = (m.harness + 1) % len(harnessChoices)
 		return m.reload()
 	case "s":
-		m.sessions.sort = m.sessions.sort.next(sessionsGrid(m.sessions.list))
+		m.sessions.sort = m.sessions.sort.next(sessionsGrid(m.sessions.list.Sessions))
 		m.layout()
 		m.sessions.table.SetCursor(0)
 	case "o":
@@ -188,7 +188,6 @@ func sessionsGrid(list []reporting.SessionSummary) grid {
 		numeric: []bool{false, false, false, true, true, true, false, true, true, false, true, false},
 	}
 	for _, s := range list {
-		g.ids = append(g.ids, s.ID.String())
 		g.rows = append(g.rows, []cell{
 			textCell(sessionTitle(s)),
 			textCell(s.Harness.String()),
@@ -254,16 +253,11 @@ func (m Model) sessionsSummary() string {
 	if !m.sessions.loaded {
 		return faintStyle.Render("loading…") + "\n"
 	}
-	if len(m.sessions.list) == 0 {
+	l := m.sessions.list
+	if len(l.Sessions) == 0 {
 		return noSessions + "\n"
 	}
-	var cost reporting.USD
-	var requests int64
-	for _, s := range m.sessions.list {
-		cost += s.Cost
-		requests += s.Requests
-	}
-	return fmt.Sprintf("%s sessions · %s requests · $%.2f\n", textfmt.Number(int64(len(m.sessions.list))), textfmt.Number(requests), float64(cost)) +
+	return fmt.Sprintf("%s sessions · %s requests · $%.2f\n", textfmt.Number(int64(len(l.Sessions))), textfmt.Number(l.Total.Requests), float64(l.Total.Cost)) +
 		faintStyle.Render("cost, requests and models cover subagents · PROMPTS and AVG PROMPT (characters) count what you typed")
 }
 
@@ -279,7 +273,7 @@ func (m Model) sessionsView() string {
 	} else {
 		b.WriteString(activeTab.Render("Sessions") + faintStyle.Render(m.sortLabel()) + "\n")
 		b.WriteString(m.sessionsSummary() + "\n")
-		if m.sessions.loaded && len(m.sessions.list) > 0 {
+		if m.sessions.loaded && len(m.sessions.list.Sessions) > 0 {
 			b.WriteString(m.sessions.table.View() + "\n")
 		} else {
 			b.WriteString(m.emptyBody() + "\n")

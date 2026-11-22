@@ -75,12 +75,30 @@ func (s SessionSummary) ModelShare(m UsageGroup) float64 {
 	return 0
 }
 
-// SubagentUsage is one subagent a session started, with what it used.
+// SubagentUsage is one subagent a session started, with what it used. A subagent is not a session of its own:
+// it has no identity to ask for, and its figures are part of the session that started it.
 type SubagentUsage struct {
-	ID        SessionID
 	AgentType string
 	Title     string
 	Usage
+}
+
+// SessionList is the sessions a listing shows, most recent first, with their totals.
+type SessionList struct {
+	Sessions []SessionSummary
+	Total    Usage // requests, failures, cost and unpriced requests of every listed session
+}
+
+// NewSessionList lists sessions and adds up what they used.
+func NewSessionList(sessions []SessionSummary) SessionList {
+	l := SessionList{Sessions: sessions}
+	for _, s := range sessions {
+		l.Total.Requests += s.Requests
+		l.Total.Failed += s.Failed
+		l.Total.Cost += s.Cost
+		l.Total.Unpriced += s.Unpriced
+	}
+	return l
 }
 
 // PromptSignals are cheap lexical hints of frustration the index found in one prompt.
