@@ -572,24 +572,53 @@ func TestAnUnknownAPIRouteIsAJSONNotFound(t *testing.T) {
 	wantProblem(t, r.get("/api/nothing"), http.StatusNotFound, problemNotFound)
 }
 
-func TestThePageAndItsAssetsAreServed(t *testing.T) {
+func TestThePageIsServedAsHTML(t *testing.T) {
 	// Given a built front
 	r := newRig(t)
 
-	// When the root and a hashed asset are requested
+	// When the root is requested
 	page := r.get("/")
-	asset := r.get("/assets/app-abc123.js")
 
-	// Then the page is HTML that must be revalidated, and the hashed asset is cached for good
+	// Then it is the HTML page
 	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "agent-stats") || !strings.HasPrefix(page.Header().Get("Content-Type"), "text/html") {
 		t.Errorf("page = %d %q %q", page.Code, page.Header().Get("Content-Type"), page.Body.String())
 	}
-	if page.Header().Get("Cache-Control") != "no-cache" {
-		t.Errorf("page Cache-Control = %q", page.Header().Get("Cache-Control"))
+}
+
+func TestThePageMustBeRevalidated(t *testing.T) {
+	// Given a built front
+	r := newRig(t)
+
+	// When the root is requested
+	page := r.get("/")
+
+	// Then the browser revalidates it, so a new build is picked up
+	if got := page.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("page Cache-Control = %q", got)
 	}
+}
+
+func TestAHashedAssetIsCachedForGood(t *testing.T) {
+	// Given a built front whose assets are named after their content
+	r := newRig(t)
+
+	// When an asset is requested
+	asset := r.get("/assets/app-abc123.js")
+
+	// Then it is served with a cache lifetime that never needs revalidation
 	if asset.Code != http.StatusOK || !strings.Contains(asset.Header().Get("Cache-Control"), "immutable") {
 		t.Errorf("asset = %d %q", asset.Code, asset.Header().Get("Cache-Control"))
 	}
+}
+
+func TestAScriptAssetIsServedAsJavaScript(t *testing.T) {
+	// Given a built front
+	r := newRig(t)
+
+	// When a script is requested
+	asset := r.get("/assets/app-abc123.js")
+
+	// Then the browser is told it is JavaScript
 	if ct := asset.Header().Get("Content-Type"); !strings.Contains(ct, "javascript") {
 		t.Errorf("asset content type = %q", ct)
 	}
