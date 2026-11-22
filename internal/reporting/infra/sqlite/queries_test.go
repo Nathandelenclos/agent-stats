@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Nathandelenclos/agent-stats/internal/kernel"
+	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 	report "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 )
 
@@ -126,5 +127,56 @@ func TestOpenReadOnlyAcceptsRelativeAndSpecialPaths(t *testing.T) {
 			t.Errorf("%s: total = %+v %v", path, u, err)
 		}
 		r.Close()
+	}
+}
+
+func TestSnapshotReadsOneStateWhileTheIndexIsWritten(t *testing.T) {
+	// Given an index in WAL mode, as the indexing context leaves it, and one request in it
+	at := time.UnixMilli(1767261600000)
+	path := indexed(t, at)
+	w, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if _, err := w.Exec(`PRAGMA journal_mode = WAL`); err != nil {
+		t.Fatal(err)
+	}
+	r, err := OpenReadOnly(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	// When indexing commits another request between two questions of the same snapshot
+	var total report.Usage
+	var groups []report.UsageGroup
+	err = r.Snapshot(func(q reporting.UsageReader) error {
+		var err error
+		if total, err = q.Total(report.Filter{}); err != nil {
+			return err
+		}
+		if _, err = w.Exec(`INSERT INTO usage_requests VALUES (?, 'm2', 1, 1, 0, 0, 1, 1, NULL, NULL, NULL, 'claude', 'main', NULL)`, at.UnixMilli()); err != nil {
+			return err
+		}
+		groups, err = q.UsageBy(report.Filter{}, report.ByHarness)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Then both answers describe the same state, and the next snapshot sees the new request
+	if total.Requests != 1 || len(groups) != 1 || groups[0].Requests != 1 {
+		t.Errorf("total of %d requests but %+v by harness: one report mixes two states", total.Requests, groups)
+	}
+	if err := r.Snapshot(func(q reporting.UsageReader) error {
+		u, err := q.Total(report.Filter{})
+		if u.Requests != 2 {
+			t.Errorf("next snapshot sees %d requests, want 2", u.Requests)
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

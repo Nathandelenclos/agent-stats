@@ -17,12 +17,25 @@ import (
 	report "github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 )
 
-// SQLiteUsage reads usage from the SQLite index.
+// SQLiteUsage reads usage from the SQLite index. Asked directly, each question reads the index as it
+// is then; Snapshot pins one state for a series of questions.
 type SQLiteUsage struct {
 	db *sql.DB
+	reader
 }
 
 var _ reporting.UsageQueries = (*SQLiteUsage)(nil)
+
+// querier is what both the database and a transaction on it answer queries through.
+type querier interface {
+	Query(query string, args ...any) (*sql.Rows, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+// reader answers the usage questions through q.
+type reader struct{ q querier }
+
+var _ reporting.UsageReader = reader{}
 
 // OpenReadOnly opens the index at path for reading only.
 func OpenReadOnly(path string) (*SQLiteUsage, error) {
@@ -39,7 +52,19 @@ func OpenReadOnly(path string) (*SQLiteUsage, error) {
 		db.Close()
 		return nil, err
 	}
-	return &SQLiteUsage{db: db}, nil
+	return &SQLiteUsage{db: db, reader: reader{db}}, nil
+}
+
+// Snapshot runs fn inside one read transaction. The index is in WAL mode, so the transaction keeps the state
+// of its first read until it ends and the indexing writer is never blocked; the reader fn gets cannot see
+// anything indexing commits meanwhile.
+func (s *SQLiteUsage) Snapshot(fn func(reporting.UsageReader) error) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() // nothing was written: ending the transaction is all it takes
+	return fn(reader{tx})
 }
 
 // Close closes the database.
@@ -98,13 +123,13 @@ func fromMillis(ms int64) time.Time {
 }
 
 // UsageBy groups requests along d, most expensive first.
-func (s *SQLiteUsage) UsageBy(f report.Filter, d report.Dimension) ([]report.UsageGroup, error) {
+func (r reader) UsageBy(f report.Filter, d report.Dimension) ([]report.UsageGroup, error) {
 	col, ok := groupColumns[d]
 	if !ok {
 		return nil, fmt.Errorf("unknown usage dimension %d", d)
 	}
 	cond, args := where(f, "r.ts")
-	rows, err := s.db.Query(`SELECT `+col+`, `+usageCols+`
+	rows, err := r.q.Query(`SELECT `+col+`, `+usageCols+`
 		FROM usage_requests r`+cond+`
 		GROUP BY 1 ORDER BY SUM(r.cost) DESC, COUNT(*) DESC`, args...)
 	if err != nil {
@@ -124,17 +149,17 @@ func (s *SQLiteUsage) UsageBy(f report.Filter, d report.Dimension) ([]report.Usa
 }
 
 // Total aggregates every request matching f.
-func (s *SQLiteUsage) Total(f report.Filter) (report.Usage, error) {
+func (r reader) Total(f report.Filter) (report.Usage, error) {
 	cond, args := where(f, "r.ts")
 	var row usageRow
-	err := s.db.QueryRow(`SELECT `+usageCols+` FROM usage_requests r`+cond, args...).Scan(row.args()...)
+	err := r.q.QueryRow(`SELECT `+usageCols+` FROM usage_requests r`+cond, args...).Scan(row.args()...)
 	return row.usage(), err
 }
 
 // Tools aggregates tool calls, most used first.
-func (s *SQLiteUsage) Tools(f report.Filter) ([]report.ToolUsage, error) {
+func (r reader) Tools(f report.Filter) ([]report.ToolUsage, error) {
 	cond, args := where(f, "t.ts")
-	rows, err := s.db.Query(`SELECT t.name, t.server, COUNT(*), SUM(t.is_error), SUM(t.args_chars), SUM(t.result_chars),
+	rows, err := r.q.Query(`SELECT t.name, t.server, COUNT(*), SUM(t.is_error), SUM(t.args_chars), SUM(t.result_chars),
 		COALESCE(AVG(t.duration_ms), 0), MAX(t.ts)
 		FROM usage_tool_calls t`+cond+`
 		GROUP BY 1, 2 ORDER BY 3 DESC`, args...)

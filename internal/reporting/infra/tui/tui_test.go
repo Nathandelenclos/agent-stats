@@ -22,6 +22,8 @@ type fakeReports struct {
 	queries []reporting.Query
 }
 
+func (f *fakeReports) Snapshot(fn func(reporting.UsageReader) error) error { return fn(f) }
+
 func (f *fakeReports) Total(fl domain.Filter) (domain.Usage, error) {
 	f.queries = append(f.queries, reporting.Query{Since: fl.Since, Harness: fl.Harness})
 	return f.report.Total, f.err

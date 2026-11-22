@@ -22,11 +22,18 @@ type Query struct {
 	Harness kernel.Harness
 }
 
-// UsageQueries answers usage questions over the indexed sessions.
-type UsageQueries interface {
+// UsageReader answers usage questions over one state of the indexed sessions.
+type UsageReader interface {
 	Total(domain.Filter) (domain.Usage, error)
 	UsageBy(domain.Filter, domain.Dimension) ([]domain.UsageGroup, error)
 	Tools(domain.Filter) ([]domain.ToolUsage, error)
+}
+
+// UsageQueries gives access to the indexed sessions, which indexing may be changing meanwhile.
+type UsageQueries interface {
+	// Snapshot runs fn on one consistent state of the index: whatever indexing commits meanwhile
+	// does not show in the answers the reader gives fn.
+	Snapshot(fn func(UsageReader) error) error
 }
 
 // Report is the usage summary: totals, usage grouped along every dimension, and tool calls.
@@ -43,10 +50,18 @@ type BuildReport struct {
 
 // Run builds the report for the activity q asks for.
 func (uc BuildReport) Run(q Query) (Report, error) {
-	f := domain.Filter{Since: q.Since, Harness: q.Harness}
+	var r Report
+	err := uc.Queries.Snapshot(func(u UsageReader) (err error) {
+		r, err = build(u, domain.Filter{Since: q.Since, Harness: q.Harness})
+		return err
+	})
+	return r, err
+}
+
+func build(u UsageReader, f domain.Filter) (Report, error) {
 	var r Report
 	var err error
-	if r.Total, err = uc.Queries.Total(f); err != nil {
+	if r.Total, err = u.Total(f); err != nil {
 		return r, err
 	}
 	for _, g := range []struct {
@@ -58,10 +73,10 @@ func (uc BuildReport) Run(q Query) (Report, error) {
 		{&r.ByFolder, domain.ByFolder},
 		{&r.ByAgent, domain.ByAgentType},
 	} {
-		if *g.dst, err = uc.Queries.UsageBy(f, g.dim); err != nil {
+		if *g.dst, err = u.UsageBy(f, g.dim); err != nil {
 			return r, err
 		}
 	}
-	r.Tools, err = uc.Queries.Tools(f)
+	r.Tools, err = u.Tools(f)
 	return r, err
 }

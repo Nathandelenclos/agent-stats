@@ -6,17 +6,54 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/reporting/domain"
 )
 
-type fakeQueries struct{ asked []domain.Dimension }
+// fakeQueries is the usage index: it counts how often a consistent state was asked for, and refuses
+// questions asked outside of one.
+type fakeQueries struct {
+	asked     []domain.Dimension
+	snapshots int
+	inside    bool
+}
+
+func (q *fakeQueries) Snapshot(fn func(UsageReader) error) error {
+	q.snapshots++
+	q.inside = true
+	defer func() { q.inside = false }()
+	return fn(q)
+}
 
 func (q *fakeQueries) Total(domain.Filter) (domain.Usage, error) {
+	q.mustBeInside()
 	return domain.Usage{Requests: 3}, nil
 }
 func (q *fakeQueries) UsageBy(_ domain.Filter, d domain.Dimension) ([]domain.UsageGroup, error) {
+	q.mustBeInside()
 	q.asked = append(q.asked, d)
 	return []domain.UsageGroup{{Group: "g"}}, nil
 }
 func (q *fakeQueries) Tools(domain.Filter) ([]domain.ToolUsage, error) {
+	q.mustBeInside()
 	return []domain.ToolUsage{{Name: "t"}}, nil
+}
+
+func (q *fakeQueries) mustBeInside() {
+	if !q.inside {
+		panic("question asked outside of a snapshot")
+	}
+}
+
+func TestBuildReportReadsOneSnapshot(t *testing.T) {
+	// Given an index that can change between two questions
+	q := &fakeQueries{}
+
+	// When a report is built
+	if _, err := (BuildReport{Queries: q}).Run(Query{}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Then every figure of it comes from a single consistent state
+	if q.snapshots != 1 {
+		t.Errorf("report read %d snapshots, want 1", q.snapshots)
+	}
 }
 
 func TestBuildReportAsksEveryDimension(t *testing.T) {
