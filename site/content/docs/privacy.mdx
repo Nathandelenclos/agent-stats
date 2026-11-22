@@ -11,6 +11,8 @@ The SQLite index contains full prompt text, session titles, working folders, and
 
 Treat the database as private. The CLI's usage totals exclude prompt text, but report output can still reveal paths or names. Prompt reviews and screenshots can include excerpts. Check them before sharing.
 
+[Agent analysis queries](/docs/cli/#agent-analysis) read the index directly. The `session` and `prompts` datasets omit excerpts by default. They include excerpts with `--excerpts`. The `prompt` dataset returns one selected full prompt. Titles and detailed errors can also contain text from logs.
+
 ## Remote access
 
 The dashboard defaults to the loopback address `127.0.0.1:7373`. Use this default for private access on the machine running the CLI.

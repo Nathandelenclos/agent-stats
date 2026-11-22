@@ -1,35 +1,66 @@
 ---
 title: Local JSON API
-description: Query the local report, sessions, prompt review, and indexing status.
+description: Query the local report, model and tool series, sessions, requests, prompts, and quota observations.
 ---
 
-Start `agent-stats serve --all`, then query the loopback server:
+Start `agent-stats serve --all`, then query the loopback server.
 
 ```sh
-curl 'http://127.0.0.1:7373/api/report?since=7d&harness=codex&project=all'
+curl -fsS 'http://127.0.0.1:7373/api/report?since=7d&harness=codex&project=all'
+curl -fsS 'http://127.0.0.1:7373/api/activity-series?kind=models&since=7d&project=all'
+curl -fsSG 'http://127.0.0.1:7373/api/requests' \
+  --data-urlencode 'model=example' --data-urlencode 'provider=provider-a' \
+  --data-urlencode 'limit=25'
 ```
 
-The API is available even when the binary was built without the dashboard. All data comes from the local process.
+The API also works with a binary built without the browser interface. Use [agent-stats query](/docs/cli/#agent-analysis) to read the existing index directly from a script or coding agent.
 
-## Read endpoints
-
-The catalog and quota API endpoints are available in development builds after v0.6.0.
+## Usage and relationships
 
 | GET route | What it returns |
 | --- | --- |
-| `/api/report` | Usage totals and breakdowns, plus daily values in date order. Empty lists are arrays. |
-| `/api/sessions` | Recent sessions, scope, and totals across all matching sessions. Accepts `limit` from 1 to 1,000 (default 100). |
-| `/api/sessions/{id}` | Models, tool calls, subagents, and prompt signals for one session. Encode the ID as a single path segment. |
-| `/api/prompts` | Flagged prompts, recurring requests, and totals by folder. `limit` only caps the flagged list. |
-| `/api/meta` | Available coding agents, current project, and default filters. |
-| `/api/sync` | Background indexing state, files indexed, and skipped counts. |
-| `/api/catalog` | Catalog items and usage. Accepts `unused=true` to show zero-use items only. Available on a loopback server without remote access. |
-| `/api/quotas` | Available provider quota windows. Available on a loopback server without remote access. |
+| `/api/report` | Usage totals and breakdowns, daily activity, hourly activity for short periods, and estimated cost and cache information where available. |
+| `/api/activity-series` | Dated activity buckets. Pass `kind=models` for model and provider, or `kind=tools` for tool and MCP server. Uses hourly buckets through 72 hours, daily through 120 days, and monthly for longer periods or all time. |
+| `/api/model-activity` | Daily activity and available timings for the exact `model` supplied. |
+| `/api/tool-models` | Calls linked to the invoking model and provider when Pi or oh-my-pi recorded enough evidence. |
+| `/api/related-sessions` | Sessions behind `kind` and `value`. Kinds are `day`, `harness`, `model`, `folder`, `agent`, `tool`, and `mcp`. A tool may include `server`. An MCP relation takes `itemHarness`, `itemScope`, and `itemOrigin` from a local catalog entry. Accepts `limit` and `offset`. |
 
-Reports, sessions, prompts, and catalog use the optional `since`, `harness`, and `project` filters. For `project`, pass `all` or `current`. The latter requires a current project. Unknown or repeated parameters return `400`. Unknown or out-of-scope session IDs return `404`. Errors use `application/problem+json`.
+## Sessions, requests, and prompts
+
+| GET route | What it returns |
+| --- | --- |
+| `/api/sessions` | Sessions ordered by latest activity. Counts and totals cover every matching session. Accepts `limit` and `offset`. |
+| `/api/sessions/{id}` | Usage, models, tools, parent and fork links when available, subagents, and prompt previews for a session. |
+| `/api/requests` | Model calls across sessions, newest first, with `hasMore`. Accepts `limit`, `offset`, `failed=1`, `q`, and an exact `model` and `provider`. Omitting `provider` with a model selects calls with an unknown provider. |
+| `/api/sessions/{id}/requests` | The request journal scoped to one session. Accepts the same request filters. |
+| `/api/errors` | Locally available error signatures and counts. Use the returned key as `signature` on a local requests route. Accepts `limit`. |
+| `/api/sessions/{id}/trace` | Indexed prompts, model calls, tool calls, and their agent context in time order. Accepts `limit` and `offset` and returns `hasMore`. |
+| `/api/prompts` | Flagged prompts, recurring requests, and totals by folder. `limit` and `offset` affect only the flagged list. |
+| `/api/prompts/model-signals` | Prompt and flagged-prompt counts grouped by associated model and provider. |
+| `/api/sessions/{id}/prompts/{position}` | Full text of one prompt on the local server. Pass the `position` and optional `revision` from a preview. A stale revision returns `409`. |
+
+Encode the entire session ID as one path segment, including any slash in the ID. For example, `codex:run/agent` becomes `codex%3Arun%2Fagent`.
+
+## Catalog, quotas, and server state
+
+| GET route | What it returns |
+| --- | --- |
+| `/api/catalog` | Installed catalog entries and recorded usage. Pass `unused=true` for enabled items with zero observed use. |
+| `/api/quotas` | Current account quota observations from available providers. A successful observation also contributes to the stored history. |
+| `/api/quotas/history` | Up to 1,000 observations from the last 30 days, newest first. |
+| `/api/meta` | Available coding agents, current project, and default filters. |
+| `/api/sync` | Background indexing state and counts, including skipped files. |
+
+Catalog, quotas, full prompt text, and detailed error messages require a loopback server without `--allow-remote`. [Privacy and remote access](/docs/privacy/#remote-access) explains what a remote listener exposes.
+
+## Filters and pagination
+
+Report and analysis routes generally accept `since`, `harness`, and `project`. Omit `since` for all time. Pass `project=all` or `project=current` when the server has a current project. Metadata, sync, and account quota routes have their own scope.
+
+On paginated routes, `limit` accepts 1 to 1,000 and defaults to 100. Start at `offset=0` and increase it by the page size. Follow `hasMore` on requests and traces, or use `count` on session, related-session, and prompt lists. The selected index can change between requests during background indexing.
+
+Unknown or repeated parameters return `400`. Unknown or out-of-scope session IDs return `404`. Errors use `application/problem+json`.
 
 ## Refresh the index
 
 `POST /api/sync` starts indexing or returns the run already in progress. It expects a same-origin browser request with no body or query string. Use **Re-index** in the dashboard to trigger it.
-
-See [privacy and remote access](/docs/privacy/) before sharing reports or changing the listener.

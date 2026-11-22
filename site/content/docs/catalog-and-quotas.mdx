@@ -3,8 +3,6 @@ title: Catalog and account quotas
 description: Compare installed extensions with recorded usage and check provider quota windows.
 ---
 
-Catalog is available from the CLI. The Catalog and Quotas views, and Claude Code quota recording, are available in development builds after v0.6.0.
-
 ## Catalog
 
 ```sh
@@ -27,3 +25,9 @@ Open **Quotas** in the local dashboard, or press `l` in the terminal and `r` to 
 - **OpenCode Go** reads the 5-hour, weekly and monthly limits from a local OpenCode server with the experimental usage API, verified against v2.2.2 source. Set `AGENT_STATS_OPENCODE_URL` to the running server's numeric loopback origin, such as `http://127.0.0.1:4096`. The endpoint must be readable without additional HTTP credentials.
 
 Account quotas are independent of project, period, and coding agent filters. The web Catalog and Quotas are available on a loopback server without `--allow-remote`.
+
+### Quota history
+
+The local dashboard records quota observations when it checks providers. In **Quotas**, open the history to compare the past 30 days for a provider and window. Each observation includes when it was checked and the reset time when known.
+
+Use `agent-stats query quotas --since 7d` to read recorded observations from the local index without polling providers. An old reading can differ from the current account quota. See the [CLI availability and filters](/docs/cli/#agent-analysis).

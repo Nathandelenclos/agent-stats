@@ -26,7 +26,7 @@ Agents that do not have local logs are skipped. The report only shows metrics re
 ## Check one agent
 
 ```sh
-agent-stats --all --harness codex --since 7d | more
+agent-stats --all --harness codex --since 7d --plain
 ```
 
 Run `agent-stats --help` for filters. The dashboard also lists available agent names when you open its coding agent filter. For how each reader handles missing fields, session IDs, and tools, see the [reader details](https://github.com/Nathandelenclos/agent-stats#supported-harnesses).

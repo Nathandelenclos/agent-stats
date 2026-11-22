@@ -1,34 +1,51 @@
 ---
 title: Open the dashboard
-description: Explore usage, sessions, and prompts in a browser on your machine.
+description: Explore activity, model and tool performance, session graphs, and requests in a browser on your machine.
 ---
 
-Run the local server using a release binary:
+Run the local server using a release binary.
 
 ```sh
 agent-stats serve --all
 ```
 
-Open [http://127.0.0.1:7373](http://127.0.0.1:7373) on the machine running the command. The dashboard opens while the index updates in the background. Use **Re-index** after a new session and press `Ctrl+C` in the terminal to stop the server.
+Open [http://127.0.0.1:7373](http://127.0.0.1:7373) on the machine running the command. The dashboard starts while the index updates in the background. It checks for changes every 30 seconds. Use **Re-index** to refresh immediately, or pass `--no-sync` to read an existing index without automatic updates. Press `Ctrl+C` in the terminal to stop the server.
 
 ## Usage
 
-Start with the totals and estimated cost over time. Narrow the period or coding agent, then sort the breakdowns to find the model, project, or tool behind a change. If the server has a current project, switch between that project and all projects.
+Start in **Overview** for recent trends, the breakdown of input, cache reads, cache writes and output tokens, and the latest requests. Switch **Activity over time** between cost, requests, and tokens. On a daily chart, select a day to see contributing sessions. The chart keeps the full content width on medium screens.
+
+Open **Usage** for the complete breakdowns by coding agent, model, provider, folder, agent type, and tool. Review price coverage alongside estimated costs. To compare the same slice across views, keep the period, coding agent, and project filters in place. The browser keeps these filters in its URL.
 
 ```sh
 agent-stats serve --since 7d --harness claude
 ```
 
-The browser keeps the active filters in its URL. Open [CLI reference](/docs/cli/#dashboard) for the server flags.
+See the [server flags](/docs/cli/#dashboard) for other ways to start the dashboard.
+
+## Models and tools
+
+- **Models** shows request volume or share by model and provider. Select a series or row to see latency, time to first token, output rate, and sample counts. **View model requests** opens the journal for that pair.
+- **Tools** shows dated calls or errors by tool and MCP server. Select a series or row to see the sessions behind it. The separate **Tool usage by model** table reports attribution only for eligible Pi and oh-my-pi calls.
+
+Series use matching colors across the charts, legends, and tables. Expand **Values by period** to read the underlying counts and percentages.
 
 ## Sessions
 
-Open **Sessions** from the sidebar and choose a row to see models, tool calls, subagents, and prompt signals. Sessions are selected by their latest activity within the period. The figures for a matching session describe its whole run, subject to the project filter.
+Open **Sessions** and choose a row for models, tool calls, subagents, and prompts. The list selects sessions by their latest activity in the period. The detail describes the whole run within the project scope.
+
+Open **Activity graph** in a session. **Relations** draws the recorded parent and fork links in Mermaid. Solid lines mark parents and a dashed line marks a fork. Select a node by mouse or keyboard to read its full title and activity. **Timeline** shows recorded activity intervals. Unavailable links or timestamps are identified in the view.
+
+Open **Requests** within the session for model calls, or **Trace** for timestamped prompt, model and tool events across the run.
+
+## Requests and errors
+
+Use **Requests** in the sidebar for all model calls in scope. Search by model, provider, or folder, filter to failures, or open the related session. Available fields include price, timing, token counts, and stop reason. **Errors** starts with failed requests and can filter them by normalized error signature. Error details and signature search are local.
 
 ## Prompts
 
-Open **Prompts** to see recurring requests, flagged prompts, and totals by project folder. Use the [prompt review guide](/docs/prompts/) to interpret the flags.
+Open **Prompts** to see recurring requests, flagged prompts, and totals by project folder. Expand **Prompt signals by model** to compare counts for the preceding model and provider when that association exists. See the [prompt review guide](/docs/prompts/) for how to interpret those signals.
 
 ## Catalog and quotas
 
-Development builds after v0.6.0 also expose [Catalog and Quotas](/docs/catalog-and-quotas/). These views need a loopback listener without remote access enabled.
+The sidebar offers [Catalog and Quotas](/docs/catalog-and-quotas/) on a loopback listener without remote access. **Improvements** brings together recurring requests and enabled catalog entries with zero observed use so you can inspect the underlying evidence.

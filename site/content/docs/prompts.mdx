@@ -14,6 +14,7 @@ You can also open **Prompts** in the [dashboard](/docs/dashboard/#prompts), or p
 ## Read the review
 
 - **Recurring** groups matching flagged prompts found in at least two sessions. Check whether an instruction in `AGENTS.md` or `CLAUDE.md` would save you repeating the request.
+- **Prompt signals by model** compares flagged and total prompt counts by the preceding model and provider when that link is available. Treat the counts as signals and compare them with the number of prompts each model handled.
 - **By folder** helps you find where flagged prompts are concentrated.
 - **Flagged prompts** let you inspect the excerpt, source session, and signals behind an entry.
 
@@ -27,3 +28,5 @@ agent-stats prompts --all --since all --json
 ```
 
 The command defaults to seven days. Use `--since all` for the full index. JSON from this command can contain prompt excerpts, so review it before sharing.
+
+Use [agent-stats query prompts](/docs/cli/#agent-analysis) for analysis without prompt excerpts by default. Open a selected full prompt with `query prompt` only when its wording is needed.

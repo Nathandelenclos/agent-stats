@@ -12,7 +12,7 @@ agent-stats reads local session logs and reports requests, tokens, estimated cos
 3. Open a seven-day report across all projects.
 
 ```sh
-agent-stats --all --since 7d | more
+agent-stats --all --since 7d --plain
 ```
 
 The report starts with the scope and totals, followed by breakdowns by coding agent, model, project, and tool. [Read your first report](/docs/first-report/) explains what the numbers mean.
@@ -23,7 +23,8 @@ The report starts with the scope and totals, followed by breakdowns by coding ag
 | --- | --- | --- |
 | Interactive terminal | `agent-stats` | Browse usage, sessions, and flagged prompts without leaving the terminal |
 | Local dashboard | `agent-stats serve` | Inspect charts and sortable tables in your browser |
-| Text report | `agent-stats > usage.txt` | Read or save a report without an interactive session |
-| JSON | `agent-stats --all --json` | Feed your own scripts or reporting tools |
+| Text report | `agent-stats --plain` | Read or save a report without an interactive session |
+| JSON report | `agent-stats --all --json` | Feed your own scripts or reporting tools |
+| Agent analysis | `agent-stats query overview --since 7d` | [Follow statistics to specific requests and sessions](/docs/cli/#agent-analysis) |
 
 The [local dashboard](/docs/dashboard/) reads your local index. This public website uses sample data.

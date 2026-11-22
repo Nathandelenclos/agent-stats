@@ -8,7 +8,7 @@ description: Find missing requests, fix a dashboard build notice, or switch a bu
 Clear the coding agent filter, select all projects, and try a longer period.
 
 ```sh
-agent-stats --all --since 30d | more
+agent-stats --all --since 30d --plain
 ```
 
 Confirm your coding agent has written a [supported local log](/docs/coding-agents/). If you used `--no-sync`, remove it or choose **Re-index** in the dashboard.

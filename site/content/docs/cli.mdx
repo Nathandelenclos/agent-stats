@@ -7,11 +7,12 @@ description: Find report filters, output formats, server flags, and price overri
 agent-stats --help
 agent-stats serve --help
 agent-stats catalog --help
+agent-stats query --help
 ```
 
 ## Report
 
-`agent-stats` opens the interactive terminal when input and output are a terminal. Pipe or redirect output for a text report, or use `--json` to read it in a script.
+`agent-stats` opens the interactive terminal when input and output are a terminal. Use `--plain` to print the report as text, or `--json` to read it in a script.
 
 | Flag | Effect |
 | --- | --- |
@@ -22,7 +23,7 @@ agent-stats catalog --help
 | `--no-sync` | Read the existing index without re-reading session logs. |
 | `--db FILE` | Use a different index database. |
 | `--prices FILE` | Override model prices with a JSON file. |
-| `--plain` | Print the text report even in a terminal. Available in development builds after v0.6.0. |
+| `--plain` | Print the text report even in a terminal. |
 | `--json` | Print the report as JSON. |
 
 The text report gives the project scope in its first line. JSON follows the same scope without adding a project field. Empty report groups may be `null`. [See the JSON fields](https://github.com/Nathandelenclos/agent-stats#json-output).
@@ -34,7 +35,32 @@ The text report gives the project scope in its first line. JSON follows the same
 | `agent-stats serve` | Start the [local dashboard](/docs/dashboard/) and [JSON API](/docs/api/). |
 | `agent-stats prompts` | [Review flagged and recurring prompts](/docs/prompts/). Defaults to seven days. |
 | `agent-stats catalog` | [List installed items](/docs/catalog-and-quotas/#catalog) and recorded usage. |
-| `agent-stats quota record-claude` | [Record Claude Code quota windows](/docs/catalog-and-quotas/#account-quotas) from status-line JSON on stdin. Available in development builds after v0.6.0. |
+| `agent-stats query` | [Read indexed activity as JSON](#agent-analysis) for a script or coding agent. |
+| `agent-stats quota record-claude` | [Record Claude Code quota windows](/docs/catalog-and-quotas/#account-quotas) from status-line JSON on stdin. |
+
+## Agent analysis
+
+Use `agent-stats query` with a version newer than v0.8.0 or a current checkout. It reads the existing index directly and writes a single JSON object. Start with aggregates and keep the same period and project filters when you open supporting records.
+
+```sh
+agent-stats query overview --since 7d --all
+agent-stats query models --since 7d --all
+agent-stats query requests --since 7d --all --model example --provider provider-a --limit 25
+agent-stats query related-sessions --since 7d --all --kind tool --value read --server memory
+```
+
+| Dataset | Use |
+| --- | --- |
+| `overview`, `models`, `tools`, `tool-models` | Explain changes in cost, requests, caching, model timings, and tool activity. |
+| `sessions`, `session`, `related-sessions`, `requests`, `trace`, `errors` | Follow a change to the contributing calls, sessions, agents, or error signatures. |
+| `prompts`, `prompt-signals`, `prompt` | Inspect recurring requests, compare counts by model, or read a selected prompt. |
+| `catalog`, `quotas` | Compare installed capabilities with recorded usage and read stored quota observations. |
+
+The envelope includes `schemaVersion`, `dataset`, `scope`, `since`, and `data`. Scoped queries can include `project` and `harness`. The current project stays selected even if it has no results. Use `--project DIR` for a different project or `--all` to include every project. `quotas` is account-wide.
+
+Run `agent-stats query <dataset> --help` for dataset flags. Where supported, use `--limit` and `--offset` to page through results. Use `--excerpts` on `session` or `prompts` to include prompt previews. To read one prompt, pass its session ID, position, and revision to `query prompt`.
+
+Use the [agent-stats-analysis skill](https://github.com/Nathandelenclos/agent-stats/blob/main/.agents/skills/agent-stats-analysis/SKILL.md) with a coding agent. For example, ask it to explain a cost increase by checking request volume, model mix, and cache usage, then cite the sessions or calls that substantiate the answer. Estimated costs, missing timings, and dated quota readings should be labeled as such.
 
 ## Dashboard
 

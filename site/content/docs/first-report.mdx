@@ -6,7 +6,7 @@ description: Read seven days of usage and drill into a coding agent or project.
 After a session with a [supported coding agent](/docs/coding-agents/), run:
 
 ```sh
-agent-stats --all --since 7d | more
+agent-stats --all --since 7d --plain
 ```
 
 The first run indexes local logs. Later runs read only files that changed. Start with the totals, then compare the breakdowns by coding agent, model, project folder, and tool.
@@ -20,8 +20,8 @@ The first run indexes local logs. Later runs read only files that changed. Start
 ## Narrow the scope
 
 ```sh
-agent-stats --all --since 24h --harness codex | more
-agent-stats --project ~/work/app --since 30d | more
+agent-stats --all --since 24h --harness codex --plain
+agent-stats --project ~/work/app --since 30d --plain
 agent-stats --all --since 7d --json
 ```
 
