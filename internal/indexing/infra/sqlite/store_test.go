@@ -238,6 +238,21 @@ func TestNestedSubagentsAreListedUnderTheTopSession(t *testing.T) {
 	}
 }
 
+func TestAForkedConversationIsListedOnItsOwn(t *testing.T) {
+	// Given a main conversation forked from another one (not a subagent of it)
+	s := open(t)
+	at := time.UnixMilli(1767261600000)
+	fork := transcript(t, "fork", at)
+	fork.Session.ParentID, _ = domain.NewSessionID(kernel.Claude, "origin")
+	saveAll(t, s, map[string]application.IndexedTranscript{"/logs/origin.jsonl": transcript(t, "origin", at), "/logs/fork.jsonl": fork})
+
+	// When the sessions are listed, then each stands for itself
+	listed := listedUnder(t, s)
+	if listed["claude:fork"] != "claude:fork" || listed["claude:origin"] != "claude:origin" {
+		t.Errorf("listed under = %v", listed)
+	}
+}
+
 func TestPromptsKeepTheOrderTheyWereTypedInAndTheirSignals(t *testing.T) {
 	// Given a session whose prompts were typed in a different order than their keys sort
 	s := open(t)

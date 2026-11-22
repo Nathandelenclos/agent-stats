@@ -60,15 +60,16 @@ CREATE VIEW IF NOT EXISTS usage_tool_calls AS
 	SELECT t.ts, t.name, t.server, t.args_chars, t.result_chars, t.is_error, t.duration_ms, s.harness
 	FROM tool_calls t JOIN sessions s ON s.id = t.session_id;
 -- Session views. root_id is the session a listing shows: the session itself, or the top session whose chain of
--- subagents it belongs to. A subagent whose parent log was never indexed (or was deleted) is its own root.
+-- subagents it belongs to. A subagent whose parent log was never indexed (or was deleted) is its own root, and so
+-- is a main conversation forked from another one: only subagents roll up into their parent.
 DROP VIEW IF EXISTS session_requests;
 DROP VIEW IF EXISTS session_tool_calls;
 DROP VIEW IF EXISTS session_overview;
 CREATE VIEW session_overview AS
 	WITH RECURSIVE tree(id, root_id, depth) AS (
-		SELECT s.id, s.id, 0 FROM sessions s WHERE NOT EXISTS (SELECT 1 FROM sessions p WHERE p.id = s.parent_id)
+		SELECT s.id, s.id, 0 FROM sessions s WHERE s.agent_type = 'main' OR NOT EXISTS (SELECT 1 FROM sessions p WHERE p.id = s.parent_id)
 		UNION ALL
-		SELECT c.id, t.root_id, t.depth + 1 FROM tree t JOIN sessions c ON c.parent_id = t.id WHERE t.depth < 32
+		SELECT c.id, t.root_id, t.depth + 1 FROM tree t JOIN sessions c ON c.parent_id = t.id AND c.agent_type <> 'main' WHERE t.depth < 32
 	)
 	SELECT s.id, t.root_id, s.harness, s.agent_type, s.title, s.folder, s.started_at, s.ended_at
 	FROM tree t JOIN sessions s ON s.id = t.id;
