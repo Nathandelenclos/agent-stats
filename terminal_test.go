@@ -46,8 +46,8 @@ func onATerminal(t *testing.T, noStdin bool, args ...string) *session {
 	}
 	s := &session{done: make(chan error, 1)}
 	s.cmd = exec.Command(script, append([]string{"-q", "/dev/null", "sh", "-c", run, bin}, args...)...)
-	for _, kv := range os.Environ() { // CI would switch the colours off, TERM must allow them
-		if !strings.HasPrefix(kv, "CI=") && !strings.HasPrefix(kv, "TERM=") {
+	for _, kv := range os.Environ() { // CI, NO_COLOR and CLICOLOR* would switch the colours off, TERM must allow them
+		if !hasAnyPrefix(kv, "CI=", "TERM=", "NO_COLOR=", "CLICOLOR=", "CLICOLOR_FORCE=") {
 			s.cmd.Env = append(s.cmd.Env, kv)
 		}
 	}
@@ -174,4 +174,13 @@ func TestInterfaceHighlightsTheActiveTab(t *testing.T) {
 	// Then the active tab is highlighted: the colour detection the program switched off while loading is back
 	s.waitFor(t, activeTabHighlight, 2*time.Second)
 	s.quit(t)
+}
+
+func hasAnyPrefix(s string, prefixes ...string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
 }
