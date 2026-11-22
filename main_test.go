@@ -128,3 +128,19 @@ func TestParseSince(t *testing.T) {
 		}
 	}
 }
+
+func TestInteractiveOnlyOnATerminalWithoutJSON(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+	// Given a pipe on both ends (not a terminal), when no flag is set, then the plain report is kept.
+	if interactive(false, r, w) {
+		t.Error("a pipe was taken for a terminal")
+	}
+	if interactive(true, r, w) {
+		t.Error("--json opened the interface")
+	}
+}

@@ -20,6 +20,7 @@ import (
 	"github.com/Nathandelenclos/agent-stats/internal/pricing/infra/pricetable"
 	reporting "github.com/Nathandelenclos/agent-stats/internal/reporting/application"
 	usagedb "github.com/Nathandelenclos/agent-stats/internal/reporting/infra/sqlite"
+	"github.com/Nathandelenclos/agent-stats/internal/reporting/infra/tui"
 )
 
 func main() {
@@ -93,7 +94,11 @@ func run() error {
 		return err
 	}
 	defer usage.Close()
-	rep, err := reporting.BuildReport{Queries: usage}.Run(reporting.Query{Since: from, Harness: only})
+	query := reporting.Query{Since: from, Harness: only}
+	if interactive(*asJSON, os.Stdin, os.Stdout) {
+		return tui.Run(tui.Options{Reports: reporting.BuildReport{Queries: usage}, Query: query})
+	}
+	rep, err := reporting.BuildReport{Queries: usage}.Run(query)
 	if err != nil {
 		return err
 	}
