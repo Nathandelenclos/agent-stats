@@ -53,7 +53,28 @@ agent-stats --since 7d               # last 7 days (also 24h, 30d, or a date: 20
 agent-stats --harness codex          # one harness: claude, codex, omp or pi
 agent-stats --harness claude --json  # machine-readable report
 agent-stats --no-sync                # report from the existing index, skip re-reading the logs
+agent-stats --all                    # every project, even from inside one
+agent-stats --project ~/work/app     # one project, from anywhere
 ```
+
+### Project scope
+
+Run from a project, `agent-stats` reports on that project only: the report, the interactive view (usage and sessions)
+and `agent-stats catalog`. The project is the top-level folder of the Git repository the current folder is in (found by
+looking for `.git` upwards, no `git` process is run), or the current folder itself when it is in no repository. Links are
+resolved, so a project reached through a link is the same project. A linked Git worktree is a project of its own.
+
+- The project is used when an indexed session worked in its folder or below it. Otherwise the report covers every
+  project, as before. The home folder is never a project, since every other project lies below it.
+- `--all` forces every project. `--project DIR` forces the project at `DIR`, whether or not sessions worked there.
+  The two exclude each other.
+- A session belongs to a project when its working folder is the project's folder or lies below it. Folders are compared
+  element by element, so `/work/app-2` is not in `/work/app`. A session with no folder, or a folder that is not an
+  absolute path, belongs to no project and shows only in the view of every project.
+- The plain-text report states the scope on its first line (`Project: app (/work/app)` or `All projects`). The interactive
+  view puts it in the title (`project: app` or `all projects`), and `a` switches between the project and every project.
+- `--json` keeps its format, and has no field for the scope: its content is the project's when one applies, and the
+  scope is then written on stderr (`Project: app (/work/app)`). Pass `--all` for scripts that expect every project.
 
 `m` switches between the **Usage** report and the **Sessions** view; the title shows which one is open (`[Usage] Sessions` or `Usage [Sessions]`).
 Sessions lists one row per session (a subagent whose parent log was not indexed, or a conversation forked from another, has its own row): title, cost,
@@ -66,12 +87,14 @@ The period and harness filters apply as in Usage: a session is listed when its l
 `Enter` opens the selected session: its requests by model, the tools it called, its subagents, and its prompts in order, each with the frustration signals
 found in it (yelling, profanity, anguish, negation, blame, repeated). Prompt text is shown cut to a line, with control characters replaced.
 `↑↓`, `PgUp`/`PgDn`, `Home`/`End` scroll, `Esc` goes back to the list.
-The sessions are not part of `--json` or the plain-text report.
+The sessions are not part of `--json` or the plain-text report. Both modes follow the project scope.
 
 | Flag | Meaning |
 |------|---------|
 | `--since` | Only count activity after this point: `24h`, `7d` (days), any Go duration, or a `2006-01-02` date. |
 | `--harness` | Restrict the report to `claude`, `codex`, `omp` or `pi`. |
+| `--all` | Count every project, not only the one of the current folder, see [Project scope](#project-scope). |
+| `--project DIR` | Count only the project at `DIR` (folder or below), see [Project scope](#project-scope). |
 | `--json` | Print the report as JSON instead of tables. |
 | `--no-sync` | Skip the indexing step and read the index as it is. |
 | `--prices file.json` | Override or add model prices, see [Pricing](#pricing). |
@@ -79,7 +102,7 @@ The sessions are not part of `--json` or the plain-text report.
 
 On a terminal, `agent-stats` opens an interactive view: `tab`/`←→` or `1`–`5` switch between harness, model,
 folder, agent and tools tables, `↑↓` scroll, `s` sorts by the next column and `o` reverses it, `p` cycles the period
-(24h, 7d, 30d, all), `h` cycles the harness, `r` indexes the logs again and `q` quits. With `--json`, or when the
+(24h, 7d, 30d, all), `h` cycles the harness, `a` switches between the project and every project, `r` indexes the logs again and `q` quits. With `--json`, or when the
 output is redirected, it prints the plain report described below instead.
 
 The report has a one-line total (requests, failures, cost, tokens in and out, cache rate, date range), then one table
@@ -122,9 +145,15 @@ absent or `null` list as empty.
 ./agent-stats catalog --harness claude --since 30d --json
 ```
 
-It takes `--harness`, `--since`, `--db`, `--no-sync`, `--prices` and `--json` as the report does (the report and its
-`--json` output are unchanged), plus `--project DIR` (default: the current folder) for project-level configuration.
-Like the report, it indexes new logs first unless you pass `--no-sync`.
+It takes `--harness`, `--since`, `--db`, `--no-sync`, `--prices`, `--all` and `--json` as the report does (the `--json`
+output keeps its format), plus `--project DIR` for the project. Like the report, it indexes new logs first unless you pass
+`--no-sync`.
+
+The project is that of the current folder (see [Project scope](#project-scope)) unless `--project DIR` names another. It
+does two things: its project-level configuration is read, and usage is counted from its sessions only, when sessions
+worked in it. With `--all` the usage of every project is counted, and the project-level configuration is still read.
+`--project ""` reads no project-level configuration and counts every project. The first line of the text output says
+what the usage covers.
 
 | Harness     | Installed items read                                                                                              |
 |-------------|--------------------------------------------------------------------------------------------------------------------|
@@ -134,7 +163,8 @@ Like the report, it indexes new logs first unless you pass `--no-sync`.
 | pi          | skills (`~/.pi/agent/skills`, `~/.agents/skills`), packages of `~/.pi/agent/settings.json`                           |
 
 The per-project MCP servers of `~/.claude.json` are listed for every project it names, not only for `--project`.
-Project-level files (`.claude/`, `.agents/skills`, `.codex/`, `.omp/`, `.pi/`, `.mcp.json`) are read under `--project`.
+Project-level files (`.claude/`, `.agents/skills`, `.codex/`, `.omp/`, `.pi/`, `.mcp.json`) are read in the project's folder.
+Instruction files such as `AGENTS.md` are not catalogued: they are not skills, agents, MCP servers or plugins.
 `CLAUDE_CONFIG_DIR` and `CODEX_HOME` are honoured.
 
 Scope is `user`, `project`, `plugin:<name>` (carried by an enabled plugin) or `logs` (seen in the logs, defined in no
@@ -241,7 +271,12 @@ The code is split in vertical slices, each in clean-architecture layers where de
 | `internal/catalog` | What harnesses have installed (`infra/configfiles`) linked to the usage read from the index's published `usage_*` views (`infra/sqlite`); `agent-stats catalog`. |
 | `internal/pricing` | Rates and price list; `infra/pricetable` loads the embedded LiteLLM table and the `--prices` override. |
 | `internal/kernel` | What every slice shares: harnesses, token counts, request cost. No I/O. |
-| `internal/platform` | Small technical helpers (safe file opening). |
+| `internal/platform` | Small technical helpers: safe file opening, and `projectscope` (the project of a folder, and narrowing the index's views to a project). |
+
+Both `usage_requests` and `usage_tool_calls` carry the working `folder` of their session, and `usage_folders` lists each
+folder a session worked in. A project is a folder: the adapters read that list, resolve each folder (links, `..`), keep the
+ones inside the project, and pass them to the query as one bound parameter, so a folder written by a log never reaches SQL
+as text.
 
 The skill column of `usage_tool_calls` is part of that contract. On a `Skill` call it holds the skill loaded, `''` when the
 call named no valid skill, and `NULL` while the index has not read the log again since it records skills. Every other call
