@@ -78,7 +78,8 @@ How it works (`release.yml`, `tools/releasenotes`):
 - The `plan` job writes the git-cliff notes. The `release-notes` job, which can only read, builds `tools/releasenotes`,
   asks the API for the summary and composes the release body (summary above the notes). Only that job receives the key,
   only in the environment of the one step that calls the API. The job that tags, signs and publishes never sees the key
-  and compiles nothing of `tools/`: it publishes the body it downloads, or the git-cliff notes if there is none.
+  and compiles nothing of `tools/`: it publishes the body it downloads if that body is the git-cliff notes, byte for byte,
+  under a `## Summary` of at most 6 000 bytes, and the git-cliff notes alone otherwise.
 - The API receives the subject lines of the notes (group titles and `- ` items, at most 6 000 bytes, angle brackets and
   control characters removed) and fixed instructions. No code, no file, no diff. One call to the Responses API
   (`store: false`, `max_output_tokens: 800`, 30 s timeout), plus one retry on a network error, a 429 or a 5xx.

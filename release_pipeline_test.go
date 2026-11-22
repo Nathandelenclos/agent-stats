@@ -2,6 +2,8 @@ package main
 
 import (
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -229,8 +231,9 @@ func TestThePlanJobOnlyReads(t *testing.T) {
 }
 
 func TestThePublishingJobBuildsAndRunsNothingOfTools(t *testing.T) {
-	if release := jobWithoutComments(t, "release"); strings.Contains(release, "tools/") || strings.Contains(release, "releasenotes") {
-		t.Error("the job that can write and sign compiles or runs the release notes tool")
+	release := jobWithoutComments(t, "release")
+	if strings.Contains(release, "tools/") || strings.Contains(release, "releasenotes") || regexp.MustCompile(`\bgo (run|build|generate|install|test|vet)\b`).MatchString(release) {
+		t.Error("the job that can write and sign compiles or runs Go code of the repository")
 	}
 }
 
@@ -240,28 +243,157 @@ func TestAFailureOfTheSummaryJobDoesNotStopTheRelease(t *testing.T) {
 	}
 }
 
-// release.yml has no expression evaluator in its tests, so the condition is pinned by what it must and must not contain.
+// condition returns the `if` of the publishing job, without the ${{ }} around it.
 func publishCondition(t *testing.T) string {
 	t.Helper()
 	m := regexp.MustCompile(`(?m)^    if: (.*)$`).FindStringSubmatch(jobWithoutComments(t, "release"))
 	if m == nil {
 		t.Fatal("the release job has no if")
 	}
-	return m[1]
+	return strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(m[1]), "${{"), "}}"))
 }
 
-func TestThePublishingJobDoesNotAskForTheSummaryJobToSucceed(t *testing.T) {
-	if cond := publishCondition(t); strings.Contains(cond, "release-notes") || !strings.Contains(cond, "!cancelled()") {
-		t.Errorf("the release condition depends on release-notes, or no longer lifts the implicit success: %s", cond)
+// runs evaluates the condition for the results of the jobs it needs. It only understands what the condition is made of
+// today: `&&`, `!cancelled()` and comparisons of needs.<job>.result or needs.plan.outputs.release with a string. A term it
+// does not know (an `||`, `always()`…) fails the test: a new shape of condition must be read again, not waved through.
+func runs(t *testing.T, cond string, front, plan, notes, release string) bool {
+	t.Helper()
+	values := map[string]string{
+		"needs.front.result":         front,
+		"needs.plan.result":          plan,
+		"needs.release-notes.result": notes,
+		"needs.plan.outputs.release": release,
+	}
+	for _, term := range strings.Split(cond, "&&") {
+		term = strings.TrimSpace(term)
+		if term == "!cancelled()" {
+			continue
+		}
+		m := regexp.MustCompile(`^(needs\.[a-z.-]+) == '([a-z]*)'$`).FindStringSubmatch(term)
+		if m == nil {
+			t.Fatalf("the release condition has a term this test does not evaluate: %q", term)
+		}
+		if got, known := values[m[1]]; !known {
+			t.Fatalf("the release condition reads %s, which this test does not provide", m[1])
+		} else if got != m[2] {
+			return false
+		}
+	}
+	return true
+}
+
+var jobResults = []string{"success", "failure", "skipped", "cancelled"}
+
+func TestThePublishingJobRunsWhateverTheSummaryJobDid(t *testing.T) {
+	cond := publishCondition(t)
+	for _, notes := range jobResults {
+		if !runs(t, cond, "success", "success", notes, "true") {
+			t.Errorf("the release does not run when the release-notes job ended %s", notes)
+		}
 	}
 }
 
-func TestThePublishingJobStillRequiresTheFrontAndAReleaseToMake(t *testing.T) {
+func TestThePublishingJobDoesNotRunWithoutTheFrontOrThePlan(t *testing.T) {
 	cond := publishCondition(t)
-	for _, want := range []string{"needs.front.result == 'success'", "needs.plan.result == 'success'", "needs.plan.outputs.release == 'true'"} {
-		if !strings.Contains(cond, want) {
-			t.Errorf("the release condition lacks %s: %s", want, cond)
+	for _, result := range jobResults[1:] {
+		if runs(t, cond, result, "success", "success", "true") {
+			t.Errorf("the release runs when the front job ended %s", result)
 		}
+		if runs(t, cond, "success", result, "success", "true") {
+			t.Errorf("the release runs when the plan job ended %s", result)
+		}
+	}
+}
+
+func TestThePublishingJobDoesNotRunWhenThereIsNothingToRelease(t *testing.T) {
+	cond := publishCondition(t)
+	for _, release := range []string{"false", ""} {
+		if runs(t, cond, "success", "success", "success", release) {
+			t.Errorf("the release runs when the plan says release=%q", release)
+		}
+	}
+}
+
+// chooseBody runs the "Choose the release body" step of the publishing job, as written in release.yml, in a temporary
+// RUNNER_TEMP that holds the notes and, when given, the body the release-notes job handed over. It returns the file
+// the step chose.
+func chooseBody(t *testing.T, notes string, body *string) (chosen string, notesPath, bodyPath string) {
+	t.Helper()
+	step := stepsMentioning(t, jobWithoutComments(t, "release"), "name: Choose the release body")
+	if len(step) != 1 {
+		t.Fatalf("%d steps choose the release body", len(step))
+	}
+	_, script, _ := strings.Cut(step[0], "run: |\n")
+	var lines []string
+	for _, line := range strings.Split(script, "\n") {
+		lines = append(lines, strings.TrimPrefix(line, "          "))
+	}
+	temp := t.TempDir()
+	notesPath, bodyPath = filepath.Join(temp, "notes", "notes.md"), filepath.Join(temp, "body", "body.md")
+	for path, content := range map[string]*string{notesPath: &notes, bodyPath: body} {
+		if content == nil {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(*content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	output := filepath.Join(temp, "github_output")
+	cmd := exec.Command("bash", "-c", strings.Join(lines, "\n"))
+	cmd.Env = append(os.Environ(), "RUNNER_TEMP="+temp, "GITHUB_OUTPUT="+output)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("the step failed: %v\n%s", err, out)
+	}
+	raw, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(strings.TrimPrefix(string(raw), "path=")), notesPath, bodyPath
+}
+
+const sampleNotes = "### Features\n\n- **cli**: Add the catalog subcommand (a1b2c3d)\n"
+
+func TestTheBodyOfTheSummaryJobIsPublishedWhenItIsTheNotesUnderASummary(t *testing.T) {
+	body := "## Summary\n\nA new catalog command.\n\n" + sampleNotes
+	if chosen, _, bodyPath := chooseBody(t, sampleNotes, &body); chosen != bodyPath {
+		t.Errorf("chose %s, want the body %s", chosen, bodyPath)
+	}
+}
+
+func TestTheNotesAloneArePublishedWhenThereIsNoBody(t *testing.T) {
+	if chosen, notesPath, _ := chooseBody(t, sampleNotes, nil); chosen != notesPath {
+		t.Errorf("chose %s, want the notes %s", chosen, notesPath)
+	}
+}
+
+func TestTheNotesAloneArePublishedWhenTheBodyIsEmpty(t *testing.T) {
+	empty := ""
+	if chosen, notesPath, _ := chooseBody(t, sampleNotes, &empty); chosen != notesPath {
+		t.Errorf("chose %s, want the notes %s", chosen, notesPath)
+	}
+}
+
+func TestTheNotesAloneArePublishedWhenTheBodyChangedThem(t *testing.T) {
+	body := "## Summary\n\nA new catalog command.\n\n### Features\n\n- **cli**: Something else (a1b2c3d)\n"
+	if chosen, notesPath, _ := chooseBody(t, sampleNotes, &body); chosen != notesPath {
+		t.Errorf("chose %s, want the notes %s", chosen, notesPath)
+	}
+}
+
+func TestTheNotesAloneArePublishedWhenTheBodyHasNoSummaryHeading(t *testing.T) {
+	body := "Click here to update.\n\n" + sampleNotes
+	if chosen, notesPath, _ := chooseBody(t, sampleNotes, &body); chosen != notesPath {
+		t.Errorf("chose %s, want the notes %s", chosen, notesPath)
+	}
+}
+
+func TestTheNotesAloneArePublishedWhenTheSummaryIsFarTooLong(t *testing.T) {
+	body := "## Summary\n\n" + strings.Repeat("a", 7000) + "\n\n" + sampleNotes
+	if chosen, notesPath, _ := chooseBody(t, sampleNotes, &body); chosen != notesPath {
+		t.Errorf("chose %s, want the notes %s", chosen, notesPath)
 	}
 }
 

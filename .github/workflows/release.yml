@@ -361,13 +361,24 @@ jobs:
         with:
           name: release-body
           path: ${{ runner.temp }}/body
+      # The body comes from a job that holds the key, so it is not taken as it is: it must be the git-cliff notes, byte for
+      # byte, under a "## Summary" heading and a summary of at most 1 500 characters (6 000 bytes). Anything else, or no
+      # body, and the notes alone are published. The text of the summary itself was checked by that job (tools/releasenotes).
       - name: Choose the release body
         id: body
         run: |
           set -euo pipefail
+          notes="$RUNNER_TEMP/notes/notes.md"
           body="$RUNNER_TEMP/body/body.md"
-          [ -s "$body" ] || body="$RUNNER_TEMP/notes/notes.md"
-          echo "path=$body" >> "$GITHUB_OUTPUT"
+          notes_size=$(wc -c < "$notes")
+          if [ -s "$body" ] \
+            && [ "$(wc -c < "$body")" -le $((notes_size + 6200)) ] \
+            && head -c 12 "$body" | cmp -s - <(printf '## Summary\n\n') \
+            && tail -c "$notes_size" "$body" | cmp -s - "$notes"; then
+            echo "path=$body" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=$notes" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Create the tag
         if: needs.plan.outputs.create_tag == 'true'
