@@ -696,3 +696,28 @@ func TestResizingKeepsTheSelectedRow(t *testing.T) {
 		t.Errorf("cursor = %d after resizing, want 2", c)
 	}
 }
+
+func TestTitleDescribesTheDataShownWhenAReloadFails(t *testing.T) {
+	// Given the report of every harness on screen
+	m := start(t, &fakeReports{report: sampleReport()})
+
+	// When the user filters on claude and the reload fails
+	m, _ = pressCmd(t, m, "h")
+	m = send(t, m, reportMsg{seq: m.seq, err: errors.New("database is locked")})
+
+	// Then the old figures stay with the filters that produced them, and the error is shown
+	view := m.View()
+	if !strings.Contains(view, "harness: all") || strings.Contains(view, "harness: claude") || !strings.Contains(view, "error: database is locked") {
+		t.Errorf("title does not match the data:\n%s", view)
+	}
+}
+
+func TestTitleFollowsTheFiltersOnceTheirReportArrives(t *testing.T) {
+	reports := &fakeReports{report: sampleReport()}
+	m := start(t, reports)
+	m, cmd := pressCmd(t, m, "h")
+	m = answer(t, m, cmd)
+	if view := m.View(); !strings.Contains(view, "harness: claude") {
+		t.Errorf("title lacks the new filter:\n%s", view)
+	}
+}

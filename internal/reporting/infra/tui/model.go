@@ -60,9 +60,10 @@ var harnessChoices = append([]kernel.Harness{{}}, kernel.Harnesses...)
 
 // reportMsg carries the result of a report request; seq tells which request it answers.
 type reportMsg struct {
-	seq    int
-	report reporting.Report
-	err    error
+	seq             int
+	period, harness int // the filters the report was asked for
+	report          reporting.Report
+	err             error
 }
 
 // syncProgressMsg reports files indexed so far; events is the stream to keep listening to.
@@ -85,8 +86,9 @@ type Model struct {
 
 	periods []period // the presets, led by a custom period when the command line asked for one
 	period  int
-	harness int // index in harnessChoices
-	seq     int // the latest report request; older answers are ignored
+	harness int                           // index in harnessChoices
+	shown   struct{ period, harness int } // the filters of the report on screen: the title names these, not the pending choice
+	seq     int                           // the latest report request; older answers are ignored
 	pending bool
 
 	syncing  bool
@@ -127,6 +129,7 @@ func New(o Options) Model {
 			m.harness = i
 		}
 	}
+	m.shown.period, m.shown.harness = m.period, m.harness // nothing on screen yet: the title names the first request
 	for i := range m.sorts {
 		m.sorts[i] = reportOrder
 	}
@@ -166,10 +169,10 @@ func (m Model) query() reporting.Query {
 
 // load asks the use case for the report of the current filters, off the UI loop.
 func (m Model) load() tea.Cmd {
-	reports, q, seq := m.reports, m.query(), m.seq
+	reports, q, seq, period, harness := m.reports, m.query(), m.seq, m.period, m.harness
 	return func() tea.Msg {
 		r, err := reports.Run(q)
-		return reportMsg{seq, r, err}
+		return reportMsg{seq, period, harness, r, err}
 	}
 }
 
@@ -195,6 +198,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		if msg.err == nil {
 			m.report, m.loaded = msg.report, true
+			m.shown.period, m.shown.harness = msg.period, msg.harness
 		}
 		m.layout()
 		return m, nil
@@ -362,10 +366,10 @@ func (m Model) View() string {
 // titleBar names the program and the filters that apply to the report.
 func (m Model) titleBar() string {
 	harness := "all"
-	if h := harnessChoices[m.harness]; !h.IsZero() {
+	if h := harnessChoices[m.shown.harness]; !h.IsZero() {
 		harness = h.String()
 	}
-	bar := titleStyle.Render("agent-stats") + faintStyle.Render(fmt.Sprintf("  period: %s · harness: %s", m.periods[m.period].label, harness))
+	bar := titleStyle.Render("agent-stats") + faintStyle.Render(fmt.Sprintf("  period: %s · harness: %s", m.periods[m.shown.period].label, harness))
 	if m.syncing {
 		bar += "  " + m.spinner.View() + " indexing…"
 		if m.indexed > 0 {
