@@ -107,6 +107,22 @@ test("the homepage identifies the MIT-licensed source and the guides describe th
   }
 });
 
+test("the homepage declares its site name and a published favicon", async () => {
+  const home = await readPage("/");
+  const website = structuredData(home).find((item) => item["@type"] === "WebSite");
+  assert.deepEqual(website, {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "agent-stats",
+    url: `${siteUrl}/`,
+  });
+
+  const icon = home.match(/<link rel="icon" href="(\/favicon\.ico)(?:\?[^"]*)?"/)?.[1];
+  assert.equal(icon, "/favicon.ico");
+  const bytes = await readFile(new URL(icon.slice(1), output));
+  assert.equal(bytes.toString("hex", 0, 4), "00000100");
+});
+
 test("the homepage and guides have share previews with an exported image", async () => {
   const imagePath = "/social-preview.png";
   const image = await readFile(new URL(imagePath.slice(1), output));
