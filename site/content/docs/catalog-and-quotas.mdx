@@ -20,11 +20,32 @@ Open **Quotas** in the local dashboard, or press `l` in the terminal and `r` to 
 
 - **Codex** uses the installed app-server and its current login when you open or refresh the view.
 - **Claude Code** needs the standard status-line JSON on stdin. Forward it from your existing status-line script to `agent-stats quota record-claude` while keeping the script's current display. The snapshot is available for up to 15 minutes.
+- **Antigravity CLI** reads the latest snapshot from its [status line](#antigravity-cli-setup).
 - **GitHub Copilot** reads monthly account limits from the installed Copilot CLI via its existing sign-in. The RPC was verified on CLI 1.0.83.
 - **Grok Build** uses the installed CLI's ACP billing extension to read the signed-in account's included usage window.
 - **OpenCode Go** reads the 5-hour, weekly and monthly limits from a local OpenCode server with the experimental usage API, verified against v2.2.2 source. Set `AGENT_STATS_OPENCODE_URL` to the running server's numeric loopback origin, such as `http://127.0.0.1:4096`. The endpoint must be readable without additional HTTP credentials.
 
 Account quotas are independent of project, period, and coding agent filters. The web Catalog and Quotas are available on a loopback server without `--allow-remote`.
+
+### Antigravity CLI setup
+
+Add this `statusLine` entry to `~/.gemini/antigravity-cli/settings.json`. Use the full path to `agent-stats`
+if the CLI cannot find it on your PATH.
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "agent-stats quota record-antigravity",
+    "stack_with_default": true
+  }
+}
+```
+
+If you already use a custom status line, forward its JSON input to the same command from your existing script.
+Run `/usage` in Antigravity CLI to refresh the provider data. Agent Stats shows enabled quota buckets with a
+remaining percentage and a future reset time. A snapshot expires after 15 minutes and each bucket disappears
+when its reset time passes. This integration uses the [CLI quota payload](https://antigravity.google/docs/cli/statusline/).
 
 ### Quota history
 

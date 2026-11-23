@@ -5,14 +5,10 @@ import (
 	"errors"
 	"io"
 	"os"
-	"path/filepath"
 	"time"
 )
 
-const (
-	maxStatusInput = 512 << 10
-	claudeMaxAge   = 15 * time.Minute
-)
+const claudeMaxAge = 15 * time.Minute
 
 type claudeLimit struct {
 	Used  *float64 `json:"used_percentage"`
@@ -56,23 +52,7 @@ func RecordClaudeStatus(r io.Reader, path string, now time.Time) error {
 	if len(windows) == 0 {
 		return nil
 	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(dir, ".claude-quota-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	if err := json.NewEncoder(f).Encode(windows); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(f.Name(), path)
+	return writeQuotaSnapshot(path, windows)
 }
 
 func ReadClaude(path string, now time.Time) []Window {

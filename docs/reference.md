@@ -404,6 +404,10 @@ already have a status line, forward its input to this command from that script a
 display. The command stores the observed 5-hour and 7-day figures locally for up to 15 minutes, and
 discards windows once they reset. The rest of the status-line payload stays out of the cache.
 
+Antigravity CLI can send its [status-line JSON](https://antigravity.google/docs/cli/statusline/) to
+`agent-stats quota record-antigravity`. See [Antigravity CLI setup](https://agent-stats.delenclosnathan.fr/docs/catalog-and-quotas/#antigravity-cli-setup).
+The cache holds the last observed percentages and reset times for up to 15 minutes, or until each window resets.
+
 GitHub Copilot and Grok Build read the account of the installed CLI using its existing sign-in.
 The Copilot RPC was verified on CLI 1.0.83. Grok Build uses its ACP billing extension and returns
 the account's included usage window. Copilot's per-session caps and Grok's purchased credit balance

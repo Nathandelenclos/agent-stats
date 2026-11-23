@@ -84,12 +84,13 @@ func Run(analysisSkill string) error {
 	if len(os.Args) > 1 && os.Args[1] == "prices" {
 		return runPrices(os.Args[2:])
 	}
-	if len(os.Args) == 3 && os.Args[1] == "quota" && os.Args[2] == "record-claude" {
-		path := quotaFile()
-		if path == "" {
-			return fmt.Errorf("no user cache directory for Claude quota")
+	if len(os.Args) == 3 && os.Args[1] == "quota" {
+		switch os.Args[2] {
+		case "record-claude":
+			return recordQuotaStatus("Claude", claudeQuotaFile, quota.RecordClaudeStatus)
+		case "record-antigravity":
+			return recordQuotaStatus("Antigravity", antigravityQuotaFile, quota.RecordAntigravityStatus)
 		}
-		return quota.RecordClaudeStatus(os.Stdin, path, time.Now())
 	}
 	if len(os.Args) > 1 && os.Args[1] == "catalog" {
 		return runCatalog(os.Args[2:], os.Stdout, os.Stderr)
