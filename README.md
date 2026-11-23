@@ -86,7 +86,7 @@ The catalog joins installed MCP servers, skills, agents, and plugins with the ac
 
 ## Supported harnesses
 
-Claude Code, Codex, Cursor IDE, GitHub Copilot CLI, Gemini CLI, OpenCode, Kilo Code, Zed Agent, Grok Build CLI, Goose, VS Code Chat, Cline, Continue CLI, pi, and oh-my-pi.
+Claude Code, Codex, Cursor IDE, GitHub Copilot CLI, Google Antigravity, Gemini CLI, OpenCode, Kilo Code, Zed Agent, Grok Build CLI, Goose, VS Code Chat, Cline, Continue CLI, pi, and oh-my-pi.
 
 See [log locations and metrics by agent](docs/reference.md#supported-harnesses).
 

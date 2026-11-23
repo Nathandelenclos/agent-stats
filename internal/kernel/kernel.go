@@ -22,17 +22,18 @@ var (
 	OMP    = Harness{"omp"}
 	Pi     = Harness{"pi"}
 	// OpenCode and Kilo Code share one storage format, a SQLite database of sessions.
-	OpenCode   = Harness{"opencode"}
-	Kilo       = Harness{"kilo"}
-	Gemini     = Harness{"gemini"}
-	Copilot    = Harness{"copilot"}
-	Zed        = Harness{"zed"}
-	Grok       = Harness{"grok"}
-	Cursor     = Harness{"cursor"}
-	Goose      = Harness{"goose"}
-	VSCodeChat = Harness{"vscode-chat"}
-	Cline      = Harness{"cline"}
-	Continue   = Harness{"continue"}
+	OpenCode    = Harness{"opencode"}
+	Kilo        = Harness{"kilo"}
+	Gemini      = Harness{"gemini"}
+	Copilot     = Harness{"copilot"}
+	Zed         = Harness{"zed"}
+	Grok        = Harness{"grok"}
+	Cursor      = Harness{"cursor"}
+	Goose       = Harness{"goose"}
+	VSCodeChat  = Harness{"vscode-chat"}
+	Cline       = Harness{"cline"}
+	Continue    = Harness{"continue"}
+	Antigravity = Harness{"antigravity"}
 )
 
 // String returns the harness name.
@@ -42,7 +43,7 @@ func (h Harness) String() string { return h.name }
 func (h Harness) IsZero() bool { return h.name == "" }
 
 // Harnesses lists every supported harness.
-var Harnesses = []Harness{Claude, Codex, OMP, Pi, OpenCode, Kilo, Gemini, Copilot, Zed, Grok, Cursor, Goose, VSCodeChat, Cline, Continue}
+var Harnesses = []Harness{Claude, Codex, OMP, Pi, OpenCode, Kilo, Gemini, Copilot, Zed, Grok, Cursor, Goose, VSCodeChat, Cline, Continue, Antigravity}
 
 // HarnessNames lists the accepted names in their presentation order.
 func HarnessNames() []string {

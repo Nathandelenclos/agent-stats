@@ -430,6 +430,7 @@ HTTP credentials.
 | OpenCode | the SQLite databases `opencode.db` and `opencode-<channel>.db` of `$XDG_DATA_HOME/opencode` (`~/.local/share/opencode`), or the file named by `$OPENCODE_DB` |
 | Kilo Code | `kilo.db` and `kilo-<channel>.db` of `$XDG_DATA_HOME/kilo` (`~/.local/share/kilo`), or `$KILO_DB`; an `opencode-<channel>.db` there (the old name) only when the channel has no `kilo-<channel>.db` |
 | Gemini CLI | `~/.gemini/tmp/<project>/chats/*.json` and `*.jsonl` (under `$GEMINI_CLI_HOME` when set), including subagent journals |
+| Google Antigravity | `conversation_summaries.db` and `brain/<id>/.system_generated/logs/transcript*.jsonl` under `~/.gemini/antigravity`, `antigravity-ide`, or `antigravity-cli` |
 | GitHub Copilot CLI | `~/.copilot/session-state/<session-id>/events.jsonl` (under `$COPILOT_HOME` when set) |
 | Zed Agent | `threads/threads.db` in `~/Library/Application Support/Zed` on macOS, `${FLATPAK_XDG_DATA_HOME:-$XDG_DATA_HOME}/zed` on Linux (`~/.local/share/zed` by default), or `%LOCALAPPDATA%/Zed` on Windows |
 | Grok Build CLI | `~/.grok/sessions/<encoded-cwd>/<id>/updates.jsonl` (under `$GROK_HOME` when set), with session metadata and usage from neighbouring files |
@@ -467,6 +468,12 @@ What the newer readers count:
   Gemini CLI logs no cost, duration or time to first token, so costs are priced from the table (the model ids it logs,
   such as `gemini-2.5-pro` or `gemini-3.1-pro-preview`, are in it) and latencies stay unknown. A subagent journal in the
   directory of its parent session is linked to it; a subagent file elsewhere is a subagent with no known parent.
+- **Google Antigravity** reads local conversation summaries and [JSONL transcripts](https://antigravity.google/docs/hooks).
+  Copies share a conversation ID. The reader pairs the latest summary with the most recently modified transcript,
+  preferring the full transcript when both copies have the same timestamp. It stores the recorded parent and single
+  local workspace where available. User prompts, tool calls and model calls with recorded input and output counts come
+  from transcript steps. A summary alone contributes a session. Timing, billed cost, binary archives and inferred token
+  counts are outside this reader.
 - **GitHub Copilot CLI** reads prompts and working folders from its event journals. Model responses with a service
   request ID are counted once per call, including when the response has several messages. Older events can use the
   GitHub request tracing ID when service IDs are absent. The reader keeps the effective model and any recorded output

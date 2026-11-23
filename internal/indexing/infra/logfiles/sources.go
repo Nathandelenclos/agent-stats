@@ -59,6 +59,7 @@ func DefaultSources(home string) []Source {
 		{Harness: kernel.Cursor, Root: filepath.Join(home, ".cursor", "projects"), cursorUser: cursorUserDir(home)},
 		{Harness: kernel.Goose, Root: filepath.Join(home, ".local", "share", "goose", "sessions"), Database: gooseDatabase{}},
 		continueSource(filepath.Join(home, ".continue", "sessions")),
+		{Harness: kernel.Antigravity, Root: filepath.Join(home, ".gemini")},
 	}
 	codeUser := codeUserDir(home)
 	sources = append(sources, vscodeChatSources(codeUser)...)
@@ -128,6 +129,12 @@ func (l *FileSessionLogs) List() ([]application.LogFile, []error, error) {
 	readers := map[string]func() (domain.Transcript, error){}
 	dbLogs := map[string]dbLog{}
 	for _, src := range l.Sources {
+		if src.Harness == kernel.Antigravity {
+			sessions, issues := listAntigravity(src.Root, readers)
+			files = append(files, sessions...)
+			problems = append(problems, issues...)
+			continue
+		}
 		if src.cursorUser != "" {
 			sessions, cursorProblems := listCursor(src.Root, src.cursorUser, readers)
 			files = append(files, sessions...)

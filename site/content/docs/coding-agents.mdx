@@ -14,6 +14,7 @@ agent-stats skips agents without local logs. Available metrics depend on each re
 | OpenCode | the SQLite databases `opencode.db` and `opencode-<channel>.db` of `$XDG_DATA_HOME/opencode` (`~/.local/share/opencode`), or the file named by `$OPENCODE_DB` |
 | Kilo Code | `kilo.db` and `kilo-<channel>.db` of `$XDG_DATA_HOME/kilo` (`~/.local/share/kilo`), or `$KILO_DB`; an `opencode-<channel>.db` there (the old name) only when the channel has no `kilo-<channel>.db` |
 | Gemini CLI | `~/.gemini/tmp/<project>/chats/*.json` and `*.jsonl` (under `$GEMINI_CLI_HOME` when set), including subagent journals |
+| Google Antigravity | `conversation_summaries.db` and `brain/<id>/.system_generated/logs/transcript*.jsonl` under `~/.gemini/antigravity`, `antigravity-ide`, or `antigravity-cli` |
 | GitHub Copilot CLI | `~/.copilot/session-state/<session-id>/events.jsonl` (under `$COPILOT_HOME` when set) |
 | Zed Agent | `threads/threads.db` in `~/Library/Application Support/Zed` on macOS, `${FLATPAK_XDG_DATA_HOME:-$XDG_DATA_HOME}/zed` on Linux (`~/.local/share/zed` by default), or `%LOCALAPPDATA%/Zed` on Windows |
 | Grok Build CLI | `~/.grok/sessions/<encoded-cwd>/<id>/updates.jsonl` (under `$GROK_HOME` when set), with session metadata and usage from neighbouring files |
@@ -22,6 +23,8 @@ agent-stats skips agents without local logs. Available metrics depend on each re
 | VS Code Chat | `workspaceStorage/<workspace>/chatSessions` and `globalStorage/emptyWindowChatSessions` under the VS Code user directory, plus supported debug logs |
 | Cline | Session manifests and messages under `~/.cline/data/sessions`, or legacy tasks under the VS Code user directory |
 | Continue CLI (`cn`) | `~/.continue/sessions/<id>.json` |
+
+Antigravity imports each conversation once, even when multiple clients keep a copy. Summaries give the title, recent activity, a single local workspace when available, and the recorded parent. Transcripts add user prompts, model calls with recorded token counts, and tool calls. Older sessions with summaries only appear in **Sessions**. The relay for the [Antigravity CLI account quota](/docs/catalog-and-quotas/#antigravity-cli-setup) is configured separately. Google documents the App quota in [Settings → Models](https://antigravity.google/docs/settings).
 
 ## Check one agent
 

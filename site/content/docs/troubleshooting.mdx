@@ -25,6 +25,18 @@ go build -tags web .
 
 On Windows, start the rebuilt executable with `.\agent-stats.exe serve --all`.
 
+## Copilot shows no model requests
+
+Choose **GitHub Copilot CLI** for local CLI history or **Copilot Chat (VS Code)** for the supported IDE history.
+Check **Sessions** for indexed conversations. Microsoft documents separate file diagnostics for VS Code Local and
+Agent Host sessions. Capture is disabled by default and applies to sessions recorded after enabling it.
+See [VS Code diagnostics](https://code.visualstudio.com/docs/agents/agent-troubleshooting/chat-debug-view).
+
+GitHub provides [organization and enterprise usage reports](https://docs.github.com/en/copilot/reference/copilot-usage-metrics/usage-metrics-coverage)
+with server-side counts for clients such as GitHub.com. Its [billing API](https://docs.github.com/en/rest/billing/usage)
+reports credits billed to the personal, organization or enterprise account covered by that endpoint. These reports and
+the local session index measure different things.
+
 ## The default port is busy
 
 ```sh
