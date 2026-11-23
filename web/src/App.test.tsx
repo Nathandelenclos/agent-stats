@@ -29,7 +29,7 @@ describe("the report page", () => {
     // Then the totals say there is no request, and the tools are still there
     const page = open(container);
     await eventually(() => expect(page.tables()).toContain("Tools"));
-    expect(page.text()).toContain("No requests in this period.");
+    expect(page.text()).toContain("No model requests were recorded for these filters. Check Sessions for indexed conversations.");
     expect(page.text()).toContain("Bash");
   });
 
@@ -63,7 +63,7 @@ describe("the report page", () => {
 
     // Then it says so once, without empty tables or charts
     const page = open(container);
-    await eventually(() => expect(page.text()).toContain("No requests in this period."));
+    await eventually(() => expect(page.text()).toContain("No model requests were recorded for these filters. Check Sessions for indexed conversations."));
     expect(page.tables()).toEqual([]);
     expect(container.querySelector("figure")).toBeNull();
   });

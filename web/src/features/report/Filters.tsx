@@ -7,10 +7,16 @@ const presets = [
   { value: "2d", label: "Last 2 days" },
   { value: "3d", label: "Last 3 days" },
   { value: "7d", label: "Last 7 days" },
+  { value: "month", label: "This month (UTC)" },
   { value: "30d", label: "Last 30 days" },
   { value: "90d", label: "Last 90 days" },
   { value: "", label: "All time" },
 ];
+
+const harnessLabels: Record<string, string> = {
+  copilot: "GitHub Copilot CLI",
+  "vscode-chat": "Copilot Chat (VS Code)",
+};
 
 const selectClass = "min-h-9 rounded-md border border-border bg-bg px-2 text-ink";
 
@@ -65,7 +71,7 @@ export function FilterBar({ meta, value, onChange }: { meta: Meta; value: Filter
         <select id={harnessId} className={selectClass} value={value.harness} onChange={(e) => onChange({ ...value, harness: e.target.value })}>
           <option value="">All harnesses</option>
           {meta.harnesses.map((h) => (
-            <option key={h} value={h}>{h}</option>
+            <option key={h} value={h}>{harnessLabels[h] ?? h}</option>
           ))}
         </select>
       </div>

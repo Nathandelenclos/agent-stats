@@ -197,10 +197,14 @@ func Run(analysisSkill string) error {
 	return nil
 }
 
-// parseSince accepts a duration with a day unit (7d), a Go duration (12h) or a date; zero when empty.
+// parseSince accepts a duration, a date, or the current UTC month; zero when empty.
 func parseSince(s string, now time.Time) (time.Time, error) {
 	if s == "" {
 		return time.Time{}, nil
+	}
+	if s == "month" {
+		year, month, _ := now.UTC().Date()
+		return time.Date(year, month, 1, 0, 0, 0, 0, time.UTC), nil
 	}
 	if n, ok := strings.CutSuffix(s, "d"); ok {
 		if d, err := strconv.Atoi(n); err == nil {
@@ -213,7 +217,7 @@ func parseSince(s string, now time.Time) (time.Time, error) {
 	if t, err := time.ParseInLocation("2006-01-02", s, time.Local); err == nil {
 		return t, nil
 	}
-	return time.Time{}, fmt.Errorf("invalid --since %q: use 24h, 7d or 2006-01-02", s)
+	return time.Time{}, fmt.Errorf("invalid --since %q: use 24h, 7d, month or 2006-01-02", s)
 }
 
 func defaultIndexPath() string {

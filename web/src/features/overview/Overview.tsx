@@ -36,7 +36,7 @@ function Preview({ query, updating, children }: {
 
 function Rank({ groups, explore }: { groups: UsageGroup[]; explore?: (relation: Relation) => void }) {
   const peak = Math.max(0, ...groups.map((g) => g.cost));
-  if (groups.length === 0) return <p className="text-sm text-muted">No requests in this period.</p>;
+  if (groups.length === 0) return <p className="text-sm text-muted">No model requests were recorded for these filters. Check Sessions for indexed conversations.</p>;
   return <ul role="list" aria-label="Estimated cost by coding agent" className="dashboard-rank">
     {groups.slice(0, 5).map((group) => {
       const name = ({ claude: "Claude Code", codex: "Codex" } as Record<string, string>)[group.key] ?? group.key;

@@ -14,7 +14,7 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
 /** The totals of the period. */
 export function Totals({ total }: { total: Usage }) {
   if (total.requests === 0) {
-    return <p className="rounded-lg border border-rule bg-surface p-4">No requests in this period.</p>;
+    return <p className="rounded-lg border border-rule bg-surface p-4">No model requests were recorded for these filters. Check Sessions for indexed conversations.</p>;
   }
   return (
     <dl className="grid grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] gap-3">

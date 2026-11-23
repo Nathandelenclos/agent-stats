@@ -32,7 +32,7 @@ func ValidateSince(v string, now time.Time, parse func(string, time.Time) (time.
 			return since, nil
 		}
 	}
-	return time.Time{}, errors.New("use 24h, 7d, 30d, another duration such as 12h, or a date such as 2006-01-02, not in the future")
+	return time.Time{}, errors.New("use 24h, 7d, 30d, month, another duration such as 12h, or a date such as 2006-01-02, not in the future")
 }
 
 // params are the validated query parameters of a request.

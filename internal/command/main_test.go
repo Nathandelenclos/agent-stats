@@ -40,6 +40,16 @@ func TestParseSince(t *testing.T) {
 	}
 }
 
+func TestParseSinceStartsThisMonthAtMidnightUTC(t *testing.T) {
+	location := time.FixedZone("UTC-5", -5*60*60)
+	now := time.Date(2026, 12, 31, 19, 30, 0, 0, location)
+	want := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
+	got, err := parseSince("month", now)
+	if err != nil || !got.Equal(want) {
+		t.Fatalf("parseSince(%q) = %v, %v; want %v", "month", got, err, want)
+	}
+}
+
 func TestInteractiveOnlyOnATerminalWithoutJSON(t *testing.T) {
 	r, w, err := os.Pipe()
 	if err != nil {

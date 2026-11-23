@@ -17,8 +17,10 @@ Start in **Overview** for recent trends, the breakdown of input, cache reads, ca
 
 Open **Usage** for the complete breakdowns by coding agent, model, provider, folder, agent type, and tool. Review price coverage alongside estimated costs. To compare the same slice across views, keep the period, coding agent, and project filters in place. The browser keeps these filters in its URL.
 
+Choose **This month (UTC)** to count activity from the first day of the current month at midnight UTC. **Last 30 days** is a rolling window. For Copilot, choose **GitHub Copilot CLI** or **Copilot Chat (VS Code)** for the client you used. VS Code Chat can have indexed conversations in **Sessions** even when no model requests were available from its diagnostic logs.
+
 ```sh
-agent-stats serve --since 7d --harness claude
+agent-stats serve --since month --harness copilot
 ```
 
 See the [server flags](/docs/cli/#dashboard) for other ways to start the dashboard.
